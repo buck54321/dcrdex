@@ -44,9 +44,9 @@ var log slog.Logger
 
 // ClientCore is satisfied by core.Core.
 type ClientCore interface {
-	ListMarkets() []*core.Market
-	Register(*core.Registration) error
-	Login(dex, pw string) error
+	Markets() map[string][]*core.Market
+	Register(*core.Registration) (error, <-chan error)
+	Login(pw string) ([]core.Negotiation, error)
 	Sync(dex string, base, quote uint32) (chan *core.BookUpdate, error)
 	Book(dex string, base, quote uint32) *core.OrderBook
 	Unsync(dex string, base, quote uint32)

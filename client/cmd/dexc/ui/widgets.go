@@ -166,7 +166,16 @@ func createWidgets() {
 	})
 	rpcView = newServerView("RPC", cfg.RPCAddr, func(ctx context.Context, addr string, logger slog.Logger) {
 		setRPCLabelOn(true)
-		rpcserver.Run(ctx, clientCore, addr, logger)
+		rpcserver.SetLogger(logger)
+		rpcSrv, err := rpcserver.New(&rpcserver.Config{
+			Core: clientCore,
+			Addr: addr,
+		})
+		if err != nil {
+			log.Errorf("Error starting rpc server: %v", err)
+			return
+		}
+		rpcSrv.Run(ctx)
 		setRPCLabelOn(false)
 	})
 	noteJournal = newJournal("Notifications", handleNotificationLog)

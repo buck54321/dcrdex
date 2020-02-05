@@ -37,9 +37,9 @@ type TCore struct {
 	loginErr   error
 }
 
-func (c *TCore) ListMarkets() []*core.Market         { return nil }
-func (c *TCore) Register(r *core.Registration) error { return c.regErr }
-func (c *TCore) Login(dex, pw string) error          { return c.loginErr }
+func (c *TCore) Markets() map[string][]*core.Market                  { return nil }
+func (c *TCore) Register(r *core.Registration) (error, <-chan error) { return c.regErr, nil }
+func (c *TCore) Login(pw string) ([]core.Negotiation, error)         { return nil, c.loginErr }
 func (c *TCore) Sync(dex string, base, quote uint32) (chan *core.BookUpdate, error) {
 	return nil, c.syncErr
 }
@@ -97,6 +97,10 @@ func (c *TConn) ReadMessage() (int, []byte, error) {
 
 func (c *TConn) WriteMessage(_ int, msg []byte) error {
 	c.msg = msg
+	return nil
+}
+
+func (c *TConn) SetWriteDeadline(_ time.Time) error {
 	return nil
 }
 

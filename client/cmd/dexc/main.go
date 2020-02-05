@@ -72,7 +72,16 @@ func main() {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				rpcserver.Run(appCtx, clientCore, cfg.RPCAddr, logMaker.Logger("RPC"))
+				rpcserver.SetLogger(logMaker.Logger("RPC"))
+				rpcSrv, err := rpcserver.New(&rpcserver.Config{
+					Core: clientCore,
+					Addr: cfg.RPCAddr,
+				})
+				if err != nil {
+					log.Errorf("Error starting rpc server: %v", err)
+					return
+				}
+				rpcSrv.Run(appCtx)
 			}()
 		}
 		if cfg.WebOn {
