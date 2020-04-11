@@ -111,7 +111,10 @@ func (c *TRPCClient) Request(msg *msgjson.Message, f func(comms.Link, *msgjson.M
 	})
 	return c.requestErr
 }
-func (c *TRPCClient) Banish() { c.banished = true }
+func (c *TRPCClient) Banish() {
+	c.banished = true
+}
+func (c *TRPCClient) Disconnect() {}
 func (c *TRPCClient) getReq() *tReq {
 	if len(c.reqs) == 0 {
 		return nil
@@ -702,14 +705,16 @@ func TestPenalize(t *testing.T) {
 		t.Fatalf("penalty not stored")
 	}
 	rig.storage.closedID = zeroAcct
-	if !user.conn.banished {
-		t.Fatalf("penalized user not banished")
-	}
+
+	// Account closure and IP blocking (banishment) is disabled for now.
+	// if !user.conn.banished {
+	// 	t.Fatalf("penalized user not banished")
+	// }
 
 	// The user should not be in the map
-	if rig.mgr.user(user.acctID) != nil {
-		t.Fatalf("penalized user not removed from map")
-	}
+	// if rig.mgr.user(user.acctID) != nil {
+	// 	t.Fatalf("penalized user not removed from map")
+	// }
 }
 
 func TestConnectErrors(t *testing.T) {

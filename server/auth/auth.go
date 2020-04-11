@@ -327,8 +327,14 @@ func (auth *AuthManager) Penalize(user account.AccountID, rule account.Rule) { /
 		return
 	}
 	auth.storage.CloseAccount(client.acct.ID, rule)
-	client.conn.Banish() // May not want to do this. Leaving it for now.
-	auth.removeClient(client)
+	// TODO: We may want to disconnect the client under certain circumstances, but
+	// it's not yet clear that this is the right spot. Especially since we're
+	// talking about non-closing penalties, in which case it looks like the API
+	// will likely change here anyways. Disabling disconnection and IP blocking
+	// for now.
+	// client.conn.Banish()
+	// client.conn.Disconnect()
+	// auth.removeClient(client)
 }
 
 // user gets the clientInfo for the specified account ID.
