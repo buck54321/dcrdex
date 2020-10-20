@@ -60,7 +60,9 @@ class MessageSocket {
 
   // request sends a request-type message to the server
   request (route, payload) {
+    window.log('ws', 'request', route, payload)
     if (!this.connection || this.connection.readyState !== window.WebSocket.OPEN) {
+      window.log('ws', 'queuing request')
       while (this.queue.length > this.maxQlength - 1) this.queue.shift()
       this.queue.push([route, payload])
       return
@@ -72,8 +74,6 @@ class MessageSocket {
       id: id,
       payload: payload
     })
-
-    window.log('ws', 'sending', message)
     this.connection.send(message)
   }
 
