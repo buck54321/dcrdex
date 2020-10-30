@@ -1366,10 +1366,11 @@ func (c *Core) finalizeSwapAction(t *trackedTrade, match *matchTracker, coinID, 
 		var msgErr *msgjson.Error
 		if errors.As(err, &msgErr) && msgErr.Code == msgjson.SettlementSequenceError {
 			// Try resolving the match status conflict.
-			go c.resolveMatchConflicts(t.dc, []*matchStatusConflict{{
-				trade: t,
-				match: match,
-			}})
+			go c.resolveMatchConflicts(t.dc, map[order.OrderID]*matchStatusConflict{
+				t.ID(): {
+					trade:   t,
+					matches: []*matchTracker{match},
+				}})
 		}
 		errs.add("error sending 'init' message for match %s: %v", match.id, err)
 	} else if err := t.dc.acct.checkSig(init.Serialize(), ack.Sig); err != nil {
@@ -1533,10 +1534,11 @@ func (c *Core) finalizeRedeemAction(t *trackedTrade, match *matchTracker, coinID
 			var msgErr *msgjson.Error
 			if errors.As(err, &msgErr) && msgErr.Code == msgjson.SettlementSequenceError {
 				// Try resolving the match status conflict.
-				go c.resolveMatchConflicts(t.dc, []*matchStatusConflict{{
-					trade: t,
-					match: match,
-				}})
+				go c.resolveMatchConflicts(t.dc, map[order.OrderID]*matchStatusConflict{
+					t.ID(): {
+						trade:   t,
+						matches: []*matchTracker{match},
+					}})
 			}
 			ack.Sig = nil // in case of partial unmarshal
 			errs.add("error sending 'redeem' message for match %s: %v", match.id, err)

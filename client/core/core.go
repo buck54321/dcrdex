@@ -465,8 +465,8 @@ type matchDiscreps struct {
 // matchStatusConflict is a conflict between our status, and the status returned
 // by the server in the connect response.
 type matchStatusConflict struct {
-	trade *trackedTrade
-	match *matchTracker
+	trade   *trackedTrade
+	matches []*matchTracker
 }
 
 // compareServerMatches resolves the matches reported by the server in the
@@ -476,9 +476,10 @@ type matchStatusConflict struct {
 // but we also must check for incomplete matches that the server is not
 // reporting.
 func (dc *dexConnection) compareServerMatches(srvMatches map[order.OrderID]*serverMatches) (
-	exceptions map[order.OrderID]*matchDiscreps, statusConflicts []*matchStatusConflict) {
+	exceptions map[order.OrderID]*matchDiscreps, statusConflicts map[order.OrderID]*matchStatusConflict) {
 
 	exceptions = make(map[order.OrderID]*matchDiscreps)
+	statusConflicts = make(map[order.OrderID]*matchStatusConflict)
 
 	// Identify extra matches named by the server response that we do not
 	// recognize.
@@ -494,10 +495,13 @@ func (dc *dexConnection) compareServerMatches(srvMatches map[order.OrderID]*serv
 				continue
 			}
 			if mt.Match.Status != order.MatchStatus(msgMatch.Status) {
-				statusConflicts = append(statusConflicts, &matchStatusConflict{
-					trade: match.tracker,
-					match: mt,
-				})
+				oid := match.tracker.ID()
+				conflict := statusConflicts[oid]
+				if conflict == nil {
+					conflict = &matchStatusConflict{trade: match.tracker}
+					statusConflicts[oid] = conflict
+				}
+				conflict.matches = append(conflict.matches, mt)
 			}
 		}
 		match.tracker.mtx.RUnlock()
@@ -2798,10 +2802,13 @@ func (c *Core) authDEX(dc *dexConnection) error {
 					// to grab the maker's contract, coin, and secret hash.
 					var matchID order.MatchID
 					copy(matchID[:], extra.MatchID)
-					matchConflicts = append(matchConflicts, &matchStatusConflict{
-						trade: trade,
-						match: trade.matches[matchID],
-					})
+					oid := trade.ID()
+					conflicts := matchConflicts[oid]
+					if conflicts == nil {
+						conflicts = &matchStatusConflict{trade: trade}
+						matchConflicts[oid] = conflicts
+					}
+					conflicts.matches = append(conflicts.matches, trade.matches[matchID])
 				}
 			}
 		}
