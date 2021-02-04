@@ -4,7 +4,7 @@ go 1.15
 
 require (
 	decred.org/dcrwallet v1.7.0
-	github.com/btcsuite/btcd v0.20.1-beta.0.20200615134404-e4f59022a387
+	github.com/btcsuite/btcd v0.21.0-beta.0.20201208033208-6bd4c64a54fa
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/blockchain/stake/v3 v3.0.0
@@ -33,6 +33,7 @@ require (
 	github.com/jrick/logrotate v1.0.0
 	github.com/lib/pq v1.2.0
 	github.com/smartystreets/goconvey v1.6.4 // indirect
+	github.com/stretchr/testify v1.5.1 // indirect
 	go.etcd.io/bbolt v1.3.5
 	golang.org/x/crypto v0.0.0-20210220033148-5ea612d1eb83
 	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208
