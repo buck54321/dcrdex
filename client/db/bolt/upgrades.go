@@ -26,6 +26,10 @@ var upgrades = [...]upgradefunc{
 	v2Upgrade,
 	// v2 => v3 adds a tx data field to the match proof.
 	v3Upgrade,
+	// v3 => v4 adds PrimaryCredentials with determinstic client seed, but the
+	// only thing we need to do during the DB upgrade is to update the
+	// db.AccountInfo to differentiate legacy vs. new-style key.
+	v4Upgrade,
 }
 
 // DBVersion is the latest version of the database that is understood. Databases
@@ -194,12 +198,41 @@ func v3Upgrade(dbtx *bbolt.Tx) error {
 	return reloadMatchProofs(dbtx, skipCancels)
 }
 
-func ensureVersion(tx *bbolt.Tx, ver uint32) error {
-	dbVersion, err := fetchDBVersion(tx)
+func v4Upgrade(dbtx *bbolt.Tx) error {
+	const oldVersion = 3
+
+	if err := ensureVersion(dbtx, oldVersion); err != nil {
+		return err
+	}
+
+	master := dbtx.Bucket(accountsBucket)
+	if master == nil {
+		return fmt.Errorf("failed to open orders bucket")
+	}
+
+	return master.ForEach(func(hostB, _ []byte) error {
+		acctBkt := master.Bucket(hostB)
+		if acctBkt == nil {
+			return fmt.Errorf("account %s bucket is not a bucket", string(hostB))
+		}
+		acctB := getCopy(acctBkt, accountKey)
+		if acctB == nil {
+			return fmt.Errorf("empty account found for %s", (hostB))
+		}
+		var err error
+		acctInfo, err := dexdb.DecodeAccountInfo(acctB)
+		if err != nil {
+			return err
+		}
+		return acctBkt.Put(accountKey, acctInfo.Encode())
+	})
+}
+
+func ensureVersion(dbtx *bbolt.Tx, ver uint32) error {
+	dbVersion, err := fetchDBVersion(dbtx)
 	if err != nil {
 		return fmt.Errorf("error fetching database version: %w", err)
 	}
-
 	if dbVersion != ver {
 		return fmt.Errorf("wrong version for upgrade. expected %d, got %d", ver, dbVersion)
 	}
