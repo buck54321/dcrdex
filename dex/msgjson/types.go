@@ -391,6 +391,9 @@ func NewNotification(route string, payload interface{}) (*Message, error) {
 
 // Unmarshal unmarshals the Payload field into the provided interface.
 func (msg *Message) Unmarshal(payload interface{}) error {
+	if msg.Payload == nil {
+		return fmt.Errorf("can't Unmarshal nil Payload")
+	}
 	return json.Unmarshal(msg.Payload, payload)
 }
 

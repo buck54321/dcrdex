@@ -6,7 +6,6 @@ package swap
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -1579,8 +1578,8 @@ func (s *Swapper) handleInit(user account.AccountID, msg *msgjson.Message) *msgj
 	}
 
 	params := new(msgjson.Init)
-	err := json.Unmarshal(msg.Payload, &params)
-	if err != nil || params == nil {
+	err := msg.Unmarshal(&params)
+	if err != nil {
 		return &msgjson.Error{
 			Code:    msgjson.RPCParseError,
 			Message: "Error decoding 'init' method params",
@@ -1696,8 +1695,8 @@ func (s *Swapper) handleRedeem(user account.AccountID, msg *msgjson.Message) *ms
 	}
 
 	params := new(msgjson.Redeem)
-	err := json.Unmarshal(msg.Payload, &params)
-	if err != nil || params == nil {
+	err := msg.Unmarshal(&params)
+	if err != nil {
 		return &msgjson.Error{
 			Code:    msgjson.RPCParseError,
 			Message: "Error decoding 'redeem' request payload",

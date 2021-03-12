@@ -180,7 +180,7 @@ func fundingCoin(backend asset.Backend, coinID []byte, redeemScript []byte) (ass
 // order.LimitOrder and submits it to the epoch queue.
 func (r *OrderRouter) handleLimit(user account.AccountID, msg *msgjson.Message) *msgjson.Error {
 	limit := new(msgjson.LimitOrder)
-	err := json.Unmarshal(msg.Payload, limit)
+	err := msg.Unmarshal(limit)
 	if err != nil {
 		return msgjson.NewError(msgjson.RPCParseError, "error decoding 'limit' payload")
 	}
@@ -398,7 +398,7 @@ func (r *OrderRouter) handleLimit(user account.AccountID, msg *msgjson.Message) 
 // order.MarketOrder and submits it to the epoch queue.
 func (r *OrderRouter) handleMarket(user account.AccountID, msg *msgjson.Message) *msgjson.Error {
 	market := new(msgjson.MarketOrder)
-	err := json.Unmarshal(msg.Payload, market)
+	err := msg.Unmarshal(market)
 	if err != nil {
 		return msgjson.NewError(msgjson.RPCParseError, "error decoding 'market' payload")
 	}
