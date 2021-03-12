@@ -299,7 +299,9 @@ type Message struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-// DecodeMessage decodes a *Message from JSON-formatted bytes.
+// DecodeMessage decodes a *Message from JSON-formatted bytes. Note that
+// *Message may be nil even if error is nil, when the message is JSON null,
+// []byte("null").
 func DecodeMessage(b []byte) (*Message, error) {
 	msg := new(Message)
 	err := json.Unmarshal(b, &msg)
@@ -354,7 +356,8 @@ func NewResponse(id uint64, result interface{}, rpcErr *Error) (*Message, error)
 }
 
 // Response attempts to decode the payload to a *ResponsePayload. Response will
-// return an error if the Type is not Response.
+// return an error if the Type is not Response. It is an error if the Message's
+// Payload is []byte("null").
 func (msg *Message) Response() (*ResponsePayload, error) {
 	if msg.Type != Response {
 		return nil, fmt.Errorf("invalid type %d for ResponsePayload", msg.Type)
@@ -363,6 +366,9 @@ func (msg *Message) Response() (*ResponsePayload, error) {
 	err := json.Unmarshal(msg.Payload, &resp)
 	if err != nil {
 		return nil, err
+	}
+	if resp == nil /* null JSON */ {
+		return nil, fmt.Errorf("null response payload")
 	}
 	return resp, nil
 }
