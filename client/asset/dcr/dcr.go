@@ -65,7 +65,7 @@ const (
 )
 
 var (
-	requiredWalletVersion = dex.Semver{Major: 8, Minor: 4, Patch: 0}
+	requiredWalletVersion = dex.Semver{Major: 8, Minor: 5, Patch: 0}
 	requiredNodeVersion   = dex.Semver{Major: 6, Minor: 1, Patch: 2}
 )
 
@@ -166,6 +166,9 @@ type rpcClient interface {
 	GetTransaction(ctx context.Context, txHash *chainhash.Hash) (*walletjson.GetTransactionResult, error)
 	WalletLock(ctx context.Context) error
 	WalletPassphrase(ctx context.Context, passphrase string, timeoutSecs int64) error
+	AccountUnlocked(ctx context.Context, account string) (*walletjson.AccountUnlockedResult, error)
+	LockAccount(ctx context.Context, account string) error
+	UnlockAccount(ctx context.Context, account, passphrase string) error
 	Disconnected() bool
 	RawRequest(ctx context.Context, method string, params []json.RawMessage) (json.RawMessage, error)
 	WalletInfo(ctx context.Context) (*walletjson.WalletInfoResult, error)
@@ -630,6 +633,11 @@ func (dcr *ExchangeWallet) OwnsAddress(address string) (bool, error) {
 	}
 	va, err := dcr.node.ValidateAddress(dcr.ctx, a)
 	if err != nil {
+		// Work around a bug with dcrwallet that prevents validateaddress for
+		// locked accounts.
+		if isAccountNotEncryptedErr(err) {
+			return false, nil
+		}
 		return false, err
 	}
 	return va.IsMine && dcr.acct == va.Account, nil
@@ -881,7 +889,7 @@ func (dcr *ExchangeWallet) FundOrder(ord *asset.Order) (asset.Coins, []dex.Bytes
 	// Check wallet's fee rate limit against server's max fee rate
 	if dcr.feeRateLimit < ord.DEXConfig.MaxFeeRate {
 		return nil, nil, fmt.Errorf(
-			"%v: server's max fee rate %v higher than configued fee rate limit %v",
+			"%v: server's max fee rate %v higher than configured fee rate limit %v",
 			ord.DEXConfig.Symbol,
 			ord.DEXConfig.MaxFeeRate,
 			dcr.feeRateLimit)
@@ -918,7 +926,7 @@ func (dcr *ExchangeWallet) unspents() ([]walletjson.ListUnspentResult, error) {
 	var unspents []walletjson.ListUnspentResult
 	// minconf, maxconf (rpcdefault=9999999), [address], account
 	params := anylist{0, 9999999, nil, dcr.acct}
-	err := dcr.nodeRawRequest(methodListUnspent, params, &unspents)
+	err := dcr.nodeRawRequest(dcr.ctx, methodListUnspent, params, &unspents)
 	return unspents, err
 }
 
@@ -2031,9 +2039,35 @@ func (dcr *ExchangeWallet) Address() (string, error) {
 	return addr.String(), nil
 }
 
+func (dcr *ExchangeWallet) accountUnlocked(ctx context.Context, acct string) (encrypted, unlocked bool, err error) {
+	var res *walletjson.AccountUnlockedResult
+	res, err = dcr.node.AccountUnlocked(ctx, acct)
+	if err != nil {
+		err = translateRPCCancelErr(err)
+		return
+	}
+	encrypted = res.Encrypted
+	if res.Unlocked != nil { // should only be when encrypted
+		unlocked = *res.Unlocked
+	}
+	return
+}
+
 // Unlock unlocks the exchange wallet.
 func (dcr *ExchangeWallet) Unlock(pw string) error {
-	return translateRPCCancelErr(dcr.node.WalletPassphrase(dcr.ctx, pw, int64(time.Duration(math.MaxInt64)/time.Second)))
+	encryptedAcct, unlocked, err := dcr.accountUnlocked(dcr.ctx, dcr.acct)
+	if err != nil {
+		return err
+	}
+	if !encryptedAcct {
+		return translateRPCCancelErr(dcr.node.WalletPassphrase(dcr.ctx, pw, 0))
+
+	}
+	if unlocked {
+		return nil
+	}
+
+	return translateRPCCancelErr(dcr.node.UnlockAccount(dcr.ctx, dcr.acct, pw))
 }
 
 // Lock locks the exchange wallet.
@@ -2041,17 +2075,46 @@ func (dcr *ExchangeWallet) Lock() error {
 	if dcr.client.Disconnected() {
 		return asset.ErrConnectionDown
 	}
+
 	// Since hung calls to Lock() may block shutdown of the consumer and thus
 	// cancellation of the ExchangeWallet subsystem's Context, dcr.ctx, give
 	// this a timeout in case the connection goes down or the RPC hangs for
 	// other reasons.
 	ctx, cancel := context.WithTimeout(dcr.ctx, 5*time.Second)
 	defer cancel()
-	return translateRPCCancelErr(dcr.node.WalletLock(ctx))
+
+	encryptedAcct, unlocked, err := dcr.accountUnlocked(ctx, dcr.acct)
+	if err != nil {
+		return err
+	}
+	if !encryptedAcct {
+		return translateRPCCancelErr(dcr.node.WalletLock(ctx))
+	}
+	if !unlocked {
+		return nil
+	}
+
+	err = dcr.node.LockAccount(dcr.ctx, dcr.acct)
+	if isAccountLockedErr(err) {
+		return nil // it's already locked
+	}
+	return translateRPCCancelErr(err)
 }
 
 // Locked will be true if the wallet is currently locked.
+// Q: why are we ignoring RPC errors in this?
 func (dcr *ExchangeWallet) Locked() bool {
+	// First return locked status of the account, falling back to walletinfo if
+	// the account is not individually password protected.
+	encrypted, unlocked, err := dcr.accountUnlocked(dcr.ctx, dcr.acct)
+	if err != nil {
+		dcr.log.Errorf("accountunlocked error: %v", err)
+		// return false // or try walletinfo???
+	} else if encrypted {
+		return !unlocked
+	}
+
+	// The account is not individually encrypted, so check walletinfo.
 	walletInfo, err := dcr.node.WalletInfo(dcr.ctx)
 	if err != nil {
 		dcr.log.Errorf("walletinfo error: %v", err)
@@ -2228,7 +2291,7 @@ func (dcr *ExchangeWallet) parseUTXOs(unspents []walletjson.ListUnspentResult) (
 // rpc RawRequest.
 func (dcr *ExchangeWallet) lockedOutputs() ([]chainjson.TransactionInput, error) {
 	var locked []chainjson.TransactionInput
-	err := dcr.nodeRawRequest(methodListLockUnspent, anylist{dcr.acct}, &locked)
+	err := dcr.nodeRawRequest(dcr.ctx, methodListLockUnspent, anylist{dcr.acct}, &locked)
 	return locked, err
 }
 
@@ -2358,7 +2421,7 @@ func (dcr *ExchangeWallet) signTx(baseTx *wire.MsgTx) (*wire.MsgTx, error) {
 		return nil, fmt.Errorf("failed to encode MsgTx: %w", err)
 	}
 	var res walletjson.SignRawTransactionResult
-	err = dcr.nodeRawRequest(methodSignRawTransaction, anylist{txHex}, &res)
+	err = dcr.nodeRawRequest(dcr.ctx, methodSignRawTransaction, anylist{txHex}, &res)
 	if err != nil {
 		return nil, fmt.Errorf("rawrequest error: %w", err)
 	}
@@ -2722,7 +2785,7 @@ type anylist []interface{}
 // nodeRawRequest is used to marshal parameters and send requests to the RPC
 // server via (*rpcclient.Client).RawRequest. If `thing` is non-nil, the result
 // will be marshaled into `thing`.
-func (dcr *ExchangeWallet) nodeRawRequest(method string, args anylist, thing interface{}) error {
+func (dcr *ExchangeWallet) nodeRawRequest(ctx context.Context, method string, args anylist, thing interface{}) error {
 	params := make([]json.RawMessage, 0, len(args))
 	for i := range args {
 		p, err := json.Marshal(args[i])
@@ -2731,7 +2794,7 @@ func (dcr *ExchangeWallet) nodeRawRequest(method string, args anylist, thing int
 		}
 		params = append(params, p)
 	}
-	b, err := dcr.node.RawRequest(dcr.ctx, method, params)
+	b, err := dcr.node.RawRequest(ctx, method, params)
 	if err != nil {
 		return fmt.Errorf("rawrequest error: %w", translateRPCCancelErr(err))
 	}
@@ -2784,6 +2847,18 @@ func reduceMsgTx(tx *wire.MsgTx) (in, out, fees, rate, size uint64) {
 func isTxNotFoundErr(err error) bool {
 	var rpcErr *dcrjson.RPCError
 	return errors.As(err, &rpcErr) && rpcErr.Code == dcrjson.ErrRPCNoTxInfo
+}
+
+func isAccountNotEncryptedErr(err error) bool {
+	var rpcErr *dcrjson.RPCError
+	return errors.As(err, &rpcErr) && rpcErr.Code == dcrjson.ErrRPCWallet &&
+		strings.Contains(rpcErr.Message, "account is not encrypted") // ... with a unique passphrase
+}
+
+func isAccountLockedErr(err error) bool {
+	var rpcErr *dcrjson.RPCError
+	return errors.As(err, &rpcErr) && rpcErr.Code == dcrjson.ErrRPCWalletUnlockNeeded &&
+		strings.Contains(rpcErr.Message, "account is already locked")
 }
 
 // toDCR returns a float representation in conventional units for the given
