@@ -926,7 +926,7 @@ func (dcr *ExchangeWallet) unspents() ([]walletjson.ListUnspentResult, error) {
 	var unspents []walletjson.ListUnspentResult
 	// minconf, maxconf (rpcdefault=9999999), [address], account
 	params := anylist{0, 9999999, nil, dcr.acct}
-	err := dcr.nodeRawRequest(dcr.ctx, methodListUnspent, params, &unspents)
+	err := dcr.nodeRawRequest(methodListUnspent, params, &unspents)
 	return unspents, err
 }
 
@@ -2291,7 +2291,7 @@ func (dcr *ExchangeWallet) parseUTXOs(unspents []walletjson.ListUnspentResult) (
 // rpc RawRequest.
 func (dcr *ExchangeWallet) lockedOutputs() ([]chainjson.TransactionInput, error) {
 	var locked []chainjson.TransactionInput
-	err := dcr.nodeRawRequest(dcr.ctx, methodListLockUnspent, anylist{dcr.acct}, &locked)
+	err := dcr.nodeRawRequest(methodListLockUnspent, anylist{dcr.acct}, &locked)
 	return locked, err
 }
 
@@ -2421,7 +2421,7 @@ func (dcr *ExchangeWallet) signTx(baseTx *wire.MsgTx) (*wire.MsgTx, error) {
 		return nil, fmt.Errorf("failed to encode MsgTx: %w", err)
 	}
 	var res walletjson.SignRawTransactionResult
-	err = dcr.nodeRawRequest(dcr.ctx, methodSignRawTransaction, anylist{txHex}, &res)
+	err = dcr.nodeRawRequest(methodSignRawTransaction, anylist{txHex}, &res)
 	if err != nil {
 		return nil, fmt.Errorf("rawrequest error: %w", err)
 	}
@@ -2785,7 +2785,7 @@ type anylist []interface{}
 // nodeRawRequest is used to marshal parameters and send requests to the RPC
 // server via (*rpcclient.Client).RawRequest. If `thing` is non-nil, the result
 // will be marshaled into `thing`.
-func (dcr *ExchangeWallet) nodeRawRequest(ctx context.Context, method string, args anylist, thing interface{}) error {
+func (dcr *ExchangeWallet) nodeRawRequest(method string, args anylist, thing interface{}) error {
 	params := make([]json.RawMessage, 0, len(args))
 	for i := range args {
 		p, err := json.Marshal(args[i])
@@ -2794,7 +2794,7 @@ func (dcr *ExchangeWallet) nodeRawRequest(ctx context.Context, method string, ar
 		}
 		params = append(params, p)
 	}
-	b, err := dcr.node.RawRequest(ctx, method, params)
+	b, err := dcr.node.RawRequest(dcr.ctx, method, params)
 	if err != nil {
 		return fmt.Errorf("rawrequest error: %w", translateRPCCancelErr(err))
 	}
