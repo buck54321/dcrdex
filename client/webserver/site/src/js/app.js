@@ -511,7 +511,12 @@ export default class Application {
         break
       }
       case 'conn':
-        this.reconnected()
+        // TODO: if the page is presently loaded to markets showing "Connection
+        // to dex server failed" etc. indicating the initial DEX connection was
+        // never established and it is now connected for the first time, this
+        // should reload the markets page, but not for the initial connection.
+        // But we do not want to reload the page for every connect e.g.
+        // connections created by getfee and register.
     }
 
     // Inform the page.
