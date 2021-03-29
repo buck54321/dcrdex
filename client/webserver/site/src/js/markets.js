@@ -321,7 +321,7 @@ export default class MarketsPage extends BasePage {
     this.notifiers = {
       order: note => { this.handleOrderNote(note) },
       epoch: note => { this.handleEpochNote(note) },
-      conn: note => { this.marketList.setConnectionStatus(note) },
+      conn: note => { this.handleConnNote(note) },
       balance: note => { this.handleBalanceNote(note) },
       feepayment: note => { this.handleFeePayment(note) }
     }
@@ -509,20 +509,10 @@ export default class MarketsPage extends BasePage {
   /* setMarket sets the currently displayed market. */
   async setMarket (host, base, quote) {
     const dex = app.user.exchanges[host]
-    if (!dex.connected) {
-      this.market = { dex: dex }
-      this.page.chartErrMsg.textContent = 'Connection to dex server failed. ' +
-        'You can close dexc and try again later or wait for it to reconnect.'
-      Doc.show(this.page.chartErrMsg)
-      this.loaded()
-      this.main.style.opacity = 1
-      Doc.hide(this.page.marketLoader)
-      return
-    }
 
     const baseCfg = dex.assets[base]
     const quoteCfg = dex.assets[quote]
-    Doc.hide(this.page.maxOrd)
+    Doc.hide(this.page.maxOrd, this.page.chartErrMsg)
     if (this.preorderTimer) {
       window.clearTimeout(this.preorderTimer)
       this.preorderTimer = null
@@ -541,6 +531,17 @@ export default class MarketsPage extends BasePage {
       maxSell: null,
       maxBuys: {}
     }
+
+    if (!dex.connected) {
+      this.page.chartErrMsg.textContent = 'Connection to dex server failed. ' +
+        'You can close dexc and try again later or wait for it to reconnect.'
+      Doc.show(this.page.chartErrMsg)
+      this.loaded()
+      this.main.style.opacity = 1
+      Doc.hide(this.page.marketLoader)
+      return
+    }
+
     this.page.marketLoader.classList.remove('d-none')
     ws.request('loadmarket', makeMarket(host, base, quote))
     this.setLoaderMsgVisibility()
@@ -1555,6 +1556,13 @@ export default class MarketsPage extends BasePage {
       qtyTD.innerText = tr.qty.toFixed(8)
     }
     return tr
+  }
+
+  /* handleConnNote handles the 'conn' notification.
+   */
+  handleConnNote (note) {
+    this.marketList.setConnectionStatus(note)
+    if (note.connected) app.loadPage('markets')
   }
 
   /*

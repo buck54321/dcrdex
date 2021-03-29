@@ -132,13 +132,6 @@ export default class Application {
   }
 
   /*
-   * reconnected is called by the websocket client when a reconnection is made.
-   */
-  reconnected () {
-    window.location.reload() // This triggers another websocket disconnect/connect (!)
-  }
-
-  /*
    * Fetch and save the user, which is the primary core state that must be
    * maintained by the Application.
    */
@@ -511,12 +504,7 @@ export default class Application {
         break
       }
       case 'conn':
-        // TODO: if the page is presently loaded to markets showing "Connection
-        // to dex server failed" etc. indicating the initial DEX connection was
-        // never established and it is now connected for the first time, this
-        // should reload the markets page, but not for the initial connection.
-        // But we do not want to reload the page for every connect e.g.
-        // connections created by getfee and register.
+        this.user.exchanges[note.host].connected = note.connected
     }
 
     // Inform the page.
