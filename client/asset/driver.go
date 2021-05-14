@@ -15,11 +15,35 @@ var (
 	drivers    = make(map[uint32]Driver)
 )
 
+// CreateWalletParams are the parameters for internal wallet creation. The
+// Settings provided should be the same wallet configuration settings passed to
+// Create.
+type CreateWalletParams struct {
+	Name     string
+	Seed     []byte
+	Pass     []byte
+	Settings map[string]string
+	DataDir  string
+	Net      dex.Network
+}
+
 // Driver is the interface required of all exchange wallets.
 type Driver interface {
-	Setup(*WalletConfig, dex.Logger, dex.Network) (Wallet, error)
+	Exists(walletType, dataDir string, settings map[string]string, net dex.Network) (bool, error)
+	Create(*CreateWalletParams) error
+	Open(*WalletConfig, dex.Logger, dex.Network) (Wallet, error)
 	DecodeCoinID(coinID []byte) (string, error)
 	Info() *WalletInfo
+}
+
+func withDriver(assetID uint32, f func(Driver) error) error {
+	driversMtx.Lock()
+	defer driversMtx.Unlock()
+	drv, ok := drivers[assetID]
+	if !ok {
+		return fmt.Errorf("asset: unknown driver asset %d", assetID)
+	}
+	return f(drv)
 }
 
 // Register should be called by the init function of an asset's package.
@@ -36,27 +60,35 @@ func Register(assetID uint32, driver Driver) {
 	drivers[assetID] = driver
 }
 
-// Setup sets up the asset, returning the exchange wallet.
-func Setup(assetID uint32, cfg *WalletConfig, logger dex.Logger, network dex.Network) (Wallet, error) {
-	driversMtx.Lock()
-	drv, ok := drivers[assetID]
-	driversMtx.Unlock()
-	if !ok {
-		return nil, fmt.Errorf("asset: unknown asset driver %d", assetID)
-	}
-	return drv.Setup(cfg, logger, network)
+func Exists(assetID uint32, walletType, dataDir string, settings map[string]string, net dex.Network) (exists bool, err error) {
+	return exists, withDriver(assetID, func(drv Driver) error {
+		exists, err = drv.Exists(walletType, dataDir, settings, net)
+		return err
+	})
+}
+
+// Create creates a new wallet. Only use Create for seeded wallet types.
+func Create(assetID uint32, seedParams *CreateWalletParams) error {
+	return withDriver(assetID, func(drv Driver) error {
+		return drv.Create(seedParams)
+	})
+}
+
+// Open sets up the asset, returning the exchange wallet.
+func Open(assetID uint32, cfg *WalletConfig, logger dex.Logger, net dex.Network) (w Wallet, err error) {
+	return w, withDriver(assetID, func(drv Driver) error {
+		w, err = drv.Open(cfg, logger, net)
+		return err
+	})
 }
 
 // DecodeCoinID creates a human-readable representation of a coin ID for a named
 // asset with a corresponding driver registered with this package.
-func DecodeCoinID(assetID uint32, coinID []byte) (string, error) {
-	driversMtx.Lock()
-	drv, ok := drivers[assetID]
-	driversMtx.Unlock()
-	if !ok {
-		return "", fmt.Errorf("asset: unknown asset driver %d", assetID)
-	}
-	return drv.DecodeCoinID(coinID)
+func DecodeCoinID(assetID uint32, coinID []byte) (cid string, err error) {
+	return cid, withDriver(assetID, func(drv Driver) error {
+		cid, err = drv.DecodeCoinID(coinID)
+		return err
+	})
 }
 
 // A registered asset is information about a supported asset.

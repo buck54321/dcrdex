@@ -65,14 +65,13 @@ const (
 	methodListUnspent        = "listunspent"
 	methodListLockUnspent    = "listlockunspent"
 	methodSignRawTransaction = "signrawtransaction"
+	walletTypeDcrwRPC        = "RPC (dcrwallet + dcrd)"
 )
 
 var (
 	requiredWalletVersion = dex.Semver{Major: 8, Minor: 5, Patch: 0}
 	requiredNodeVersion   = dex.Semver{Major: 6, Minor: 1, Patch: 2}
-)
 
-var (
 	// blockTicker is the delay between calls to check for new blocks.
 	blockTicker = time.Second
 	configOpts  = []*asset.ConfigOption{
@@ -143,11 +142,14 @@ var (
 	}
 	// WalletInfo defines some general information about a Decred wallet.
 	WalletInfo = &asset.WalletInfo{
-		Name:              "Decred",
-		Units:             "atoms",
-		Version:           version,
-		DefaultConfigPath: defaultConfigPath,
-		ConfigOpts:        configOpts,
+		Name:    "Decred",
+		Units:   "atoms",
+		Version: version,
+		AvailableWallets: []*asset.WalletDefinition{{
+			Type:              walletTypeDcrwRPC,
+			DefaultConfigPath: defaultConfigPath,
+			ConfigOpts:        configOpts,
+		}},
 	}
 )
 
@@ -366,8 +368,45 @@ type fundingCoin struct {
 // Driver implements asset.Driver.
 type Driver struct{}
 
-// Setup creates the DCR exchange wallet. Start the wallet with its Run method.
-func (d *Driver) Setup(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) (asset.Wallet, error) {
+func (d *Driver) Exists(walletType, dataDir string, settings map[string]string, net dex.Network) (bool, error) {
+	if walletType != walletTypeDcrwRPC {
+		return false, fmt.Errorf("no Decred wallet type %q available", walletType)
+	}
+	cfg, _, err := loadConfig(settings, net)
+	if err != nil {
+		return false, err
+	}
+	cl, err := rpcclient.New(&rpcclient.ConnConfig{
+		HTTPPostMode: true,
+		DisableTLS:   true,
+		Host:         cfg.RPCListen + "/wallet/" + cfg.Account,
+		User:         cfg.RPCUser,
+		Pass:         cfg.RPCPass,
+	}, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		cl.Shutdown()
+		cl.WaitForShutdown()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+	defer cancel()
+
+	_, err = cl.Version(ctx)
+	if err != nil {
+		return false, fmt.Errorf("DCR ExchangeWallet version fetch error: %w", err)
+	}
+	return err == nil, nil
+}
+
+func (d *Driver) Create(*asset.CreateWalletParams) error {
+	return fmt.Errorf("no creatable wallet types")
+}
+
+// Open creates the DCR exchange wallet. Start the wallet with its Run method.
+func (d *Driver) Open(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) (asset.Wallet, error) {
 	return NewWallet(cfg, logger, network)
 }
 
@@ -522,7 +561,7 @@ func unconnectedWallet(cfg *asset.WalletConfig, dcrCfg *Config, chainParams *cha
 	return &ExchangeWallet{
 		log:                 logger,
 		chainParams:         chainParams,
-		acct:                cfg.Settings["account"],
+		acct:                dcrCfg.Account,
 		tipChange:           cfg.TipChange,
 		fundingCoins:        make(map[outPoint]*fundingCoin),
 		findRedemptionQueue: make(map[outPoint]*findRedemptionReq),

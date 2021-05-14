@@ -11,9 +11,11 @@ export class NewWalletForm {
   constructor (application, form, success) {
     this.form = form
     this.currentAsset = null
+    this.currentWalletType = ''
     const fields = this.fields = Doc.parsePage(form, [
       'nwAssetLogo', 'nwAssetName', 'newWalletPass', 'nwAppPass',
-      'walletSettings', 'selectCfgFile', 'cfgFile', 'submitAdd', 'newWalletErr'
+      'walletSettings', 'selectCfgFile', 'cfgFile', 'submitAdd', 'newWalletErr',
+      'walletTypeOptions', 'walletTypeSelect'
     ])
 
     // WalletConfigForm will set the global app variable.
@@ -31,7 +33,8 @@ export class NewWalletForm {
         assetID: parseInt(this.currentAsset.id),
         pass: fields.newWalletPass.value || '',
         config: this.subform.map(),
-        appPass: fields.nwAppPass.value
+        appPass: fields.nwAppPass.value,
+        walletType: this.currentWalletType
       }
       fields.nwAppPass.value = ''
       const loaded = app.loading(form)
@@ -44,6 +47,8 @@ export class NewWalletForm {
       fields.newWalletPass.value = ''
       success()
     })
+
+    Doc.bind(fields.walletTypeSelect, 'change', () => { this.walletTypeCallback() })
   }
 
   async setAsset (asset) {
@@ -53,8 +58,29 @@ export class NewWalletForm {
     fields.nwAssetLogo.src = Doc.logoPath(asset.symbol)
     fields.nwAssetName.textContent = asset.info.name
     fields.newWalletPass.value = ''
-    this.subform.update(asset.info)
+    Doc.empty(fields.walletTypeSelect)
+
+    const walletDef = asset.info.availablewallets[0]
+    this.currentWalletType = walletDef.type
+
+    Doc.hide(fields.walletTypeOptions)
+    if (asset.info.availablewallets.length > 1) {
+      Doc.show(fields.walletTypeOptions)
+      for (const wDef of asset.info.availablewallets) {
+        const option = document.createElement('option')
+        option.value = option.textContent = wDef.type
+        fields.walletTypeSelect.appendChild(option)
+      }
+    }
+
+    this.subform.update(walletDef.configopts || [])
     Doc.hide(fields.newWalletErr)
+  }
+
+  walletTypeCallback () {
+    this.currentWalletType = this.fields.walletTypeSelect.value
+    const walletDef = this.currentAsset.info.availablewallets.filter(def => def.type === this.currentWalletType)[0]
+    this.subform.update(walletDef.configopts || [])
   }
 
   /* setError sets and shows the in-form error message. */
@@ -70,7 +96,12 @@ export class NewWalletForm {
    */
   async loadDefaults () {
     const loaded = app.loading(this.form)
-    const res = await postJSON('/api/defaultwalletcfg', { assetID: this.currentAsset.id })
+
+
+    const res = await postJSON('/api/defaultwalletcfg', {
+      assetID: this.currentAsset.id,
+      type: this.currentWalletType
+    })
     loaded()
     if (!app.checkResponse(res)) {
       this.setError(res.msg)
@@ -157,10 +188,15 @@ export class WalletConfigForm {
   /*
    * update creates the dynamic form.
    */
-  update (walletInfo) {
+  update (configOpts) {
     this.configElements = {}
-    this.configOpts = walletInfo.configopts
+    this.configOpts = configOpts
     Doc.empty(this.dynamicOpts, this.otherSettings)
+
+    // If there are no options, just hide the entire form.
+    if (configOpts.length === 0) return Doc.hide(this.form)
+    Doc.show(this.form)
+
     this.setOtherSettingsViz(false)
     Doc.hide(
       this.loadedSettingsMsg, this.loadedSettings,

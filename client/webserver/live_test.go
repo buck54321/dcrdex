@@ -346,7 +346,15 @@ type TCore struct {
 // TDriver implements the interface required of all exchange wallets.
 type TDriver struct{}
 
-func (*TDriver) Setup(*asset.WalletConfig, dex.Logger, dex.Network) (asset.Wallet, error) {
+func (drv *TDriver) Exists(walletType, dataDir string, settings map[string]string, net dex.Network) (bool, error) {
+	return true, nil
+}
+
+func (drv *TDriver) Create(*asset.CreateWalletParams) error {
+	return nil
+}
+
+func (*TDriver) Open(*asset.WalletConfig, dex.Logger, dex.Network) (asset.Wallet, error) {
 	return nil, nil
 }
 
@@ -393,7 +401,10 @@ func (c *TCore) GetFee(host string, cert interface{}) (uint64, error) {
 	return tExchanges[host].Fee.Amt, nil
 }
 func (c *TCore) GetDEXConfig(host string, certI interface{}) (*core.Exchange, error) {
-	return tExchanges[host], nil
+	if xc := tExchanges[host]; xc != nil {
+		return xc, nil
+	}
+	return tExchanges[firstDEX], nil
 }
 
 func (c *TCore) Register(r *core.RegisterForm) (*core.RegisterResult, error) {
@@ -836,19 +847,32 @@ var winfos = map[uint32]*asset.WalletInfo{
 	2:  ltc.WalletInfo,
 	42: dcr.WalletInfo,
 	22: {
-		Units:      "atoms",
-		Name:       "Monacoin",
-		ConfigOpts: configOpts,
+		Units: "atoms",
+		Name:  "Monacoin",
+		AvailableWallets: []*asset.WalletDefinition{
+			{
+				Type:   "Native SPV",
+				Seeded: true,
+			},
+			{
+				Type:       "RPC (monacoind)",
+				ConfigOpts: configOpts,
+			},
+		},
 	},
 	3: {
-		Units:      "atoms",
-		Name:       "Dogecoin",
-		ConfigOpts: configOpts,
+		Units: "atoms",
+		Name:  "Dogecoin",
+		AvailableWallets: []*asset.WalletDefinition{{
+			ConfigOpts: configOpts,
+		}},
 	},
 	28: {
-		Units:      "Satoshis",
-		Name:       "Vertcoin",
-		ConfigOpts: configOpts,
+		Units: "Satoshis",
+		Name:  "Vertcoin",
+		AvailableWallets: []*asset.WalletDefinition{{
+			ConfigOpts: configOpts,
+		}},
 	},
 }
 
@@ -945,8 +969,8 @@ func (c *TCore) WalletSettings(assetID uint32) (map[string]string, error) {
 	return c.wallets[assetID].settings, nil
 }
 
-func (c *TCore) ReconfigureWallet(aPW, nPW []byte, assetID uint32, cfg map[string]string) error {
-	c.wallets[assetID].settings = cfg
+func (c *TCore) ReconfigureWallet(aPW, nPW []byte, form *core.WalletForm) error {
+	c.wallets[form.AssetID].settings = form.Config
 	return nil
 }
 
@@ -973,7 +997,7 @@ func (c *TCore) User() *core.User {
 	return user
 }
 
-func (c *TCore) AutoWalletConfig(assetID uint32) (map[string]string, error) {
+func (c *TCore) AutoWalletConfig(assetID uint32, walletType string) (map[string]string, error) {
 	return map[string]string{
 		"username": "tacotime",
 		"password": "abc123",

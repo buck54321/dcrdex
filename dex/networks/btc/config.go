@@ -10,7 +10,6 @@ import (
 	"strconv"
 
 	"decred.org/dcrdex/dex"
-	"decred.org/dcrdex/dex/config"
 	"github.com/btcsuite/btcutil"
 )
 
@@ -32,47 +31,38 @@ const (
 	defaultHost = "localhost"
 )
 
-// Config holds the parameters needed to initialize an RPC connection to a btc
+// RPCConfig holds the parameters needed to initialize an RPC connection to a btc
 // wallet or backend. Default values are used for RPCBind and/or RPCPort if not
 // set.
-type Config struct {
+type RPCConfig struct {
 	RPCUser string `ini:"rpcuser"`
 	RPCPass string `ini:"rpcpassword"`
 	RPCBind string `ini:"rpcbind"`
 	RPCPort int    `ini:"rpcport"`
-
-	// Below fields are only used on the client.
-
-	UseSplitTx       bool    `ini:"txsplit"`
-	FallbackFeeRate  float64 `ini:"fallbackfee"`
-	FeeRateLimit     float64 `ini:"feeratelimit"`
-	RedeemConfTarget uint64  `ini:"redeemconftarget"`
 }
 
-// LoadConfigFromPath loads the configuration settings from the specified filepath.
-func LoadConfigFromPath(cfgPath string, name string, network dex.Network, ports NetPorts) (*Config, error) {
-	cfg := &Config{}
-	if err := config.ParseInto(cfgPath, cfg); err != nil {
-		return nil, fmt.Errorf("error parsing config file: %w", err)
-	}
-	return checkConfig(cfg, name, network, ports)
-}
+// // LoadConfigFromPath loads the configuration settings from the specified filepath.
+// func LoadConfigFromPath(cfgPath string, name string, network dex.Network, ports NetPorts, cfg interface{}) error {
+// 	if err := config.ParseInto(cfgPath, cfg); err != nil {
+// 		return fmt.Errorf("error parsing config file: %w", err)
+// 	}
+// 	return checkConfig(cfg, name, network, ports)
+// }
 
-// LoadConfigFromSettings loads the configuration settings from a settings map.
-func LoadConfigFromSettings(settings map[string]string, name string, network dex.Network, ports NetPorts) (*Config, error) {
-	cfg := &Config{}
-	if err := config.Unmapify(settings, cfg); err != nil {
-		return nil, fmt.Errorf("error parsing connection settings: %w", err)
-	}
-	return checkConfig(cfg, name, network, ports)
-}
+// // LoadConfigFromSettings loads the configuration settings from a settings map.
+// func LoadConfigFromSettings(settings map[string]string, name string, network dex.Network, ports NetPorts, cfg interface{}) (error) {
+// 	if err := config.Unmapify(settings, cfg); err != nil {
+// 		return nil, fmt.Errorf("error parsing connection settings: %w", err)
+// 	}
+// 	return checkConfig(cfg, name, network, ports)
+// }
 
-func checkConfig(cfg *Config, name string, network dex.Network, ports NetPorts) (*Config, error) {
+func CheckRPCConfig(cfg *RPCConfig, name string, network dex.Network, ports NetPorts) error {
 	if cfg.RPCUser == "" {
-		return nil, fmt.Errorf("no rpcuser set in %q config file", name)
+		return fmt.Errorf("no rpcuser set in %q config file", name)
 	}
 	if cfg.RPCPass == "" {
-		return nil, fmt.Errorf("no rpcpassword set in %q config file", name)
+		return fmt.Errorf("no rpcpassword set in %q config file", name)
 	}
 
 	host := defaultHost
@@ -85,7 +75,7 @@ func checkConfig(cfg *Config, name string, network dex.Network, ports NetPorts) 
 	case dex.Regtest:
 		port = ports.Simnet
 	default:
-		return nil, fmt.Errorf("unknown network ID %v", network)
+		return fmt.Errorf("unknown network ID %v", network)
 	}
 
 	// RPCPort overrides network default
@@ -112,7 +102,7 @@ func checkConfig(cfg *Config, name string, network dex.Network, ports NetPorts) 
 	// overwrite rpcbind to use for rpcclient connection
 	cfg.RPCBind = net.JoinHostPort(host, port)
 
-	return cfg, nil
+	return nil
 }
 
 // SystemConfigPath will return the default config file path for bitcoin-like

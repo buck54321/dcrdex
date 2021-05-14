@@ -251,7 +251,7 @@ func Run(t *testing.T, newWallet WalletConstructor, address string, dexAsset *de
 		t.Helper()
 		confs, err := rig.gamma().SwapConfirmations(context.Background(), confCoin.ID(), confContract, tStart)
 		spent := errors.Is(err, asset.ErrSpentSwap)
-		if err != nil || !spent {
+		if err != nil && !spent {
 			if !spent {
 				t.Fatalf("error getting %d confs: %v", n, err)
 			}
@@ -283,7 +283,7 @@ func Run(t *testing.T, newWallet WalletConstructor, address string, dexAsset *de
 		}
 		confs, err := rig.alpha().SwapConfirmations(context.TODO(), receipt.Coin().ID(), receipt.Contract(), tStart)
 		spent := errors.Is(err, asset.ErrSpentSwap)
-		if err != nil || !spent {
+		if err != nil && !spent {
 			t.Fatalf("error getting confirmations: %v", err)
 		}
 		if confs != 0 {

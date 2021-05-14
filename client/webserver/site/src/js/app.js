@@ -664,6 +664,12 @@ export default class Application {
     }
   }
 
+  walletDefinition (assetID) {
+    const asset = this.assets[assetID]
+    const walletType = asset.wallet.type || asset.info.availablewallets[0].type
+    return asset.info.availablewallets.filter(def => def.type === walletType)[0]
+  }
+
   /*
    * checkResponse checks the response object as returned from the functions in
    * the http module. If the response indicates that the request failed, a

@@ -30,6 +30,11 @@ button {
   outline: none;
 }
 
+select {
+  font-family: inherit;
+  padding: 5px 10px;
+}
+
 // bootstrap override
 .form-check-input {
   margin-top: 0.4em;

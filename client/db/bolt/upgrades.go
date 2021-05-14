@@ -30,6 +30,8 @@ var upgrades = [...]upgradefunc{
 	// only thing we need to do during the DB upgrade is to update the
 	// db.AccountInfo to differentiate legacy vs. new-style key.
 	v4Upgrade,
+	// v4 => v5 adds a Type field to the Wallet.
+	v5Upgrade,
 }
 
 // DBVersion is the latest version of the database that is understood. Databases
@@ -126,12 +128,6 @@ func getVersionTx(tx *bbolt.Tx) (uint32, error) {
 }
 
 func v1Upgrade(dbtx *bbolt.Tx) error {
-	const oldVersion = 0
-
-	if err := ensureVersion(dbtx, oldVersion); err != nil {
-		return err
-	}
-
 	bkt := dbtx.Bucket(appBucket)
 	if bkt == nil {
 		return fmt.Errorf("appBucket not found")
@@ -144,17 +140,6 @@ func v1Upgrade(dbtx *bbolt.Tx) error {
 // MaxFeeRate field for all historical trade orders to the max uint64. This
 // avoids any chance of rejecting a pre-existing active match.
 func v2Upgrade(dbtx *bbolt.Tx) error {
-	const oldVersion = 1
-
-	dbVersion, err := fetchDBVersion(dbtx)
-	if err != nil {
-		return fmt.Errorf("error fetching database version: %w", err)
-	}
-
-	if dbVersion != oldVersion {
-		return fmt.Errorf("v2Upgrade inappropriately called")
-	}
-
 	// For each order, set a maxfeerate of max uint64.
 	maxFeeB := uint64Bytes(^uint64(0))
 
@@ -185,12 +170,6 @@ func v2Upgrade(dbtx *bbolt.Tx) error {
 }
 
 func v3Upgrade(dbtx *bbolt.Tx) error {
-	const oldVersion = 2
-
-	if err := ensureVersion(dbtx, oldVersion); err != nil {
-		return err
-	}
-
 	// Upgrade the match proof. We just have to retrieve and re-store the
 	// buckets. The decoder will recognize the the old version and add the new
 	// field.
@@ -199,12 +178,6 @@ func v3Upgrade(dbtx *bbolt.Tx) error {
 }
 
 func v4Upgrade(dbtx *bbolt.Tx) error {
-	const oldVersion = 3
-
-	if err := ensureVersion(dbtx, oldVersion); err != nil {
-		return err
-	}
-
 	master := dbtx.Bucket(accountsBucket)
 	if master == nil {
 		return fmt.Errorf("failed to open orders bucket")
@@ -225,6 +198,25 @@ func v4Upgrade(dbtx *bbolt.Tx) error {
 			return err
 		}
 		return acctBkt.Put(accountKey, acctInfo.Encode())
+	})
+}
+
+// v2Upgrade adds a MaxFeeRate field to the OrderMetaData. The upgrade sets the
+// MaxFeeRate field for all historical trade orders to the max uint64. This
+// avoids any chance of rejecting a pre-existing active match.
+func v5Upgrade(dbtx *bbolt.Tx) error {
+	wallets := dbtx.Bucket(walletsBucket)
+	if wallets == nil {
+		return fmt.Errorf("failed to open orders bucket")
+	}
+
+	return wallets.ForEach(func(wid, _ []byte) error {
+		wBkt := wallets.Bucket(wid)
+		w, err := dexdb.DecodeWallet(getCopy(wBkt, walletKey))
+		if err != nil {
+			return fmt.Errorf("DecodeWallet error: %v", err)
+		}
+		return wBkt.Put(walletKey, w.Encode())
 	})
 }
 
@@ -281,6 +273,9 @@ func reloadMatchProofs(tx *bbolt.Tx, skipCancels bool) error {
 }
 
 func doUpgrade(tx *bbolt.Tx, upgrade upgradefunc, newVersion uint32) error {
+	if err := ensureVersion(tx, newVersion-1); err != nil {
+		return err
+	}
 	err := upgrade(tx)
 	if err != nil {
 		return fmt.Errorf("error upgrading DB: %v", err)

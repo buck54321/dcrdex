@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"decred.org/dcrdex/client/asset"
 	"decred.org/dcrdex/dex"
 	"decred.org/dcrdex/dex/calc"
+	"decred.org/dcrdex/dex/config"
 	dexbtc "decred.org/dcrdex/dex/networks/btc"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/btcjson"
@@ -29,6 +31,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/decred/dcrd/rpcclient/v6"
 )
 
@@ -65,12 +68,15 @@ const (
 	// We include the 2 bytes for marker and flag.
 	splitTxBaggageSegwit = dexbtc.MinimumTxOverhead + 2*dexbtc.P2WPKHOutputSize +
 		dexbtc.RedeemP2WPKHInputSize + ((dexbtc.RedeemP2WPKHInputWitnessWeight + 2 + 3) / 4)
+
+	walletTypeRPC = "RPC (bitcoind)"
+	walletTypeSPV = "Native SPV"
 )
 
 var (
 	// blockTicker is the delay between calls to check for new blocks.
 	blockTicker = time.Second
-	configOpts  = []*asset.ConfigOption{
+	rpcOpts     = []*asset.ConfigOption{
 		{
 			Key:         "walletname",
 			DisplayName: "Wallet Name",
@@ -99,6 +105,9 @@ var (
 			Description:  "Port for RPC connections (if not set in rpcbind)",
 			DefaultValue: "8332",
 		},
+	}
+
+	commonOpts = []*asset.ConfigOption{
 		{
 			Key:         "fallbackfee",
 			DisplayName: "Fallback fee rate",
@@ -136,13 +145,26 @@ var (
 			IsBoolean: true,
 		},
 	}
+	rpcWalletDefinition = &asset.WalletDefinition{
+		Type:              walletTypeRPC,
+		DefaultConfigPath: dexbtc.SystemConfigPath("bitcoin"),
+		ConfigOpts:        append(append([]*asset.ConfigOption(nil), rpcOpts...), commonOpts...),
+	}
+	spvWalletDefinition = &asset.WalletDefinition{
+		Type:              walletTypeSPV,
+		DefaultConfigPath: dexbtc.SystemConfigPath("bitcoin"),
+		ConfigOpts:        commonOpts,
+	}
+
 	// WalletInfo defines some general information about a Bitcoin wallet.
 	WalletInfo = &asset.WalletInfo{
-		Name:              "Bitcoin",
-		Units:             "Satoshis",
-		Version:           version,
-		DefaultConfigPath: dexbtc.SystemConfigPath("bitcoin"),
-		ConfigOpts:        configOpts,
+		Name:    "Bitcoin",
+		Units:   "Satoshis",
+		Version: version,
+		AvailableWallets: []*asset.WalletDefinition{
+			rpcWalletDefinition,
+			spvWalletDefinition,
+		},
 	}
 )
 
@@ -318,11 +340,77 @@ func (r *swapReceipt) String() string {
 	return r.output.String()
 }
 
+type ClientConfig struct {
+	dexbtc.RPCConfig
+	WalletConfig
+}
+
+type WalletConfig struct {
+	UseSplitTx       bool    `ini:"txsplit"`
+	FallbackFeeRate  float64 `ini:"fallbackfee"`
+	FeeRateLimit     float64 `ini:"feeratelimit"`
+	RedeemConfTarget uint64  `ini:"redeemconftarget"`
+	WalletName       string  `ini:"walletname"`
+}
+
+func PrepareConfig(settings map[string]string, symbol string, net dex.Network, ports dexbtc.NetPorts) (cfg *ClientConfig, err error) {
+	cfg = new(ClientConfig)
+	err = config.ParseInto(settings, cfg)
+	if err != nil {
+		return nil, err
+	}
+	err = dexbtc.CheckRPCConfig(&cfg.RPCConfig, symbol, net, ports)
+	return
+}
+
+func ParseRPCConfig(settings map[string]string, symbol string, net dex.Network, ports dexbtc.NetPorts) (*ClientConfig, *rpcclient.Client, error) {
+	cfg, err := PrepareConfig(settings, symbol, net, ports)
+	if err != nil {
+		return nil, nil, err
+	}
+	cl, err := newRPCWalletConnection(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cfg, cl, nil
+}
+
 // Driver implements asset.Driver.
 type Driver struct{}
 
-// Setup creates the BTC exchange wallet. Start the wallet with its Run method.
-func (d *Driver) Setup(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) (asset.Wallet, error) {
+func (d *Driver) Exists(walletType, dataDir string, settings map[string]string, net dex.Network) (bool, error) {
+	switch walletType {
+	case "", walletTypeRPC:
+		_, client, err := ParseRPCConfig(settings, "btc", net, dexbtc.RPCPorts)
+		if err != nil {
+			return false, err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+		defer cancel()
+		_, err = client.RawRequest(ctx, methodGetNetworkInfo, nil)
+		return err == nil, nil
+
+	case walletTypeSPV:
+		chainParams, err := parseChainParams(net)
+		if err != nil {
+			return false, err
+		}
+		netDir := filepath.Join(dataDir, chainParams.Name)
+		// timeout and recoverWindow arguments borrowed from btcwallet directly.
+		loader := wallet.NewLoader(chainParams, netDir, true, 60*time.Second, 250)
+		return loader.WalletExists()
+	}
+
+	return false, fmt.Errorf("no Bitcoin wallet of type %q available", walletType)
+}
+
+func (d *Driver) Create(*asset.CreateWalletParams) error {
+	return fmt.Errorf("no creatable wallet types")
+}
+
+// Open opens or connects to the BTC exchange wallet. Start the wallet with its
+// Run method.
+func (d *Driver) Open(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) (asset.Wallet, error) {
 	return NewWallet(cfg, logger, network)
 }
 
@@ -413,34 +501,44 @@ type findRedemptionResult struct {
 // Check that ExchangeWallet satisfies the Wallet interface.
 var _ asset.Wallet = (*ExchangeWallet)(nil)
 
+func parseChainParams(net dex.Network) (*chaincfg.Params, error) {
+	switch net {
+	case dex.Mainnet:
+		return &chaincfg.MainNetParams, nil
+	case dex.Testnet:
+		return &chaincfg.TestNet3Params, nil
+	case dex.Regtest:
+		return &chaincfg.RegressionNetParams, nil
+	}
+	return nil, fmt.Errorf("unknown network ID %v", net)
+}
+
 // NewWallet is the exported constructor by which the DEX will import the
 // exchange wallet. The wallet will shut down when the provided context is
 // canceled. The configPath can be an empty string, in which case the standard
 // system location of the bitcoind config file is assumed.
-func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) (asset.Wallet, error) {
-	var params *chaincfg.Params
-	switch network {
-	case dex.Mainnet:
-		params = &chaincfg.MainNetParams
-	case dex.Testnet:
-		params = &chaincfg.TestNet3Params
-	case dex.Regtest:
-		params = &chaincfg.RegressionNetParams
-	default:
-		return nil, fmt.Errorf("unknown network ID %v", network)
+func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, net dex.Network) (asset.Wallet, error) {
+	params, err := parseChainParams(net)
+	if err != nil {
+		return nil, err
 	}
+
 	cloneCFG := &BTCCloneCFG{
 		WalletCFG:           cfg,
 		MinNetworkVersion:   minNetworkVersion,
 		WalletInfo:          WalletInfo,
 		Symbol:              "btc",
 		Logger:              logger,
-		Network:             network,
+		Network:             net,
 		ChainParams:         params,
 		Ports:               dexbtc.RPCPorts,
 		DefaultFallbackFee:  defaultFee,
 		DefaultFeeRateLimit: defaultFeeRateLimit,
 		Segwit:              true,
+	}
+
+	if cfg.Type != walletTypeSPV {
+		return openSPVWallet(cloneCFG)
 	}
 
 	return BTCCloneWallet(cloneCFG)
@@ -451,27 +549,12 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) 
 // conjunction with ReadCloneParams, to create a ExchangeWallet for other assets
 // with minimal coding.
 func BTCCloneWallet(cfg *BTCCloneCFG) (*ExchangeWallet, error) {
-	// Read the configuration parameters
-	btcCfg, err := dexbtc.LoadConfigFromSettings(cfg.WalletCFG.Settings,
-		cfg.Symbol, cfg.Network, cfg.Ports)
+	btcCfg, client, err := ParseRPCConfig(cfg.WalletCFG.Settings, cfg.Symbol, cfg.Network, cfg.Ports)
 	if err != nil {
 		return nil, err
 	}
 
-	endpoint := btcCfg.RPCBind + "/wallet/" + cfg.WalletCFG.Settings["walletname"]
-	cfg.Logger.Infof("Setting up new %s wallet at %s.", cfg.Symbol, endpoint)
-
-	client, err := rpcclient.New(&rpcclient.ConnConfig{
-		HTTPPostMode: true,
-		DisableTLS:   true,
-		Host:         endpoint,
-		User:         btcCfg.RPCUser,
-		Pass:         btcCfg.RPCPass,
-	}, nil)
-	if err != nil {
-		return nil, err
-	}
-	btc, err := newWallet(client, cfg, btcCfg)
+	btc, err := newRPCWallet(client, cfg, &btcCfg.WalletConfig)
 	if err != nil {
 		return nil, fmt.Errorf("error creating %s ExchangeWallet: %v", cfg.Symbol,
 			err)
@@ -480,8 +563,29 @@ func BTCCloneWallet(cfg *BTCCloneCFG) (*ExchangeWallet, error) {
 	return btc, nil
 }
 
-// newWallet creates the ExchangeWallet and starts the block monitor.
-func newWallet(requester RawRequesterWithContext, cfg *BTCCloneCFG, btcCfg *dexbtc.Config) (*ExchangeWallet, error) {
+func newRPCWalletConnection(cfg *ClientConfig) (*rpcclient.Client, error) {
+	endpoint := cfg.RPCBind + "/wallet/" + cfg.WalletName
+	return rpcclient.New(&rpcclient.ConnConfig{
+		HTTPPostMode: true,
+		DisableTLS:   true,
+		Host:         endpoint,
+		User:         cfg.RPCUser,
+		Pass:         cfg.RPCPass,
+	}, nil)
+}
+
+// newRPCWallet creates the ExchangeWallet and starts the block monitor.
+func newRPCWallet(requester RawRequesterWithContext, cfg *BTCCloneCFG, btcCfg *WalletConfig) (*ExchangeWallet, error) {
+	btc, err := newUnconnectedWallet(cfg, btcCfg)
+	if err != nil {
+		return nil, err
+	}
+	btc.node = newRPCClient(requester, cfg.Segwit, btc.decodeAddr, cfg.ArglessChangeAddrRPC,
+		cfg.LegacyRawFeeLimit, cfg.MinNetworkVersion, cfg.Logger.SubLogger("RPC"), cfg.ChainParams)
+	return btc, nil
+}
+
+func newUnconnectedWallet(cfg *BTCCloneCFG, btcCfg *WalletConfig) (*ExchangeWallet, error) {
 	// If set in the user config, the fallback fee will be in conventional units
 	// per kB, e.g. BTC/kB. Translate that to sats/byte.
 	fallbackFeesPerByte := toSatoshi(btcCfg.FallbackFeeRate / 1000)
@@ -519,11 +623,7 @@ func newWallet(requester RawRequesterWithContext, cfg *BTCCloneCFG, btcCfg *dexb
 		nonSegwitSigner = cfg.NonSegwitSigner
 	}
 
-	cl := newRPCClient(requester, cfg.Segwit, addrDecoder, cfg.ArglessChangeAddrRPC,
-		cfg.LegacyRawFeeLimit, cfg.MinNetworkVersion, cfg.Logger.SubLogger("RPC"), cfg.ChainParams)
-
 	w := &ExchangeWallet{
-		node:                cl,
 		symbol:              cfg.Symbol,
 		chainParams:         cfg.ChainParams,
 		log:                 cfg.Logger,
@@ -549,6 +649,24 @@ func newWallet(requester RawRequesterWithContext, cfg *BTCCloneCFG, btcCfg *dexb
 	}
 
 	return w, nil
+}
+
+func openSPVWallet(cfg *BTCCloneCFG) (*ExchangeWallet, error) {
+	btcCfg, err := PrepareConfig(cfg.WalletCFG.Settings, cfg.Symbol, cfg.Network, cfg.Ports)
+	if err != nil {
+		return nil, err
+	}
+
+	// Only interested in the ClientConfig though.
+	btc, err := newUnconnectedWallet(cfg, &btcCfg.WalletConfig)
+	if err != nil {
+		return nil, err
+	}
+	btc.node, err = newSPVWallet(cfg.WalletCFG.DataDir, cfg.Logger.SubLogger("SPV"), nil, cfg.ChainParams)
+	if err != nil {
+		return nil, err
+	}
+	return btc, nil
 }
 
 var _ asset.Wallet = (*ExchangeWallet)(nil)

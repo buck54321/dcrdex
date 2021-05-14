@@ -22,6 +22,22 @@ const (
 	ErrUnsupported    = dex.ErrorKind("unsupported")
 )
 
+type WalletDefinition struct {
+	// If seeded is true, the Setup method will be provided a detereministic
+	// seed. This might be true for built-in wallets.
+	Seeded bool `json:"seeded"`
+	// Type is a displayable string identifying the wallet type.
+	Type string `json:"type"`
+	// DefaultConfigPath is the default file path that the Wallet uses for its
+	// configuration file. Probably only useful for unseeded / external wallets.
+	DefaultConfigPath string `json:"configpath"`
+	// ConfigOpts is a slice of expected Wallet config options, with the display
+	// name, config key (for parsing the option from a config file/text) and
+	// description for each option. This can be used to request config info from
+	// users e.g. via dynamically generated GUI forms.
+	ConfigOpts []*ConfigOption `json:"configopts"`
+}
+
 // WalletInfo is auxiliary information about an ExchangeWallet.
 type WalletInfo struct {
 	// Name is the display name for the currency, e.g. "Decred"
@@ -33,14 +49,11 @@ type WalletInfo struct {
 	// major changes are made to internal details such as coin ID encoding and
 	// contract structure that must be common to a server's.
 	Version uint32
-	// DefaultConfigPath is the default file path that the Wallet uses for its
-	// configuration file.
-	DefaultConfigPath string `json:"configpath"`
-	// ConfigOpts is a slice of expected Wallet config options, with the display
-	// name, config key (for parsing the option from a config file/text) and
-	// description for each option. This can be used to request config info from
-	// users e.g. via dynamically generated GUI forms.
-	ConfigOpts []*ConfigOption `json:"configopts"`
+	// AvailableWallets is an ordered list of available WalletDefinition. The
+	// first WalletDefinition is considered the default, and might, for instance
+	// be the initial form offered to the user for configuration, with the
+	// others available by a dropdown menu or tabs or something.
+	AvailableWallets []*WalletDefinition `json:"availablewallets"`
 }
 
 // ConfigOption is a wallet configuration option.
@@ -56,6 +69,9 @@ type ConfigOption struct {
 // WalletConfig is the configuration settings for the wallet. WalletConfig
 // is passed to the wallet constructor.
 type WalletConfig struct {
+	// Type is the type of wallet, corresponding to the Type field of an
+	// available WalletDefinition.
+	Type string
 	// Settings is the key-value store of wallet connection parameters. The
 	// Settings are supplied by the user according the the WalletInfo's
 	// ConfigOpts.

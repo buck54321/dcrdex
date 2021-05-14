@@ -458,7 +458,7 @@ func tNewWallet(segwit bool) (*ExchangeWallet, *tRPCClient, func(), error) {
 
 	// rpcClient := newRPCClient(requester, segwit, nil, false, minNetworkVersion, dex.StdOutLogger("RPCTEST", dex.LevelTrace), &chaincfg.MainNetParams)
 
-	wallet, err := newWallet(&tRawRequester{client}, cfg, &dexbtc.Config{})
+	wallet, err := newRPCWallet(&tRawRequester{client}, cfg, &WalletConfig{})
 	if err != nil {
 		shutdown()
 		return nil, nil, nil, err
@@ -1823,7 +1823,7 @@ func testFindRedemption(t *testing.T, segwit bool) {
 	// rpcClient := newRPCClient(&tRawRequester{node}, segwit, minNetworkVersion,
 	// 	&chaincfg.MainNetParams, dex.StdOutLogger("RPCTEST", dex.LevelTrace))
 
-	wallet, err := newWallet(&tRawRequester{node}, cfg, &dexbtc.Config{})
+	wallet, err := newRPCWallet(&tRawRequester{node}, cfg, &WalletConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}

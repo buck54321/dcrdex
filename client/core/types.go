@@ -71,6 +71,7 @@ func (set *errorSet) Error() string {
 type WalletForm struct {
 	AssetID uint32
 	Config  map[string]string
+	Type    string
 }
 
 // WalletBalance is an exchange wallet's balance which includes contractlocked
@@ -91,6 +92,7 @@ type WalletState struct {
 	Symbol       string         `json:"symbol"`
 	AssetID      uint32         `json:"assetID"`
 	Version      uint32         `json:"version"`
+	WalletType   string         `json:"type"`
 	Open         bool           `json:"open"`
 	Running      bool           `json:"running"`
 	Balance      *WalletBalance `json:"balance"`
@@ -588,6 +590,21 @@ func (a *dexAccount) setupCryptoLegacy(crypter encrypt.Crypter) (encPriv, pubB [
 	return encPriv, privKey.PubKey().SerializeCompressed(), nil
 }
 
+func genChild(parent *hdkeychain.ExtendedKey, i uint32) (*hdkeychain.ExtendedKey, error) {
+	err := hdkeychain.ErrUnusableSeed
+	for err == hdkeychain.ErrUnusableSeed {
+		var kid *hdkeychain.ExtendedKey
+		// Hardened child by modding i first, technically doubling the
+		// collision rate, but OK.
+		kid, err = parent.Child(i%hdkeychain.HardenedKeyStart + hdkeychain.HardenedKeyStart)
+		if err == nil {
+			return kid, nil
+		}
+		i++
+	}
+	return nil, err
+}
+
 // setupCryptoV2 generates a hierarchical deterministic key for the account.
 // setupCryptoV2 should be called before adding the account's *dexConnection
 // to the Core.conns map.
@@ -617,21 +634,6 @@ func (a *dexAccount) setupCryptoV2(creds *db.PrimaryCredentials, crypter encrypt
 	// keys. We could surmise a hundred different algortithms to derive the DEX
 	// key, and there's nothing particularly special about doing it this way,
 	// but it works.
-
-	genChild := func(parent *hdkeychain.ExtendedKey, i uint32) (*hdkeychain.ExtendedKey, error) {
-		err := hdkeychain.ErrUnusableSeed
-		for err == hdkeychain.ErrUnusableSeed {
-			var kid *hdkeychain.ExtendedKey
-			// Hardened child by modding i first, technically doubling the
-			// collision rate, but OK.
-			kid, err = parent.Child(i%hdkeychain.HardenedKeyStart + hdkeychain.HardenedKeyStart)
-			if err == nil {
-				return kid, nil
-			}
-			i++
-		}
-		return nil, err
-	}
 
 	// Prepare the chain of child indices.
 	kids := make([]uint32, 0, 10) // 1 x purpose, 1 x version (incl. oddness), 8 x 4-byte uint32s.

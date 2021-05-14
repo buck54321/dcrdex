@@ -171,6 +171,7 @@ export default class RegistrationPage extends BasePage {
 
       return
     }
+
     this.fee = res.xc.feeAsset.amount
 
     page.feeDisplay.textContent = Doc.formatCoinValue(this.fee / 1e8)

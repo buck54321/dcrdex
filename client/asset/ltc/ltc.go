@@ -4,7 +4,9 @@
 package ltc
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"decred.org/dcrdex/client/asset"
 	"decred.org/dcrdex/client/asset/btc"
@@ -23,9 +25,15 @@ const (
 	// defaultFeeRateLimit is the default value for the feeratelimit.
 	defaultFeeRateLimit = 100
 	minNetworkVersion   = 180100
+	walletTypeRPC       = "RPC (litecoind)"
 )
 
 var (
+	NetPorts = dexbtc.NetPorts{
+		Mainnet: "9332",
+		Testnet: "19332",
+		Simnet:  "19443",
+	}
 	configOpts = []*asset.ConfigOption{
 		{
 			Key:         "walletname",
@@ -88,11 +96,14 @@ var (
 	}
 	// WalletInfo defines some general information about a Litecoin wallet.
 	WalletInfo = &asset.WalletInfo{
-		Name:              "Litecoin",
-		Units:             "Litoshi",
-		Version:           version,
-		DefaultConfigPath: dexbtc.SystemConfigPath("litecoin"),
-		ConfigOpts:        configOpts,
+		Name:    "Litecoin",
+		Units:   "Litoshi",
+		Version: version,
+		AvailableWallets: []*asset.WalletDefinition{{
+			Type:              walletTypeRPC,
+			DefaultConfigPath: dexbtc.SystemConfigPath("litecoin"),
+			ConfigOpts:        configOpts,
+		}},
 	}
 )
 
@@ -103,8 +114,28 @@ func init() {
 // Driver implements asset.Driver.
 type Driver struct{}
 
-// Setup creates the LTC exchange wallet. Start the wallet with its Run method.
-func (d *Driver) Setup(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) (asset.Wallet, error) {
+func (d *Driver) Exists(walletType, dataDir string, settings map[string]string, net dex.Network) (bool, error) {
+	switch walletType {
+	case "", walletTypeRPC:
+		_, client, err := btc.ParseRPCConfig(settings, "ltc", net, NetPorts)
+		if err != nil {
+			return false, err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+		defer cancel()
+		_, err = client.RawRequest(ctx, "getnetworkinfo", nil)
+		return err == nil, nil
+	}
+
+	return false, fmt.Errorf("no Bitcoin Cash wallet of type %q available", walletType)
+}
+
+func (d *Driver) Create(*asset.CreateWalletParams) error {
+	return fmt.Errorf("no creatable wallet types")
+}
+
+// Open creates the LTC exchange wallet. Start the wallet with its Run method.
+func (d *Driver) Open(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) (asset.Wallet, error) {
 	return NewWallet(cfg, logger, network)
 }
 
@@ -139,11 +170,6 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) 
 
 	// Designate the clone ports. These will be overwritten by any explicit
 	// settings in the configuration file.
-	ports := dexbtc.NetPorts{
-		Mainnet: "9332",
-		Testnet: "19332",
-		Simnet:  "19443",
-	}
 	cloneCFG := &btc.BTCCloneCFG{
 		WalletCFG:           cfg,
 		MinNetworkVersion:   minNetworkVersion,
@@ -152,7 +178,7 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) 
 		Logger:              logger,
 		Network:             network,
 		ChainParams:         params,
-		Ports:               ports,
+		Ports:               NetPorts,
 		DefaultFallbackFee:  defaultFee,
 		DefaultFeeRateLimit: defaultFeeRateLimit,
 		LegacyBalance:       true,

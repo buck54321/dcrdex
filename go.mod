@@ -5,7 +5,11 @@ go 1.15
 require (
 	decred.org/dcrwallet v1.7.0
 	github.com/btcsuite/btcd v0.21.0-beta.0.20201208033208-6bd4c64a54fa
+	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v1.0.2
+	github.com/btcsuite/btcwallet v0.11.1-0.20201207233335-415f37ff11a1
+	github.com/btcsuite/btcwallet/walletdb v1.3.4
+	github.com/btcsuite/btcwallet/wtxmgr v1.2.0
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/blockchain/stake/v3 v3.0.0
 	github.com/decred/dcrd/certgen v1.1.1
@@ -32,8 +36,8 @@ require (
 	github.com/jessevdk/go-flags v1.4.1-0.20200711081900-c17162fe8fd7
 	github.com/jrick/logrotate v1.0.0
 	github.com/lib/pq v1.2.0
+	github.com/lightninglabs/neutrino v0.11.1-0.20210506195545-dec9dbeb3a25
 	github.com/smartystreets/goconvey v1.6.4 // indirect
-	github.com/stretchr/testify v1.5.1 // indirect
 	go.etcd.io/bbolt v1.3.5
 	golang.org/x/crypto v0.0.0-20210220033148-5ea612d1eb83
 	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208
