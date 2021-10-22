@@ -916,10 +916,14 @@ func (w *spvWallet) connect(ctx context.Context, wg *sync.WaitGroup) error {
 	// *Rescan supplied with a QuitChan-type RescanOption.
 	// Actually, should use btcwallet.Wallet.NtfnServer ?
 
-	// notes := make(<-chan interface{})
-	// if w.chainClient != nil {
-	// 	notes = w.chainClient.Notifications()
-	// }
+	notes := make(<-chan interface{})
+	if w.chainClient != nil {
+		notes = w.chainClient.Notifications()
+		if err := w.chainClient.NotifyBlocks(); err != nil {
+			return fmt.Errorf("failed to subscribe to block notifications: %w", err)
+		}
+
+	}
 
 	// Nanny for the caches checkpoints and txBlocks caches.
 	wg.Add(1)
@@ -948,8 +952,14 @@ func (w *spvWallet) connect(ctx context.Context, wg *sync.WaitGroup) error {
 					}
 				}
 				w.checkpointMtx.Unlock()
-			// case note := <-notes:
-			// 	fmt.Printf("--Notification received: %T: %+v \n", note, note)
+			case noteI := <-notes:
+				switch note := noteI.(type) {
+				case chain.FilteredBlockConnected:
+					reportTip := atomic.LoadInt64(&lastReportedTip)
+					if int64(note.Block.Height) < reportTip {
+						w.log.Errorf("neutrino sent block notification after polling had already seen and sent the tipChange")
+					}
+				}
 			case <-ctx.Done():
 				return
 			}

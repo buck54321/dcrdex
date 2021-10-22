@@ -2417,6 +2417,8 @@ func (btc *ExchangeWallet) prepareRedemptionRequestsForBlockCheck() []*findRedem
 	return reqs
 }
 
+var lastReportedTip int64
+
 // checkForNewBlocks checks for new blocks. When a tip change is detected, the
 // tipChange callback function is invoked and a goroutine is started to check
 // if any contracts in the findRedemptionQueue are redeemed in the new blocks.
@@ -2515,6 +2517,8 @@ func (btc *ExchangeWallet) checkForNewBlocks(ctx context.Context) {
 		// Just 1 new block since last tip report, search the lone block.
 		startPoint = newTip
 	}
+
+	atomic.StoreInt64(&lastReportedTip, newTip.height)
 
 	if len(reqs) > 0 {
 		startHash, _ := chainhash.NewHashFromStr(startPoint.hash)
