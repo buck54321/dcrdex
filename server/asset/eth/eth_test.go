@@ -686,3 +686,36 @@ func TestTxData(t *testing.T) {
 		t.Fatalf("TxData error: %v", err)
 	}
 }
+
+func TestAccountBalance(t *testing.T) {
+	node := &testNode{}
+	eth := &Backend{node: node}
+
+	const gweiBal = 1e9
+	bigBal := big.NewInt(gweiBal)
+	node.acctBal = bigBal.Mul(bigBal, big.NewInt(GweiFactor))
+
+	// Initial success
+	bal, err := eth.AccountBalance("")
+	if err != nil {
+		t.Fatalf("AccountBalance error: %v", err)
+	}
+
+	if bal != gweiBal {
+		t.Fatalf("wrong balance. expected %f, got %d", gweiBal, bal)
+	}
+
+	// Only error path.
+	node.acctBalErr = errors.New("test error")
+	_, err = eth.AccountBalance("")
+	if err == nil {
+		t.Fatalf("no AccountBalance error when expected")
+	}
+	node.acctBalErr = nil
+
+	// Success again
+	_, err = eth.AccountBalance("")
+	if err != nil {
+		t.Fatalf("AccountBalance error: %v", err)
+	}
+}

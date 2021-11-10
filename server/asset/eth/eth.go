@@ -352,6 +352,8 @@ func (eth *Backend) CheckAddress(addr string) bool {
 	return common.IsHexAddress(addr)
 }
 
+// AccountBalance retrieves the current account balance, including the effects
+// of known unmined transactions.
 func (eth *Backend) AccountBalance(addrStr string) (uint64, error) {
 	bigBal, err := eth.node.accountBalance(eth.rpcCtx, common.HexToAddress(addrStr))
 	if err != nil {

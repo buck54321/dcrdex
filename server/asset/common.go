@@ -73,6 +73,8 @@ type Backend interface {
 	Synced() (bool, error)
 }
 
+// OutputTracker is implemented by backends for UTXO-based blockchains.
+// OutputTracker tracks the value and spend-status of transaction outputs.
 type OutputTracker interface {
 	// VerifyUnspentCoin attempts to verify a coin ID by decoding the coin ID
 	// and retrieving the corresponding Coin. If the coin is not found or no
@@ -85,8 +87,11 @@ type OutputTracker interface {
 	FundingCoin(ctx context.Context, coinID []byte, redeemScript []byte) (FundingCoin, error)
 }
 
+// AccountBalancer is implemented by backends for account-based blockchains.
+// An AccountBalancer reports the current balance for an account.
 type AccountBalancer interface {
-	AccountBalance(string) (uint64, error)
+	// AccountBalance retrieves the current account balance.
+	AccountBalance(addr string) (uint64, error)
 }
 
 // Coin represents a transaction input or output.

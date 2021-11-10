@@ -121,6 +121,8 @@ func (c *rpcclient) transaction(ctx context.Context, hash common.Hash) (tx *type
 	return c.ec.TransactionByHash(ctx, hash)
 }
 
+// accountBalance gets the account balance, including the effects of known
+// unmined transactions.
 func (c *rpcclient) accountBalance(ctx context.Context, addr common.Address) (*big.Int, error) {
 	bigBal, err := c.ec.PendingBalanceAt(ctx, addr)
 	if err != nil {
