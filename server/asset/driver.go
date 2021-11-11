@@ -100,6 +100,12 @@ func Setup(name, configPath string, logger dex.Logger, network dex.Network) (Bac
 	if !ok {
 		return nil, fmt.Errorf("asset: unknown asset driver %q", name)
 	}
+	if _, ok := drv.(OutputTracker); !ok {
+		// if _, ok := drv.(AccountBalancer); !ok {
+		// 	return nil, fmt.Errorf("backend does not implement OutputTracker or AccountBalancer")
+		// }
+		return nil, fmt.Errorf("backend does not implement OutputTracker")
+	}
 	return drv.Setup(configPath, logger, network)
 }
 
