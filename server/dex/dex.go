@@ -587,11 +587,20 @@ func NewDEX(ctx context.Context, cfg *DexConf) (*DEX, error) {
 		return nil, err
 	}
 
+	marketTunnels := make(map[string]market.MarketTunnel, len(cfg.Markets))
+	backedBalancer := market.NewBackedBalancer(marketTunnels, backedAssets, swapper)
+
 	// Markets
 	usersWithOrders := make(map[account.AccountID]struct{})
 	for _, mktInf := range cfg.Markets {
-		baseCoinLocker := dexCoinLocker.AssetLocker(mktInf.Base).Book()
-		quoteCoinLocker := dexCoinLocker.AssetLocker(mktInf.Quote).Book()
+		var baseCoinLocker, quoteCoinLocker coinlock.CoinLocker
+		if _, ok := backedAssets[mktInf.Base].Backend.(asset.OutputTracker); ok {
+			baseCoinLocker = dexCoinLocker.AssetLocker(mktInf.Base).Book()
+		}
+		if _, ok := backedAssets[mktInf.Quote].Backend.(asset.OutputTracker); ok {
+			quoteCoinLocker = dexCoinLocker.AssetLocker(mktInf.Quote).Book()
+		}
+
 		mkt, err := market.NewMarket(&market.Config{
 			MarketInfo:      mktInf,
 			Storage:         storage,
@@ -602,6 +611,7 @@ func NewDEX(ctx context.Context, cfg *DexConf) (*DEX, error) {
 			FeeFetcherQuote: feeMgr.FeeFetcher(mktInf.Quote),
 			CoinLockerQuote: quoteCoinLocker,
 			DataCollector:   dataAPI,
+			BackedBalancer:  backedBalancer,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("NewMarket failed: %w", err)
@@ -637,7 +647,6 @@ func NewDEX(ctx context.Context, cfg *DexConf) (*DEX, error) {
 	// BookRouter, and MarketTunnels for the OrderRouter.
 	now := encode.UnixMilli(time.Now())
 	bookSources := make(map[string]market.BookSource, len(cfg.Markets))
-	marketTunnels := make(map[string]market.MarketTunnel, len(cfg.Markets))
 	cfgMarkets := make([]*msgjson.Market, 0, len(cfg.Markets))
 	for name, mkt := range markets {
 		startEpochIdx := 1 + now/int64(mkt.EpochDuration())
@@ -672,10 +681,11 @@ func NewDEX(ctx context.Context, cfg *DexConf) (*DEX, error) {
 
 	// Order router
 	orderRouter := market.NewOrderRouter(&market.OrderRouterConfig{
-		Assets:      backedAssets,
-		AuthManager: authMgr,
-		Markets:     marketTunnels,
-		FeeSource:   feeMgr,
+		Assets:          backedAssets,
+		AuthManager:     authMgr,
+		Markets:         marketTunnels,
+		FeeSource:       feeMgr,
+		AccountBalancer: backedBalancer,
 	})
 	startSubSys("OrderRouter", orderRouter)
 

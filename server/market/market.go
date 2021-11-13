@@ -85,6 +85,7 @@ type Config struct {
 	FeeFetcherQuote FeeFetcher
 	CoinLockerQuote coinlock.CoinLocker
 	DataCollector   DataCollector
+	BackedBalancer  *BackedBalancer
 }
 
 // Market is the market manager. It should not be overly involved with details
@@ -190,12 +191,32 @@ func NewMarket(cfg *Config) (*Market, error) {
 	// Put the book orders in a map so orders that no longer have funding coins
 	// can be removed easily.
 	bookOrdersByID := make(map[order.OrderID]*order.LimitOrder, len(bookOrders))
-	for _, ord := range bookOrders {
-		bookOrdersByID[ord.ID()] = ord
+	for _, lo := range bookOrders {
+		// Limit order amount requirements are simple unlike market buys.
+		if lo.Quantity%mktInfo.LotSize != 0 || lo.FillAmt%mktInfo.LotSize != 0 {
+			// To change market configuration, the operator should suspended the
+			// market with persist=false, but that may not have happened, or
+			// maybe a revoke failed.
+			log.Errorf("Not rebooking order %v with amount (%v/%v) incompatible with current lot size (%v)",
+				lo.FillAmt, lo.Quantity, mktInfo.LotSize)
+			// Revoke the order, but do not count this against the user.
+			if _, _, err = storage.RevokeOrderUncounted(lo); err != nil {
+				log.Errorf("Failed to revoke order %v: %v", lo, err)
+				// But still not added back on the book.
+			}
+			continue
+		}
+		bookOrdersByID[lo.ID()] = lo
 	}
 
 	baseCoins := make(map[order.OrderID][]order.CoinID)
 	quoteCoins := make(map[order.OrderID][]order.CoinID)
+
+	baseIsAcctBased := cfg.CoinLockerBase == nil
+	quoteIsAcctBased := cfg.CoinLockerQuote == nil
+
+	quoteAcctStats := make(accountCounter)
+	baseAcctStats := make(accountCounter)
 
 ordersLoop:
 	for id, lo := range bookOrdersByID {
@@ -249,10 +270,47 @@ ordersLoop:
 			continue ordersLoop
 		}
 
-		// All coins are unspent. Lock them.
-		if lo.Sell {
+		if baseIsAcctBased {
+			var addr string
+			var qty, lots uint64
+			var redeems int
+			if lo.Sell {
+				// address is zeroth coin
+				if len(lo.Coins) != 1 {
+					log.Errorf("rejecting account-based-base-asset order %s that has no coins ¯\\_(ツ)_/¯", lo.ID())
+					continue ordersLoop
+				}
+				addr = string(lo.Coins[0])
+				qty = lo.Quantity
+				lots = qty / mktInfo.LotSize
+			} else {
+				addr = lo.Address
+				redeems = int((lo.Quantity - lo.FillAmt) / mktInfo.LotSize)
+			}
+			baseAcctStats.add(addr, qty, lots, redeems)
+		} else if lo.Sell {
 			baseCoins[id] = lo.Coins
-		} else {
+		}
+
+		if quoteIsAcctBased {
+			var addr string
+			var qty, lots uint64
+			var redeems int
+			if lo.Sell {
+				addr = lo.Address
+				redeems = int((lo.Quantity - lo.FillAmt) / mktInfo.LotSize)
+			} else {
+				// address is zeroth coin
+				if len(lo.Coins) != 1 {
+					log.Errorf("rejecting account-based-base-asset order %s that has no coins ¯\\_(ツ)_/¯", lo.ID())
+					continue ordersLoop
+				}
+				addr = string(lo.Coins[0])
+				qty = lo.Quantity
+				lots = qty / mktInfo.LotSize
+			}
+			quoteAcctStats.add(addr, qty, lots, redeems)
+		} else if !lo.Sell {
 			quoteCoins[id] = lo.Coins
 		}
 	}
@@ -270,6 +328,8 @@ ordersLoop:
 			log.Tracef(" - order %v: %v", oid, coins)
 		}
 	}
+
+	// Handle coins for UTXO-based assets.
 
 	// Lock the coins, catching and removing orders where coins were already
 	// locked by another market.
@@ -290,23 +350,35 @@ ordersLoop:
 		}
 	}
 
+	// Handle account balance checks for account-based assets
+
+	failedBaseAccts := make(map[string]bool)
+	failedQuoteAccts := make(map[string]bool)
+
+	for acctAddr, stats := range baseAcctStats {
+		if !cfg.BackedBalancer.CheckBalance(acctAddr, mktInfo.Base, stats.qty, stats.lots, stats.redeems) {
+			log.Errorf("%s base asset account failed the startup balance check on the %s market", acctAddr, mktInfo.Name)
+			failedBaseAccts[acctAddr] = true
+		}
+	}
+
+	for acctAddr, stats := range quoteAcctStats {
+		if !cfg.BackedBalancer.CheckBalance(acctAddr, mktInfo.Quote, stats.qty, stats.lots, stats.redeems) {
+			log.Errorf("%s quote asset account failed the startup balance check on the %s market", acctAddr, mktInfo.Name)
+			failedQuoteAccts[acctAddr] = true
+		}
+	}
+
 	Book := book.New(mktInfo.LotSize)
 	for _, lo := range bookOrdersByID {
-		// Limit order amount requirements are simple unlike market buys.
-		if lo.Quantity%mktInfo.LotSize != 0 || lo.FillAmt%mktInfo.LotSize != 0 {
-			// To change market configuration, the operator should suspended the
-			// market with persist=false, but that may not have happened, or
-			// maybe a revoke failed.
-			log.Errorf("Not rebooking order %v with amount (%v/%v) incompatible with current lot size (%v)",
-				lo.FillAmt, lo.Quantity, mktInfo.LotSize)
-			// Revoke the order, but do not count this against the user.
-			if _, _, err = storage.RevokeOrderUncounted(lo); err != nil {
-				log.Errorf("Failed to revoke order %v: %v", lo, err)
-				// But still not added back on the book.
-			}
+		if baseIsAcctBased && failedBaseAccts[lo.BaseAccount()] {
+			log.Warnf("Skipping insert of order %s into %s book because base asset account failed the balance check")
 			continue
 		}
-
+		if quoteIsAcctBased && failedQuoteAccts[lo.QuoteAccount()] {
+			log.Warnf("Skipping insert of order %s into %s book because quote assert account failed the balance check")
+			continue
+		}
 		if ok := Book.Insert(lo); !ok {
 			// This can only happen if one of the loaded orders has an
 			// incompatible lot size for the current market config.
@@ -1017,6 +1089,172 @@ func (m *Market) CheckUnfilled(assetID uint32, user account.AccountID) (unbooked
 	return m.checkUnfilledOrders(assetID, unfilled)
 }
 
+func (m *Market) AccountPending(acctAddr string, assetID uint32) (qty, lots uint64, redeems int) {
+	base, quote := m.marketInfo.Base, m.marketInfo.Quote
+	if assetID != base && assetID != quote {
+		return
+	}
+
+	midGap := m.MidGap()
+	if midGap == 0 {
+		midGap = m.RateStep()
+	}
+
+	lotSize := m.marketInfo.LotSize
+	switch assetID {
+	case base:
+		m.iterateBaseAccount(acctAddr, func(trade *order.Trade, rate uint64) {
+			r := trade.Remaining()
+			if trade.Sell {
+				qty += r
+				lots += r / lotSize
+			} else {
+				if rate == 0 { // market buy
+					redeems += int(calc.QuoteToBase(midGap, r) / lotSize)
+				} else {
+					redeems += int(r / lotSize)
+				}
+			}
+		})
+	case quote:
+		m.iterateQuoteAccount(acctAddr, func(trade *order.Trade, rate uint64) {
+			r := trade.Remaining()
+			if trade.Sell {
+				redeems += int(r / lotSize)
+			} else {
+				if rate == 0 { // market buy
+					qty += r
+					lots += calc.QuoteToBase(midGap, r) / lotSize
+				} else {
+					qty += calc.BaseToQuote(midGap, r)
+					lots += r / lotSize
+				}
+			}
+		})
+	}
+	return
+}
+
+func (m *Market) iterateBaseAccount(acctAddr string, f func(*order.Trade, uint64)) {
+	m.epochMtx.RLock()
+	for _, epOrd := range m.epochOrders {
+		if epOrd.Type() == order.CancelOrderType || epOrd.Trade().BaseAccount() != acctAddr {
+			continue
+		}
+		var rate uint64
+		if lo, is := epOrd.(*order.LimitOrder); is {
+			rate = lo.Rate
+		}
+		f(epOrd.Trade(), rate)
+
+	}
+	m.epochMtx.RUnlock()
+	m.book.IterateBaseAccount(acctAddr, func(lo *order.LimitOrder) {
+		f(lo.Trade(), lo.Rate)
+	})
+}
+
+func (m *Market) iterateQuoteAccount(acctAddr string, f func(*order.Trade, uint64)) {
+	m.epochMtx.RLock()
+	for _, epOrd := range m.epochOrders {
+		if epOrd.Type() == order.CancelOrderType || epOrd.Trade().QuoteAccount() != acctAddr {
+			continue
+		}
+		var rate uint64
+		if lo, is := epOrd.(*order.LimitOrder); is {
+			rate = lo.Rate
+		}
+		f(epOrd.Trade(), rate)
+
+	}
+	m.epochMtx.RUnlock()
+	m.book.IterateQuoteAccount(acctAddr, func(lo *order.LimitOrder) {
+		f(lo.Trade(), lo.Rate)
+	})
+}
+
+// func (m *Market) AccountPendingSends(acctAddr string, assetID uint32) (qty, lots uint64) {
+// 	switch assetID {
+// 	case m.marketInfo.Base:
+// 		return m.remainingUserSell(user)
+// 	case m.marketInfo.Quote:
+// 		return m.remainingUserBuy(user)
+// 	}
+// 	return 0, 0
+// }
+
+// func (m *Market) remainingUserBuy(acctAddr string) (quoteQty, lots uint64) {
+// 	baseQty, quoteQty := m.book.RemainingUserBuyQty(user)
+// 	lots = baseQty / m.marketInfo.LotSize
+// 	midGap := m.MidGap()
+// 	if midGap == 0 {
+// 		midGap = m.marketInfo.RateStep
+// 	}
+// 	m.epochMtx.RLock()
+// 	for _, epOrd := range m.epochOrders {
+// 		if epOrd.User() != user || epOrd.Type() == order.CancelOrderType || epOrd.Trade().Sell {
+// 			continue
+// 		}
+// 		trade := epOrd.Trade()
+// 		if epOrd.Type() == order.MarketOrderType {
+// 			quoteQty += trade.Quantity
+// 			lots += calc.QuoteToBase(midGap, trade.Quantity) / m.marketInfo.LotSize
+// 		} else {
+// 			lo, ok := epOrd.(*order.LimitOrder)
+// 			if ok {
+// 				quoteQty += calc.BaseToQuote(lo.Rate, lo.Quantity-lo.Filled())
+// 				lots += lo.Quantity / m.marketInfo.LotSize
+// 			} else {
+// 				log.Errorf("order of unknown type encountered: %d", epOrd.Type())
+// 			}
+// 		}
+// 	}
+// 	m.epochMtx.RUnlock()
+// 	return
+// }
+
+// func (m *Market) remainingUserSell(acctAddr string) (qty, lots uint64) {
+// 	qty = m.book.RemainingUserSellQty(user)
+// 	m.epochMtx.RLock()
+// 	for _, epOrd := range m.epochOrders {
+// 		if epOrd.User() != user || epOrd.Type() == order.CancelOrderType || !epOrd.Trade().Sell {
+// 			continue
+// 		}
+// 		qty += epOrd.Trade().Quantity
+// 	}
+// 	m.epochMtx.RUnlock()
+// 	return qty, qty / m.marketInfo.LotSize
+// }
+
+// func (m *Market) UserPendingLotsReceived(acctAddr string, assetID uint32) (lots int) {
+// 	var qty uint64
+// 	switch assetID {
+// 	case m.marketInfo.Base:
+// 		qty, _ = m.book.RemainingUserBuyQty(user)
+// 	case m.marketInfo.Quote:
+// 		qty = m.book.RemainingUserSellQty(user)
+// 	default:
+// 		return 0
+// 	}
+// 	lots = int(qty / m.marketInfo.LotSize)
+// 	midGap := m.MidGap()
+// 	if midGap == 0 {
+// 		midGap = m.marketInfo.RateStep
+// 	}
+// 	for _, epOrd := range m.epochOrders {
+// 		if epOrd.User() != user || epOrd.Type() == order.CancelOrderType {
+// 			continue
+// 		}
+// 		trade := epOrd.Trade()
+// 		if trade.Sell || epOrd.Type() == order.LimitOrderType {
+// 			lots += int(trade.Quantity / m.marketInfo.LotSize)
+// 		} else {
+// 			lots += int(calc.QuoteToBase(midGap, trade.Quantity) / m.marketInfo.LotSize)
+// 		}
+// 	}
+// 	return lots
+// }
+
 // Book retrieves the market's current order book and the current epoch index.
 // If the Market is not yet running or the start epoch has not yet begun, the
 // epoch index will be zero.
@@ -1360,6 +1598,10 @@ func (m *Market) coinsLocked(o order.Order) []order.CoinID {
 	locker := m.coinLockerQuote
 	if o.Trade().Trade().Sell {
 		locker = m.coinLockerBase
+	}
+
+	if locker == nil { // Not utxo-based
+		return nil
 	}
 
 	// Check if this order is known by the locker.
@@ -2403,4 +2645,22 @@ func (m *Market) ScaleFeeRate(assetID uint32, feeRate uint64) uint64 {
 	}
 	// It started non-zero, so don't allow it to go to zero.
 	return uint64(math.Max(1.0, math.Round(float64(feeRate)*feeScale)))
+}
+
+type accountStats struct {
+	qty, lots uint64
+	redeems   int
+}
+
+type accountCounter map[string]*accountStats
+
+func (a accountCounter) add(addr string, qty, lots uint64, redeems int) {
+	stats, found := a[addr]
+	if !found {
+		stats = new(accountStats)
+		a[addr] = stats
+	}
+	stats.qty += qty
+	stats.lots += lots
+	stats.redeems += redeems
 }

@@ -250,9 +250,11 @@ const (
 	// https://ethereum.github.io/yellowpaper/paper.pdf in Appendix G.
 	// The current value here is an appoximation based on tests.
 	//
+	// Currently using approximations from https://github.com/decred/dcrdex/pull/1251#issue-1034419108
+	//
 	// TODO: When the contract is solidified, break down evm functions
 	// called and the gas used for each. (◍•﹏•)
-	InitGas = 158000 // gas
+	InitGas = 181000 // gas
 
 	RedeemGas = 63000 // gas
 )

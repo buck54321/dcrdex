@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"decred.org/dcrdex/dex"
+	"decred.org/dcrdex/dex/calc"
 	"decred.org/dcrdex/dex/encode"
 	"decred.org/dcrdex/dex/msgjson"
 	"decred.org/dcrdex/dex/order"
@@ -182,7 +183,8 @@ type LockableAsset struct {
 type Swapper struct {
 	// coins is a map to all the Asset information, including the asset backends,
 	// used by this Swapper.
-	coins map[uint32]*LockableAsset
+	coins     map[uint32]*LockableAsset
+	acctBased map[uint32]bool
 	// storage is a Database backend.
 	storage Storage
 	// authMgr is an AuthManager for client messaging and authentication.
@@ -194,6 +196,7 @@ type Swapper struct {
 	matchMtx    sync.RWMutex
 	matches     map[order.MatchID]*matchTracker
 	userMatches map[account.AccountID]map[order.MatchID]*matchTracker
+	acctMatches map[uint32]map[string]map[order.MatchID]*matchTracker
 
 	// The broadcast timeout.
 	bTimeout time.Duration
@@ -249,15 +252,26 @@ func NewSwapper(cfg *Config) (*Swapper, error) {
 		}
 	}
 
+	acctBased := make(map[uint32]bool, len(cfg.Assets))
+	acctMatches := make(map[uint32]map[string]map[order.MatchID]*matchTracker)
+	for _, a := range cfg.Assets {
+		if _, ok := a.Backend.(asset.AccountBalancer); ok {
+			acctBased[a.ID] = true
+			acctMatches[a.ID] = make(map[string]map[order.MatchID]*matchTracker)
+		}
+	}
+
 	authMgr := cfg.AuthManager
 	swapper := &Swapper{
 		coins:         cfg.Assets,
+		acctBased:     acctBased,
 		storage:       cfg.Storage,
 		authMgr:       authMgr,
 		swapDone:      cfg.SwapDone,
 		latencyQ:      wait.NewTickerQueue(recheckInterval),
 		matches:       make(map[order.MatchID]*matchTracker),
 		userMatches:   make(map[account.AccountID]map[order.MatchID]*matchTracker),
+		acctMatches:   make(map[uint32]map[string]map[order.MatchID]*matchTracker),
 		bTimeout:      cfg.BroadcastTimeout,
 		lockTimeTaker: cfg.LockTimeTaker,
 		lockTimeMaker: cfg.LockTimeMaker,
@@ -303,6 +317,26 @@ func (s *Swapper) addMatch(mt *matchTracker) {
 			break
 		}
 	}
+
+	addAcctMatch := func(matches map[string]map[order.MatchID]*matchTracker, acctAddr string, mt *matchTracker) {
+		acctMatches := matches[acctAddr]
+		if acctMatches == nil {
+			acctMatches = make(map[order.MatchID]*matchTracker, 1)
+			matches[acctAddr] = acctMatches
+		}
+		acctMatches[mt.ID()] = mt
+	}
+
+	if s.acctBased[mt.Maker.Base()] {
+		acctMatches := s.acctMatches[mt.Maker.Base()]
+		addAcctMatch(acctMatches, mt.Maker.BaseAccount(), mt)
+		addAcctMatch(acctMatches, mt.Taker.Trade().BaseAccount(), mt)
+	}
+	if s.acctBased[mt.Maker.Quote()] {
+		acctMatches := s.acctMatches[mt.Maker.Quote()]
+		addAcctMatch(acctMatches, mt.Maker.QuoteAccount(), mt)
+		addAcctMatch(acctMatches, mt.Taker.Trade().QuoteAccount(), mt)
+	}
 }
 
 // deleteMatch unregisters a match. The matchMtx must be locked.
@@ -327,6 +361,28 @@ func (s *Swapper) deleteMatch(mt *matchTracker) {
 			break
 		}
 	}
+
+	deleteAcctMatch := func(matches map[string]map[order.MatchID]*matchTracker, acctAddr string, mt *matchTracker) {
+		acctMatches := matches[acctAddr]
+		if acctMatches == nil {
+			return
+		}
+		delete(acctMatches, mt.ID())
+		if len(acctMatches) == 0 {
+			delete(matches, acctAddr)
+		}
+	}
+
+	if s.acctBased[mt.Maker.Base()] {
+		acctMatches := s.acctMatches[mt.Maker.Base()]
+		deleteAcctMatch(acctMatches, mt.Maker.BaseAccount(), mt)
+		deleteAcctMatch(acctMatches, mt.Taker.Trade().BaseAccount(), mt)
+	}
+	if s.acctBased[mt.Maker.Quote()] {
+		acctMatches := s.acctMatches[mt.Maker.Quote()]
+		deleteAcctMatch(acctMatches, mt.Maker.QuoteAccount(), mt)
+		deleteAcctMatch(acctMatches, mt.Taker.Trade().QuoteAccount(), mt)
+	}
 }
 
 // UserSwappingAmt gets the total amount in active swaps for a user in a
@@ -347,26 +403,84 @@ func (s *Swapper) UserSwappingAmt(user account.AccountID, base, quote uint32) (a
 	return
 }
 
+type pendingAccountStats struct {
+	acctAddr string
+	assetID  uint32
+	lots     uint64
+	qty      uint64
+	redeems  int
+}
+
+func newPendingAccountStats(acctAddr string, assetID uint32) *pendingAccountStats {
+	return &pendingAccountStats{
+		acctAddr: acctAddr,
+		assetID:  assetID,
+	}
+}
+
+func (p *pendingAccountStats) addMatch(mt *matchTracker) {
+	p.addOrder(mt, mt.Maker, order.MakerSwapCast, order.MakerRedeemed)
+	p.addOrder(mt, mt.Taker, order.TakerSwapCast, order.MatchComplete)
+}
+
+func (p *pendingAccountStats) addOrder(mt *matchTracker, ord order.Order, swappedStatus, redeemedStatus order.MatchStatus) {
+	trade := ord.Trade()
+	if ord.Base() == p.assetID && trade.BaseAccount() == p.acctAddr {
+		if trade.Sell {
+			if mt.Status < swappedStatus {
+				p.qty += mt.Quantity
+				p.lots++
+			}
+		} else if mt.Status < redeemedStatus {
+			p.redeems++
+		}
+	}
+	if ord.Quote() == p.assetID && trade.QuoteAccount() == p.acctAddr {
+		if !trade.Sell {
+			if mt.Status < swappedStatus {
+				p.qty += calc.BaseToQuote(mt.Rate, mt.Quantity)
+				p.lots++ // The swap is expected to occur in 1 transaction.
+			}
+		} else if mt.Status < redeemedStatus {
+			p.redeems++
+		}
+	}
+}
+
+func (s *Swapper) AccountStats(acctAddr string, assetID uint32) (qty, lots uint64, redeems int) {
+	stats := newPendingAccountStats(acctAddr, assetID)
+	s.matchMtx.RLock()
+	defer s.matchMtx.RUnlock()
+	acctMatches := s.acctMatches[assetID]
+	if acctMatches == nil {
+		return // How?
+	}
+	for _, mt := range acctMatches[acctAddr] {
+		stats.addMatch(mt)
+	}
+	return stats.qty, stats.lots, stats.redeems
+}
+
 // ChainsSynced will return true if both specified asset's backends are synced.
 func (s *Swapper) ChainsSynced(base, quote uint32) (bool, error) {
 	b, found := s.coins[base]
 	if !found {
-		return false, fmt.Errorf("No backend found for %d", base)
+		return false, fmt.Errorf("no backend found for %d", base)
 	}
 	baseSynced, err := b.Backend.Synced()
 	if err != nil {
-		return false, fmt.Errorf("Error checking sync status for %d: %w", base, err)
+		return false, fmt.Errorf("error checking sync status for %d: %w", base, err)
 	}
 	if !baseSynced {
 		return false, nil
 	}
 	q, found := s.coins[quote]
 	if !found {
-		return false, fmt.Errorf("No backend found for %d", base)
+		return false, fmt.Errorf("no backend found for %d", base)
 	}
 	quoteSynced, err := q.Backend.Synced()
 	if err != nil {
-		return false, fmt.Errorf("Error checking sync status for %d: %w", quote, err)
+		return false, fmt.Errorf("error checking sync status for %d: %w", quote, err)
 	}
 	return quoteSynced, nil
 }

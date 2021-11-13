@@ -239,7 +239,7 @@ func (eth *Backend) InitTxSize() uint32 {
 // need to be per transaction. Setting this to zero produces the expected
 // result in fee calculations.
 func (eth *Backend) InitTxSizeBase() uint32 {
-	return 0
+	return InitGas
 }
 
 // FeeRate returns the current optimal fee rate in gwei / gas.

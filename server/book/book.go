@@ -33,8 +33,8 @@ type Book struct {
 func New(lotSize uint64) *Book {
 	return &Book{
 		lotSize: lotSize,
-		buys:    NewMaxOrderPQ(initBookHalfCapacity),
-		sells:   NewMinOrderPQ(initBookHalfCapacity),
+		buys:    NewMaxOrderPQ(initBookHalfCapacity, 0),
+		sells:   NewMinOrderPQ(initBookHalfCapacity, 0),
 	}
 }
 
@@ -42,8 +42,8 @@ func New(lotSize uint64) *Book {
 func (b *Book) Clear() {
 	b.mtx.Lock()
 	b.buys, b.sells = nil, nil
-	b.buys = NewMaxOrderPQ(initBookHalfCapacity)
-	b.sells = NewMinOrderPQ(initBookHalfCapacity)
+	b.buys = NewMaxOrderPQ(initBookHalfCapacity, 0)
+	b.sells = NewMinOrderPQ(initBookHalfCapacity, 0)
 	b.mtx.Unlock()
 }
 
@@ -183,3 +183,35 @@ func (b *Book) UnfilledUserSells(user account.AccountID) []*order.LimitOrder {
 	defer b.mtx.RUnlock()
 	return b.sells.UnfilledForUser(user)
 }
+
+func (b *Book) IterateBaseAccount(acctAddr string, f func(lo *order.LimitOrder)) {
+	b.mtx.RLock()
+	defer b.mtx.RUnlock()
+	b.sells.IterateBaseAccount(acctAddr, f)
+	b.buys.IterateBaseAccount(acctAddr, f)
+}
+
+func (b *Book) IterateQuoteAccount(acctAddr string, f func(lo *order.LimitOrder)) {
+	b.mtx.RLock()
+	defer b.mtx.RUnlock()
+	b.sells.IterateQuoteAccount(acctAddr, f)
+	b.buys.IterateQuoteAccount(acctAddr, f)
+}
+
+// func (b *Book) RemainingUserSellQty(user account.AccountID) uint64 {
+// 	var qty uint64
+// 	b.sells.IterateUser(user, func(lo *order.LimitOrder) {
+// 		qty += lo.Quantity - lo.Filled()
+// 	})
+// 	return qty
+// }
+
+// func (b *Book) RemainingUserBuyQty(user account.AccountID) (baseQty, quoteQty uint64) {
+// 	var base, quote uint64
+// 	b.sells.IterateUser(user, func(lo *order.LimitOrder) {
+// 		baseQty := lo.Quantity - lo.Filled()
+// 		base += baseQty
+// 		quote += calc.BaseToQuote(lo.Rate, baseQty)
+// 	})
+// 	return base, quote
+// }
