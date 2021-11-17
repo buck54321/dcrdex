@@ -45,6 +45,10 @@ contract ETHSwap {
     // for free.
     mapping(bytes32 => Swap) public swaps;
 
+    // Swaps is a map of swap secret hashes to swaps. It can be read by anyone
+    // for free.
+    mapping(bytes32 => bytes32) public secrets;
+
     // constructor is empty. This contract has no connection to the original
     // sender after deployed. It can only be interacted with by users
     // initiating, redeeming, and refunding swaps.
@@ -66,7 +70,6 @@ contract ETHSwap {
     // hashes to secretHash.
     modifier isRedeemable(bytes32 secretHash, bytes32 secret) {
         require(swaps[secretHash].state == State.Filled);
-        require(swaps[secretHash].participant == msg.sender);
         require(sha256(abi.encodePacked(secret)) == secretHash);
         _;
     }
@@ -85,6 +88,13 @@ contract ETHSwap {
         public view returns(Swap memory)
     {
         return swaps[secretHash];
+    }
+
+    // spend returns a single swap from the swaps map.
+    function spend(bytes32 secretHash)
+        public view returns(bytes32)
+    {
+        return secrets[secretHash];
     }
 
     struct Initiation {
@@ -157,9 +167,10 @@ contract ETHSwap {
         isRedeemable(secretHash, secret)
     {
         swaps[secretHash].state = State.Redeemed;
-        (bool ok, ) = payable(msg.sender).call{value: swaps[secretHash].value}("");
+        (bool ok, ) = payable(swaps[secretHash].participant).call{value: swaps[secretHash].value}("");
         require(ok == true);
-        swaps[secretHash].secret = secret;
+        delete swaps[secretHash];
+        secrets[secretHash] = secret;
     }
 
 
