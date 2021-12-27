@@ -99,6 +99,7 @@ type WalletState struct {
 	AssetID      uint32         `json:"assetID"`
 	Version      uint32         `json:"version"`
 	WalletType   string         `json:"type"`
+	Traits       WalletTrait    `json:"traits"`
 	Open         bool           `json:"open"`
 	Running      bool           `json:"running"`
 	Balance      *WalletBalance `json:"balance"`
@@ -124,6 +125,13 @@ type SupportedAsset struct {
 	Wallet *WalletState      `json:"wallet"`
 	Info   *asset.WalletInfo `json:"info"`
 }
+
+// func (sa *SupportedAsset) IsRescanner() bool {
+// 	if sa.Wallet == nil {
+// 		return false
+// 	}
+// 	return sa.Wallet.Traits&WalletTraitRescanner != 0
+// }
 
 // RegisterForm is information necessary to register an account on a DEX.
 type RegisterForm struct {

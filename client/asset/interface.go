@@ -227,6 +227,23 @@ type Wallet interface {
 	RegFeeConfirmations(ctx context.Context, coinID dex.Bytes) (confs uint32, err error)
 }
 
+// Rescanner is a wallet implementation with rescan functionality.
+type Rescanner interface {
+	Rescan(ctx context.Context) error
+}
+
+// Sender is a wallet that can send funds to an address, as opposed to
+// withdrawing a certain amount from the source wallet/account.
+type Sender interface {
+	Send(address string, value, feeSuggestion uint64) (Coin, error)
+}
+
+// Sweeper is a wallet that can clear the entire balance of the wallet/account
+// to an address. Similar to Withdraw, but no input value is required.
+type Sweeper interface {
+	Sweep(address string, feeSuggestion uint64) (Coin, error)
+}
+
 // Balance is categorized information about a wallet's balance.
 type Balance struct {
 	// Available is the balance that is available for trading immediately.
