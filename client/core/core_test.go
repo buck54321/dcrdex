@@ -601,6 +601,10 @@ func newTWallet(assetID uint32) (*xcWallet, *TXCWallet) {
 	return xcWallet, w
 }
 
+func (w *TXCWallet) Traits() asset.WalletTrait {
+	return 0
+}
+
 func (w *TXCWallet) Info() *asset.WalletInfo {
 	return &asset.WalletInfo{
 		Version: 0, // match tDCR/tBTC

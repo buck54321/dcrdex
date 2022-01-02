@@ -206,6 +206,11 @@ type ExchangeWallet struct {
 	findRedemptionReqs map[[32]byte]*findRedemptionRequest
 }
 
+// Traits returns the traits for the type of wallet.
+func (*ExchangeWallet) Traits() asset.WalletTrait {
+	return 0 // no special traits, yet
+}
+
 // Info returns basic information about the wallet and asset.
 func (*ExchangeWallet) Info() *asset.WalletInfo {
 	return WalletInfo

@@ -10,6 +10,31 @@ import (
 	"decred.org/dcrdex/dex"
 )
 
+// WalletTrait is a bitset indicating various optional wallet features, such as
+// the presence of auxiliary methods like Rescan and Send.
+type WalletTrait uint64
+
+const (
+	WalletTraitRescanner WalletTrait = 1 << iota // The Wallet is an asset.Rescanner.
+	WalletTraitSender                            // The Wallet is an asset.Sender.
+	WalletTraitSweeper                           // The Wallet is an asset.Sweeper (like Withdraw, but no value input needed).
+)
+
+// IsRescanner tests if the WalletTrait has the WalletTraitRescanner bit set.
+func (wt WalletTrait) IsRescanner() bool {
+	return wt&WalletTraitRescanner != 0
+}
+
+// IsSender tests if the WalletTrait has the WalletTraitSender bit set.
+func (wt WalletTrait) IsSender() bool {
+	return wt&WalletTraitSender != 0
+}
+
+// IsSweeper tests if the WalletTrait has the WalletTraitSweeper bit set.
+func (wt WalletTrait) IsSweeper() bool {
+	return wt&WalletTraitSweeper != 0
+}
+
 // CoinNotFoundError is returned when a coin cannot be found, either because it
 // has been spent or it never existed. This error may be returned from
 // AuditContract, Refund or Redeem as those methods expect the provided coin to
@@ -27,7 +52,9 @@ type WalletDefinition struct {
 	// seed that should be used to set the wallet key(s). This would be
 	// true for built-in wallets.
 	Seeded bool `json:"seeded"`
-	// Type is a string identifying the wallet type.
+	// Type is a string identifying the wallet type. NOTE: There should be a
+	// particular WalletTrait set for any given Type, but wallet construction is
+	// presently required to discern traits.
 	Type string `json:"type"`
 	// Tab is a displayable string for the wallet type. One or two words. First
 	// word capitalized. Displayed on a wallet selection tab.
@@ -105,7 +132,9 @@ type Wallet interface {
 	// It should be assumed that once disconnected, subsequent Connect calls
 	// will fail, requiring a new Wallet instance.
 	dex.Connector
-	// Info returns a set of basic information about the wallet.
+	// Traits returns the traits for the type of wallet.
+	Traits() WalletTrait
+	// Info returns a set of basic information about the wallet driver.
 	Info() *WalletInfo
 	// Balance should return the balance of the wallet, categorized by
 	// available, immature, and locked. Balance takes a list of minimum

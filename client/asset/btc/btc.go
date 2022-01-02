@@ -491,6 +491,7 @@ type ExchangeWallet struct {
 	// 64-bit atomic variables first. See
 	// https://golang.org/pkg/sync/atomic/#pkg-note-BUG
 	tipAtConnect      int64
+	traits            asset.WalletTrait
 	node              Wallet
 	walletInfo        *asset.WalletInfo
 	chainParams       *chaincfg.Params
@@ -642,6 +643,7 @@ func newRPCWallet(requester RawRequesterWithContext, cfg *BTCCloneCFG, walletCon
 	}
 	btc.node = newRPCClient(requester, cfg.Segwit, btc.decodeAddr, cfg.ArglessChangeAddrRPC,
 		cfg.LegacyRawFeeLimit, cfg.MinNetworkVersion, cfg.Logger.SubLogger("RPC"), cfg.ChainParams)
+	// No special btc.traits to set.
 	return btc, nil
 }
 
@@ -730,11 +732,17 @@ func openSPVWallet(cfg *BTCCloneCFG) (*ExchangeWallet, error) {
 	}
 
 	btc.node = loadSPVWallet(cfg.WalletCFG.DataDir, cfg.Logger.SubLogger("SPV"), peers, cfg.ChainParams)
+	btc.traits = asset.WalletTraitRescanner
 
 	return btc, nil
 }
 
 var _ asset.Wallet = (*ExchangeWallet)(nil)
+
+// Traits returns the traits for the type of wallet.
+func (btc *ExchangeWallet) Traits() asset.WalletTrait {
+	return btc.traits
+}
 
 // Info returns basic information about the wallet and asset.
 func (btc *ExchangeWallet) Info() *asset.WalletInfo {

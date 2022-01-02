@@ -1894,7 +1894,6 @@ func (c *Core) loadWallet(dbWallet *db.Wallet) (*xcWallet, error) {
 		address:    dbWallet.Address,
 		dbID:       dbWallet.ID(),
 		walletType: dbWallet.Type,
-		traits:     determineWalletTraits(w),
 	}, nil
 }
 

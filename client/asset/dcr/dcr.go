@@ -495,6 +495,11 @@ func unconnectedWallet(cfg *asset.WalletConfig, dcrCfg *Config, chainParams *cha
 	}, nil
 }
 
+// Traits returns the traits for the type of wallet.
+func (*ExchangeWallet) Traits() asset.WalletTrait {
+	return 0 // no special traits
+}
+
 // Info returns basic information about the wallet and asset.
 func (dcr *ExchangeWallet) Info() *asset.WalletInfo {
 	return WalletInfo

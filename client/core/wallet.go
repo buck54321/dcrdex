@@ -14,45 +14,6 @@ import (
 	"decred.org/dcrdex/dex/encrypt"
 )
 
-// WalletTrait is a bitset indicating various optional wallet features, such as
-// the presence of auxiliary methods like Rescan and Send.
-type WalletTrait uint64
-
-const (
-	WalletTraitRescanner WalletTrait = 1 << iota
-	WalletTraitSender                // a Send method to complement Withdraw
-	WalletTraitSweeper               // like Withdraw, but no value input needed
-)
-
-func determineWalletTraits(w asset.Wallet) WalletTrait {
-	var traits WalletTrait
-	if _, is := w.(asset.Rescanner); is {
-		traits |= WalletTraitRescanner
-	}
-	if _, is := w.(asset.Sender); is {
-		traits |= WalletTraitSender
-	}
-	if _, is := w.(asset.Sweeper); is {
-		traits |= WalletTraitSweeper
-	}
-	return traits
-}
-
-// IsRescanner tests if the WalletTrait has the WalletTraitRescanner bit set.
-func (wt WalletTrait) IsRescanner() bool {
-	return wt&WalletTraitRescanner == WalletTraitRescanner
-}
-
-// IsSender tests if the WalletTrait has the WalletTraitSender bit set.
-func (wt WalletTrait) IsSender() bool {
-	return wt&WalletTraitSender == WalletTraitSender
-}
-
-// IsSweeper tests if the WalletTrait has the WalletTraitSweeper bit set.
-func (wt WalletTrait) IsSweeper() bool {
-	return wt&WalletTraitSweeper == WalletTraitSweeper
-}
-
 // xcWallet is a wallet. Use (*Core).loadWallet to construct a xcWallet.
 type xcWallet struct {
 	asset.Wallet
@@ -60,7 +21,6 @@ type xcWallet struct {
 	AssetID    uint32
 	dbID       []byte
 	walletType string
-	traits     WalletTrait
 
 	mtx          sync.RWMutex
 	encPass      []byte // empty means wallet not password protected
@@ -193,7 +153,7 @@ func (w *xcWallet) state() *WalletState {
 		Synced:       w.synced,
 		SyncProgress: w.syncProgress,
 		WalletType:   w.walletType,
-		Traits:       w.traits,
+		Traits:       w.Traits(),
 	}
 }
 

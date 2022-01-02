@@ -95,19 +95,19 @@ type WalletBalance struct {
 
 // WalletState is the current status of an exchange wallet.
 type WalletState struct {
-	Symbol       string         `json:"symbol"`
-	AssetID      uint32         `json:"assetID"`
-	Version      uint32         `json:"version"`
-	WalletType   string         `json:"type"`
-	Traits       WalletTrait    `json:"traits"`
-	Open         bool           `json:"open"`
-	Running      bool           `json:"running"`
-	Balance      *WalletBalance `json:"balance"`
-	Address      string         `json:"address"`
-	Units        string         `json:"units"`
-	Encrypted    bool           `json:"encrypted"`
-	Synced       bool           `json:"synced"`
-	SyncProgress float32        `json:"syncProgress"`
+	Symbol       string            `json:"symbol"`
+	AssetID      uint32            `json:"assetID"`
+	Version      uint32            `json:"version"`
+	WalletType   string            `json:"type"`
+	Traits       asset.WalletTrait `json:"traits"`
+	Open         bool              `json:"open"`
+	Running      bool              `json:"running"`
+	Balance      *WalletBalance    `json:"balance"`
+	Address      string            `json:"address"`
+	Units        string            `json:"units"`
+	Encrypted    bool              `json:"encrypted"`
+	Synced       bool              `json:"synced"`
+	SyncProgress float32           `json:"syncProgress"`
 }
 
 // User is information about the user's wallets and DEX accounts.
@@ -125,13 +125,6 @@ type SupportedAsset struct {
 	Wallet *WalletState      `json:"wallet"`
 	Info   *asset.WalletInfo `json:"info"`
 }
-
-// func (sa *SupportedAsset) IsRescanner() bool {
-// 	if sa.Wallet == nil {
-// 		return false
-// 	}
-// 	return sa.Wallet.Traits&WalletTraitRescanner != 0
-// }
 
 // RegisterForm is information necessary to register an account on a DEX.
 type RegisterForm struct {

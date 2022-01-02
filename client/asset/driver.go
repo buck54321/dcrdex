@@ -93,7 +93,9 @@ func CreateWallet(assetID uint32, seedParams *CreateWalletParams) error {
 	})
 }
 
-// OpenWallet sets up the asset, returning the exchange wallet.
+// OpenWallet sets up the asset, returning the exchange wallet. NOTE: We could
+// return WalletTraits separately, but the Wallet instead provides a Traits
+// method to keep the information with the wallet itself.
 func OpenWallet(assetID uint32, cfg *WalletConfig, logger dex.Logger, net dex.Network) (w Wallet, err error) {
 	return w, withDriver(assetID, func(drv Driver) error {
 		w, err = drv.Open(cfg, logger, net)
