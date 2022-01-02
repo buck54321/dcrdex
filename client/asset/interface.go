@@ -15,9 +15,10 @@ import (
 type WalletTrait uint64
 
 const (
-	WalletTraitRescanner WalletTrait = 1 << iota // The Wallet is an asset.Rescanner.
-	WalletTraitSender                            // The Wallet is an asset.Sender.
-	WalletTraitSweeper                           // The Wallet is an asset.Sweeper (like Withdraw, but no value input needed).
+	WalletTraitRescanner     WalletTrait = 1 << iota // The Wallet is an asset.Rescanner.
+	WalletTraitSender                                // The Wallet is an asset.Sender.
+	WalletTraitSweeper                               // The Wallet is an asset.Sweeper (like Withdraw, but no value input needed).
+	WalletTraitSingleAddress                         // The Address method will always returns the same address.
 )
 
 // IsRescanner tests if the WalletTrait has the WalletTraitRescanner bit set.
@@ -33,6 +34,12 @@ func (wt WalletTrait) IsSender() bool {
 // IsSweeper tests if the WalletTrait has the WalletTraitSweeper bit set.
 func (wt WalletTrait) IsSweeper() bool {
 	return wt&WalletTraitSweeper != 0
+}
+
+// IsSingleAddresser tests if the WalletTrait has the WalletTraitSingleAddress
+// bit set.
+func (wt WalletTrait) IsSingleAddresser() bool {
+	return wt&WalletTraitSingleAddress != 0
 }
 
 // CoinNotFoundError is returned when a coin cannot be found, either because it
