@@ -491,7 +491,6 @@ type ExchangeWallet struct {
 	// 64-bit atomic variables first. See
 	// https://golang.org/pkg/sync/atomic/#pkg-note-BUG
 	tipAtConnect      int64
-	traits            asset.WalletTrait
 	node              Wallet
 	walletInfo        *asset.WalletInfo
 	chainParams       *chaincfg.Params
@@ -732,17 +731,11 @@ func openSPVWallet(cfg *BTCCloneCFG) (*ExchangeWallet, error) {
 	}
 
 	btc.node = loadSPVWallet(cfg.WalletCFG.DataDir, cfg.Logger.SubLogger("SPV"), peers, cfg.ChainParams)
-	btc.traits = asset.WalletTraitRescanner
 
 	return btc, nil
 }
 
 var _ asset.Wallet = (*ExchangeWallet)(nil)
-
-// Traits returns the traits for the type of wallet.
-func (btc *ExchangeWallet) Traits() asset.WalletTrait {
-	return btc.traits
-}
 
 // Info returns basic information about the wallet and asset.
 func (btc *ExchangeWallet) Info() *asset.WalletInfo {
@@ -2300,6 +2293,10 @@ func (btc *ExchangeWallet) Address() (string, error) {
 		return "", err
 	}
 	return addr.String(), nil
+}
+
+func (btc *ExchangeWallet) NewAddress() (string, error) {
+	return btc.Address()
 }
 
 // PayFee sends the dex registration fee. Transaction fees are in addition to

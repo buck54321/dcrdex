@@ -15,10 +15,10 @@ import (
 type WalletTrait uint64
 
 const (
-	WalletTraitRescanner     WalletTrait = 1 << iota // The Wallet is an asset.Rescanner.
-	WalletTraitSender                                // The Wallet is an asset.Sender.
-	WalletTraitSweeper                               // The Wallet is an asset.Sweeper (like Withdraw, but no value input needed).
-	WalletTraitSingleAddress                         // The Address method will always returns the same address.
+	WalletTraitRescanner    WalletTrait = 1 << iota // The Wallet is an asset.Rescanner.
+	WalletTraitSender                               // The Wallet is an asset.Sender.
+	WalletTraitSweeper                              // The Wallet is an asset.Sweeper (like Withdraw, but no value input needed).
+	WalletTraitNewAddresser                         // The Address method will always returns the same address.
 )
 
 // IsRescanner tests if the WalletTrait has the WalletTraitRescanner bit set.
@@ -36,10 +36,26 @@ func (wt WalletTrait) IsSweeper() bool {
 	return wt&WalletTraitSweeper != 0
 }
 
-// IsSingleAddresser tests if the WalletTrait has the WalletTraitSingleAddress
+// IsNewAddresser tests if the WalletTrait has the WalletTraitNewAddresser
 // bit set.
-func (wt WalletTrait) IsSingleAddresser() bool {
-	return wt&WalletTraitSingleAddress != 0
+func (wt WalletTrait) IsNewAddresser() bool {
+	return wt&WalletTraitNewAddresser != 0
+}
+
+func CalcWalletTraits(w Wallet) (t WalletTrait) {
+	if _, is := w.(Rescanner); is {
+		t |= WalletTraitRescanner
+	}
+	if _, is := w.(Sender); is {
+		t |= WalletTraitSender
+	}
+	if _, is := w.(Sweeper); is {
+		t |= WalletTraitSweeper
+	}
+	if _, is := w.(NewAddresser); is {
+		t |= WalletTraitNewAddresser
+	}
+	return t
 }
 
 // CoinNotFoundError is returned when a coin cannot be found, either because it
@@ -139,8 +155,6 @@ type Wallet interface {
 	// It should be assumed that once disconnected, subsequent Connect calls
 	// will fail, requiring a new Wallet instance.
 	dex.Connector
-	// Traits returns the traits for the type of wallet.
-	Traits() WalletTrait
 	// Info returns a set of basic information about the wallet driver.
 	Info() *WalletInfo
 	// Balance should return the balance of the wallet, categorized by
@@ -278,6 +292,11 @@ type Sender interface {
 // to an address. Similar to Withdraw, but no input value is required.
 type Sweeper interface {
 	Sweep(address string, feeSuggestion uint64) (Coin, error)
+}
+
+// NewAddresser is a wallet that can generate new deposit addresses.
+type NewAddresser interface {
+	NewAddress() (string, error)
 }
 
 // Balance is categorized information about a wallet's balance.

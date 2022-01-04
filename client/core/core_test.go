@@ -601,10 +601,6 @@ func newTWallet(assetID uint32) (*xcWallet, *TXCWallet) {
 	return xcWallet, w
 }
 
-func (w *TXCWallet) Traits() asset.WalletTrait {
-	return 0
-}
-
 func (w *TXCWallet) Info() *asset.WalletInfo {
 	return &asset.WalletInfo{
 		Version: 0, // match tDCR/tBTC
@@ -732,6 +728,10 @@ func (w *TXCWallet) Refund(dex.Bytes, dex.Bytes, uint64) (dex.Bytes, error) {
 }
 
 func (w *TXCWallet) Address() (string, error) {
+	return "", w.addrErr
+}
+
+func (w *TXCWallet) NewAddress() (string, error) {
 	return "", w.addrErr
 }
 
