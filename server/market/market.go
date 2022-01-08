@@ -308,7 +308,7 @@ ordersLoop:
 
 			if errors.Is(err, asset.CoinNotFoundError) {
 				// spent, exclude this order
-				coin, _ := asset.DecodeCoinID(dex.BipIDSymbol(assetID), lo.Coins[i]) // coin decoding succeeded in CheckUnspent
+				coin, _ := asset.DecodeCoinID(assetID, lo.Coins[i]) // coin decoding succeeded in CheckUnspent
 				log.Warnf("Coin %s not unspent for unfilled order %v. "+
 					"Revoking the order.", coin, lo)
 			} else {
@@ -1053,7 +1053,7 @@ orders:
 			// Final fill amount check in case it was matched after we pulled
 			// the list of unfilled orders from the book.
 			if lo.Filled() == 0 {
-				coin, _ := asset.DecodeCoinID(dex.BipIDSymbol(assetID), lo.Coins[i]) // coin decoding succeeded in CheckUnspent
+				coin, _ := asset.DecodeCoinID(assetID, lo.Coins[i]) // coin decoding succeeded in CheckUnspent
 				log.Warnf("Coin %s not unspent for unfilled order %v. "+
 					"Revoking the order.", coin, lo)
 				m.Unbook(lo)

@@ -19,17 +19,26 @@ var (
 	defaultIPC = filepath.Join(ethHomeDir, "geth/geth.ipc")
 )
 
-type config struct {
+type netConfig struct {
 	// ipc is the location of the inner process communication socket.
 	ipc string
 	// network is the network the dex is meant to be running on.
 	network dex.Network
 }
 
+// For tokens, the file at the config path can contain overrides for
+// token gas values. Gas used for token swaps is dependent on the token contract
+// implementation, and can change without notice. The operator can specify
+// custom gas values to be used for funding balance validation calculations.
+type configuredTokenGases struct {
+	Swap   uint64 `ini:"swap"`
+	Redeem uint64 `ini:"redeem"`
+}
+
 // load checks the network and sets the ipc location if not supplied.
 //
 // TODO: Test this with windows.
-func load(ipc string, network dex.Network) (*config, error) {
+func load(ipc string, network dex.Network) (*netConfig, error) {
 	switch network {
 	case dex.Simnet:
 	case dex.Testnet:
@@ -40,7 +49,7 @@ func load(ipc string, network dex.Network) (*config, error) {
 		return nil, fmt.Errorf("unknown network ID: %d", uint8(network))
 	}
 
-	cfg := &config{
+	cfg := &netConfig{
 		ipc:     ipc,
 		network: network,
 	}

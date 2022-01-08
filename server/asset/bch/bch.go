@@ -42,10 +42,11 @@ func (d *Driver) UnitInfo() dex.UnitInfo {
 }
 
 func init() {
-	asset.Register(assetName, &Driver{})
+	asset.Register(BipID, &Driver{})
 }
 
 const (
+	BipID     = 145
 	version   = 0
 	assetName = "bch"
 )

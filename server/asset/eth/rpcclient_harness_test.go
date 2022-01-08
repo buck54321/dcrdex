@@ -108,7 +108,7 @@ func TestSuggestGasPrice(t *testing.T) {
 func TestSwap(t *testing.T) {
 	var secretHash [32]byte
 	copy(secretHash[:], encode.RandomBytes(32))
-	_, err := ethClient.swap(ctx, secretHash)
+	_, err := ethClient.swap(ctx, BipID, secretHash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestAccountBalance(t *testing.T) {
 	addr := common.HexToAddress(alphaAddress)
 	const vGwei = 1e7
 
-	balBefore, err := ethClient.accountBalance(ctx, addr)
+	balBefore, err := ethClient.accountBalance(ctx, BipID, addr)
 	if err != nil {
 		t.Fatalf("accountBalance error: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestAccountBalance(t *testing.T) {
 		t.Fatalf("send error: %v", err)
 	}
 
-	balAfter, err := ethClient.accountBalance(ctx, addr)
+	balAfter, err := ethClient.accountBalance(ctx, BipID, addr)
 	if err != nil {
 		t.Fatalf("accountBalance error: %v", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 
+	"decred.org/dcrdex/dex"
 	"decred.org/dcrdex/server/asset"
 	_ "decred.org/dcrdex/server/asset/bch"
 	_ "decred.org/dcrdex/server/asset/btc"
@@ -23,6 +24,12 @@ func main() {
 	flag.StringVar(&symbol, "asset", "dcr", "Symbol of asset for the coin ID to decode.")
 	flag.Parse()
 
+	assetID, found := dex.BipSymbolID(symbol)
+	if !found {
+		fmt.Fprintf(os.Stderr, "asset %s not known \n", symbol)
+		os.Exit(1)
+	}
+
 	if n := flag.NArg(); n != 1 {
 		fmt.Fprintf(os.Stderr, "expected 1 argument, got %v\n", n)
 		os.Exit(1)
@@ -33,7 +40,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
-	coinIDStr, err := asset.DecodeCoinID(symbol, coinID)
+	coinIDStr, err := asset.DecodeCoinID(assetID, coinID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)

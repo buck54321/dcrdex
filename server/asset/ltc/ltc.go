@@ -40,10 +40,11 @@ func (d *Driver) Version() uint32 {
 }
 
 func init() {
-	asset.Register(assetName, &Driver{})
+	asset.Register(BipID, &Driver{})
 }
 
 const (
+	BipID     = 2
 	version   = 0
 	assetName = "ltc"
 )

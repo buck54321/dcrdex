@@ -469,7 +469,7 @@ func (r *OrderRouter) processTrade(oRecord *orderRecord, tunnel MarketTunnel, as
 		}
 		// TODO: Check all markets here?
 		if tunnel.CoinLocked(assets.funding.ID, coinID) {
-			return msgjson.NewError(msgjson.FundingError, fmt.Sprintf("coin %s is locked", fmtCoinID(assets.funding.Symbol, coinID)))
+			return msgjson.NewError(msgjson.FundingError, fmt.Sprintf("coin %s is locked", fmtCoinID(assets.funding.ID, coinID)))
 		}
 		coinStrs = append(coinStrs, coinStr)
 	}
@@ -945,8 +945,8 @@ func msgBytesToBytes(msgBs []msgjson.Bytes) [][]byte {
 
 // fmtCoinID formats the coin ID by asset. If an error is encountered, the
 // coinID string returned hex-encoded and prepended with "unparsed:".
-func fmtCoinID(symbol string, coinID []byte) string {
-	strID, err := asset.DecodeCoinID(symbol, coinID)
+func fmtCoinID(assetID uint32, coinID []byte) string {
+	strID, err := asset.DecodeCoinID(assetID, coinID)
 	if err != nil {
 		return "unparsed:" + hex.EncodeToString(coinID)
 	}

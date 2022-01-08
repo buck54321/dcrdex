@@ -11,7 +11,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"math/big"
-	"time"
 
 	"decred.org/dcrdex/client/asset"
 	"decred.org/dcrdex/dex"
@@ -154,15 +153,7 @@ func (c *contractorV0) swap(ctx context.Context, secretHash [32]byte) (*dexeth.S
 		return nil, err
 	}
 
-	return &dexeth.SwapState{
-		BlockHeight: state.InitBlockNumber.Uint64(),
-		LockTime:    time.Unix(state.RefundBlockTimestamp.Int64(), 0),
-		Secret:      state.Secret,
-		Initiator:   state.Initiator,
-		Participant: state.Participant,
-		Value:       dexeth.WeiToGwei(state.Value),
-		State:       dexeth.SwapStep(state.State),
-	}, nil
+	return dexeth.SwapStateFromV0(&state), nil
 }
 
 func (c *contractorV0) refund(txOpts *bind.TransactOpts, secretHash [32]byte) (*types.Transaction, error) {

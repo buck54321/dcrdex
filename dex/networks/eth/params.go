@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"decred.org/dcrdex/dex"
+	v0 "decred.org/dcrdex/dex/networks/eth/contracts/v0"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -174,6 +175,18 @@ type SwapState struct {
 	State       SwapStep
 }
 
+func SwapStateFromV0(state *v0.ETHSwapSwap) *SwapState {
+	return &SwapState{
+		BlockHeight: state.InitBlockNumber.Uint64(),
+		LockTime:    time.Unix(state.RefundBlockTimestamp.Int64(), 0),
+		Secret:      state.Secret,
+		Initiator:   state.Initiator,
+		Participant: state.Participant,
+		Value:       WeiToGwei(state.Value),
+		State:       SwapStep(state.State),
+	}
+}
+
 // Initiation is the data used to initiate a swap.
 type Initiation struct {
 	LockTime    time.Time
@@ -230,18 +243,18 @@ var Tokens = map[uint32]*dex.Token{
 	},
 }
 
-func VersionedNetworkToken(assetID uint32, contractVer uint32, net dex.Network) (*dex.Token, *dex.TokenAddresses, common.Address, error) {
+func VersionedNetworkToken(assetID uint32, contractVer uint32, net dex.Network) (token *dex.Token, tokenAddr, contractAddr common.Address, err error) {
 	token, found := Tokens[assetID]
 	if !found {
-		return nil, nil, common.Address{}, fmt.Errorf("token %d not found", assetID)
+		return nil, common.Address{}, common.Address{}, fmt.Errorf("token %d not found", assetID)
 	}
 	addrs, found := token.NetAddresses[net]
 	if !found {
-		return nil, nil, common.Address{}, fmt.Errorf("token %d has no network %s", assetID, net)
+		return nil, common.Address{}, common.Address{}, fmt.Errorf("token %d has no network %s", assetID, net)
 	}
-	contractAddr, found := addrs.SwapContracts[contractVer]
+	contractAddr, found = addrs.SwapContracts[contractVer]
 	if !found {
-		return nil, nil, common.Address{}, fmt.Errorf("token %d version %d has no network %s token info", assetID, contractVer, net)
+		return nil, common.Address{}, common.Address{}, fmt.Errorf("token %d version %d has no network %s token info", assetID, contractVer, net)
 	}
-	return token, addrs, contractAddr, nil
+	return token, addrs.Address, contractAddr, nil
 }
