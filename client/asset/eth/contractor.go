@@ -18,6 +18,7 @@ import (
 	"decred.org/dcrdex/dex/encode"
 	dexeth "decred.org/dcrdex/dex/networks/eth"
 	swapv0 "decred.org/dcrdex/dex/networks/eth/contracts/v0"
+	swapv1 "decred.org/dcrdex/dex/networks/eth/contracts/v1"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -57,6 +58,18 @@ type contractV0 interface {
 	IsRefundable(opts *bind.CallOpts, secretHash [32]byte) (bool, error)
 }
 
+var _ contractV0 = (*swapv0.ETHSwap)(nil)
+
+type contractV1 interface {
+	Initiate(opts *bind.TransactOpts, contracts []swapv1.ETHSwapContract) (*types.Transaction, error)
+	Redeem(opts *bind.TransactOpts, redemptions []swapv1.ETHSwapRedemption) (*types.Transaction, error)
+	State(opts *bind.CallOpts, c swapv1.ETHSwapContract) (uint8, error)
+	Refund(opts *bind.TransactOpts, c swapv1.ETHSwapContract) (*types.Transaction, error)
+	IsRedeemable(opts *bind.CallOpts, c swapv1.ETHSwapContract) (bool, error)
+}
+
+var _ contractV1 = (*swapv1.ETHSwap)(nil)
+
 // contractorV0 is the contractor for contract version 0.
 // Redeem and Refund methods of swapv0.ETHSwap already have suitable return types.
 type contractorV0 struct {
@@ -66,6 +79,8 @@ type contractorV0 struct {
 	contractAddr common.Address
 	acctAddr     common.Address
 }
+
+var _ contractor = (*contractorV0)(nil)
 
 func newV0contractor(net dex.Network, acctAddr common.Address, ec *ethclient.Client) (contractor, error) {
 	contractAddr, exists := dexeth.ContractAddresses[0][net]
@@ -262,6 +277,151 @@ func (c *contractorV0) incomingValue(ctx context.Context, tx *types.Transaction)
 	return swap.Value, nil
 }
 
+type contractorV1 struct {
+	contractV1
+	abi          *abi.ABI
+	net          dex.Network
+	contractAddr common.Address
+	acctAddr     common.Address
+	be           bind.ContractBackend
+}
+
+// var _ contractor = (*contractorV1)(nil)
+
+func newV1contractor(net dex.Network, acctAddr common.Address, ec *ethclient.Client) (*contractorV1, error) {
+	contractAddr, exists := dexeth.ContractAddresses[1][net]
+	if !exists || contractAddr == (common.Address{}) {
+		return nil, fmt.Errorf("no contract address for version 0, net %s", net)
+	}
+	c, err := swapv1.NewETHSwap(contractAddr, ec)
+	if err != nil {
+		return nil, err
+	}
+	return &contractorV1{
+		contractV1:   c,
+		abi:          dexeth.ABIs[1],
+		net:          net,
+		contractAddr: contractAddr,
+		acctAddr:     acctAddr,
+		be:           ec,
+	}, nil
+}
+
+func (c *contractorV1) swap(ctx context.Context, secretHash [32]byte) (*dexeth.SwapState, error) {
+	return nil, nil
+}
+
+func (c *contractorV1) initiate(txOpts *bind.TransactOpts, contracts []*asset.Contract) (*types.Transaction, error) {
+	versionedContracts := make([]swapv1.ETHSwapContract, 0, len(contracts))
+	for _, contract := range contracts {
+		versionedContracts = append(versionedContracts, ContractToV1(c.acctAddr, contract))
+	}
+	return c.Initiate(txOpts, versionedContracts)
+}
+
+func (c *contractorV1) redeem(txOpts *bind.TransactOpts, redeems []*asset.Redemption) (*types.Transaction, error) {
+	versionedRedemptions := make([]swapv1.ETHSwapRedemption, 0, len(redeems))
+	for _, r := range redeems {
+		var initiator common.Address
+		copy(initiator[:], r.Spends.Coin.ID())
+		versionedRedemptions = append(versionedRedemptions, RedemptionToV1(initiator, c.acctAddr, r))
+	}
+	return c.Redeem(txOpts, versionedRedemptions)
+}
+
+// This one breaks contractor, since we need the entire *asset.Contract, not just
+// the secret hash.
+func (c *contractorV1) refund(txOpts *bind.TransactOpts, secretHash [32]byte) (*types.Transaction, error) {
+	// func (c *contractorV1) refund(txOpts *bind.TransactOpts, contract *asset.Contract) (*types.Transaction, error) {
+	// 	return c.Refund(txOpts, ContractToV2(c.acctAddr, contract))
+	return nil, nil
+}
+
+func (c *contractorV1) estimateInitGas(ctx context.Context, n int) (uint64, error) {
+	initiations := make([]swapv1.ETHSwapContract, 0, n)
+	for j := 0; j < n; j++ {
+		var secretHash [32]byte
+		copy(secretHash[:], encode.RandomBytes(32))
+		initiations = append(initiations, swapv1.ETHSwapContract{
+			RefundTimestamp: 1,
+			SecretHash:      secretHash,
+			Participant:     c.acctAddr,
+			Value:           1,
+		})
+	}
+	data, err := c.abi.Pack("initiate", initiations)
+	if err != nil {
+		return 0, nil
+	}
+
+	return c.be.EstimateGas(ctx, ethereum.CallMsg{
+		From:  c.acctAddr,
+		To:    &c.contractAddr,
+		Value: big.NewInt(int64(n)),
+		Gas:   0,
+		Data:  data,
+	})
+}
+
+func (c *contractorV1) estimateRedeemGas(ctx context.Context, secrets [][32]byte) (uint64, error) {
+	return 0, nil
+}
+
+func (c *contractorV1) estimateRefundGas(ctx context.Context, secretHash [32]byte) (uint64, error) {
+	return 0, nil
+}
+
+func (c *contractorV1) isRedeemable(secretHash, secret [32]byte) (bool, error) {
+	return false, nil
+}
+
+func (c *contractorV1) incomingValue(context.Context, *types.Transaction) (uint64, error) {
+	return 0, nil
+}
+
+func (c *contractorV1) isRefundable(secretHash [32]byte) (bool, error) {
+	return false, nil
+}
+
+func ContractToV1(initiator common.Address, c *asset.Contract) swapv1.ETHSwapContract {
+	var secretHash [32]byte
+	copy(secretHash[:], c.SecretHash)
+	return swapv1.ETHSwapContract{
+		SecretHash:      secretHash,
+		Initiator:       initiator,
+		RefundTimestamp: c.LockTime,
+		Participant:     common.HexToAddress(c.Address),
+		Value:           c.Value,
+	}
+}
+
+func RedemptionToV1(initiator, participant common.Address, r *asset.Redemption) swapv1.ETHSwapRedemption {
+	spend := r.Spends
+	var secret, secretHash [32]byte
+	copy(secret[:], r.Secret)
+	copy(secretHash[:], spend.SecretHash)
+	return swapv1.ETHSwapRedemption{
+		C: swapv1.ETHSwapContract{
+			SecretHash:      secretHash,
+			Initiator:       initiator,
+			RefundTimestamp: uint64(spend.Expiration.Unix()),
+			Participant:     participant,
+			Value:           spend.Coin.Value(),
+		},
+		Secret: secret,
+	}
+}
+
+// readOnlyCallOpts is the CallOpts used for read-only contract method calls.
+func readOnlyCallOpts(ctx context.Context) *bind.CallOpts {
+	return &bind.CallOpts{
+		Pending: true,
+		Context: ctx,
+	}
+}
+
 var contractorConstructors = map[uint32]contractorConstructor{
 	0: newV0contractor,
+	// 1: newV1contractor,
+	// 2: newV2contractor,
 }

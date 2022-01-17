@@ -65,6 +65,7 @@ const (
 var (
 	homeDir                   = os.Getenv("HOME")
 	ethSwapContractAddrFile   = filepath.Join(homeDir, "dextest", "eth", "eth_swap_contract_address.txt")
+	ethSwapContractAddrFileV1 = filepath.Join(homeDir, "dextest", "eth", "eth_swap_contract_address_v1.txt")
 	tokenSwapContractAddrFile = filepath.Join(homeDir, "dextest", "eth", "erc20_swap_contract_address.txt")
 	testTokenContractAddrFile = filepath.Join(homeDir, "dextest", "eth", "test_token_contract_address.txt")
 	simnetWalletDir           = filepath.Join(homeDir, "dextest", "eth", "client_rpc_tests", "simnet")
@@ -83,6 +84,7 @@ var (
 	participantAcct       = &accounts.Account{Address: participantAddr}
 	participantEthClient  *nodeClient
 	ethSwapContractAddr   common.Address
+	ethSwapContractAddrV1 common.Address
 	tokenSwapContractAddr common.Address
 	testTokenContractAddr common.Address
 	simnetID              int64  = 42
@@ -127,6 +129,13 @@ out:
 			if err != nil {
 				return err
 			}
+			if len(txs) > 0 {
+				continue
+			}
+			txs, err = participantEthClient.pendingTransactions()
+			if err != nil {
+				return err
+			}
 			if len(txs) == 0 {
 				break out
 			}
@@ -168,12 +177,21 @@ func TestMain(m *testing.M) {
 		if err != nil {
 			return 1, fmt.Errorf("error creating participant wallet dir: %v", err)
 		}
+
 		ethSwapContractAddr, err = getContractAddrFromFile(ethSwapContractAddrFile)
 		if err != nil {
 			return 1, err
 		}
 		dexeth.ContractAddresses[0][dex.Simnet] = ethSwapContractAddr
 		fmt.Printf("ETH swap contract address is %v\n", ethSwapContractAddr)
+
+		ethSwapContractAddrV1, err = getContractAddrFromFile(ethSwapContractAddrFileV1)
+		if err != nil {
+			return 1, err
+		}
+		dexeth.ContractAddresses[1] = map[dex.Network]common.Address{dex.Simnet: ethSwapContractAddrV1}
+		fmt.Printf("ETH v1 swap contract address is %v\n", ethSwapContractAddrV1)
+
 		tokenSwapContractAddr, err = getContractAddrFromFile(tokenSwapContractAddrFile)
 		if err != nil {
 			return 1, err
@@ -2191,6 +2209,128 @@ func testSignMessage(t *testing.T) {
 	if !crypto.VerifySignature(pubKey, crypto.Keccak256(msg), sig) {
 		t.Fatalf("failed to verify signature")
 	}
+}
+
+func TestV1ContractGas(t *testing.T) {
+	if err := ethClient.unlock(pw); err != nil {
+		t.Fatalf("initiator unlock error: %v", err)
+	}
+	if err := participantEthClient.unlock(pw); err != nil {
+		t.Fatalf("participant unlock error: %v", err)
+	}
+
+	initiatorContractor, err := newV1contractor(dex.Simnet, simnetAddr, ethClient.ec)
+	if err != nil {
+		t.Fatalf("initiator newV2contractor error: %v", err)
+	}
+
+	participantContractor, err := newV1contractor(dex.Simnet, participantAddr, participantEthClient.ec)
+	if err != nil {
+		t.Fatalf("initiator newV2contractor error: %v", err)
+	}
+
+	newContract := func() (*asset.Contract, *asset.Redemption) {
+		var secret [32]byte
+		copy(secret[:], encode.RandomBytes(32))
+		secretHash := sha256.Sum256(secret[:])
+		now := time.Now()
+
+		contract := &asset.Contract{
+			Address:    participantAddr.String(),
+			Value:      1,
+			SecretHash: secretHash[:],
+			LockTime:   uint64(now.Unix()),
+		}
+		return contract, &asset.Redemption{
+			Spends: &asset.AuditInfo{
+				SecretHash: contract.SecretHash,
+				Recipient:  contract.Address,
+				Coin:       &auditCoin{initiator: simnetAddr, value: 1},
+				Expiration: now,
+			},
+			Secret: secret[:],
+		}
+	}
+
+	var swapGases []uint64
+	var redeemGases []uint64
+
+	var maxSwaps int = 5
+
+	for numSwaps := 1; numSwaps <= maxSwaps; numSwaps++ {
+		contracts := make([]*asset.Contract, 0, numSwaps)
+		redemptions := make([]*asset.Redemption, 0, numSwaps)
+		for i := 0; i < numSwaps; i++ {
+			c, r := newContract()
+			contracts = append(contracts, c)
+			redemptions = append(redemptions, r)
+		}
+
+		txOpts, _ := ethClient.txOpts(ctx, uint64(numSwaps), 300_000, nil)
+		if err := ethClient.addSignerToOpts(txOpts); err != nil {
+			t.Fatalf("addSignerToOpts error: %v", err)
+		}
+		tx, err := initiatorContractor.initiate(txOpts, contracts)
+		if err != nil {
+			t.Fatalf("initiate error: %v", err)
+		}
+
+		if err := waitForMined(t, time.Second*10, false); err != nil {
+			t.Fatal(err)
+		}
+
+		initReceipt, err := ethClient.transactionReceipt(ctx, tx.Hash())
+		if err != nil {
+			t.Fatalf("error getting initiation receipt: %v", err)
+		}
+
+		if initReceipt.Status != 1 {
+			t.Fatalf("initiation not successful")
+		}
+
+		if err := waitForMined(t, time.Second*10, false); err != nil {
+			t.Fatal(err)
+		}
+
+		swapGases = append(swapGases, initReceipt.GasUsed)
+		fmt.Println("######## Swap gas for", numSwaps, "swaps:", initReceipt.GasUsed)
+
+		// Give the participant a second to sync? Should handle this in
+		// waitForMined.
+		time.Sleep(time.Second * 3)
+
+		txOpts, _ = participantEthClient.txOpts(ctx, 0, 300_000, nil)
+		if err := participantEthClient.addSignerToOpts(txOpts); err != nil {
+			t.Fatalf("addSignerToOpts error: %v", err)
+		}
+		tx, err = participantContractor.redeem(txOpts, redemptions)
+		if err != nil {
+			t.Fatalf("redeem error: %v", err)
+		}
+
+		if err := waitForMined(t, time.Second*10, false); err != nil {
+			t.Fatal(err)
+		}
+
+		redeemReceipt, err := participantEthClient.transactionReceipt(ctx, tx.Hash())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err != nil {
+			t.Fatalf("error getting redemption receipt: %v", err)
+		}
+
+		if redeemReceipt.Status != 1 {
+			t.Fatalf("redemption not successful")
+		}
+
+		redeemGases = append(redeemGases, redeemReceipt.GasUsed)
+		fmt.Println("######## Redeem gas for", numSwaps, "swaps:", redeemReceipt.GasUsed)
+	}
+
+	fmt.Printf("#### Swap gases: %+v ####\n", swapGases)
+	fmt.Printf("#### Redeem gases: %+v #### \n", redeemGases)
 }
 
 func bytesToArray(b []byte) (a [32]byte) {

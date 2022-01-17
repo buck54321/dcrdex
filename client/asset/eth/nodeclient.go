@@ -35,6 +35,7 @@ import (
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/ethereum/go-ethereum/consensus/misc"
@@ -101,6 +102,10 @@ func newNodeClient(dir string, net dex.Network, log dex.Logger) (*nodeClient, er
 
 func (n *nodeClient) address() common.Address {
 	return n.creds.addr
+}
+
+func (n *nodeClient) chainConfig() *params.ChainConfig {
+	return n.leth.ApiBackend.ChainConfig()
 }
 
 // connect connects to a node. It then wraps ethclient's client and

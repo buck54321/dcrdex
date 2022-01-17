@@ -22,6 +22,7 @@ then
 fi
 
 mkdir temp
+mkdir -p ${PKG_NAME}
 
 solc --bin-runtime --optimize ${SOLIDITY_FILE} -o ./temp/
 BYTECODE=$(<./temp/ETHSwap.bin-runtime)

@@ -31,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 var (
@@ -88,6 +89,9 @@ func newBalance(current, in, out uint64) *Balance {
 
 func (n *testNode) address() common.Address {
 	return n.addr
+}
+func (n *testNode) chainConfig() *params.ChainConfig {
+	return params.AllEthashProtocolChanges
 }
 func (n *testNode) connect(ctx context.Context) error {
 	return n.connectErr
@@ -1646,7 +1650,11 @@ func packInitiateDataV0(initiations []*dexeth.Initiation) ([]byte, error) {
 }
 
 func TestAuditContract(t *testing.T) {
-	node := &testNode{}
+	privKey, _ := crypto.HexToECDSA("9447129055a25c8496fca9e5ee1b9463e47e6043ff0c288d07169e8284860e34")
+	address := "2b84C791b79Ee37De042AD2ffF1A253c3ce9bc27"
+	node := newTestNode(&accounts.Account{
+		Address: common.HexToAddress(address),
+	})
 	eth := &ExchangeWallet{
 		node: node,
 		log:  tLogger,
@@ -1769,7 +1777,11 @@ func TestAuditContract(t *testing.T) {
 			txData = []byte{0}
 		}
 
-		tx := tTx(2, 300, uint64(len(test.initiations)), &testAddressC, txData)
+		tx := tTx(2, 300, uint64(len(test.initiations)), &node.addr, txData)
+		chainParams := node.chainConfig()
+		signer := types.LatestSignerForChainID(chainParams.ChainID)
+		tx, _ = types.SignTx(tx, signer, privKey)
+
 		txBinary, err := tx.MarshalBinary()
 		if err != nil {
 			t.Fatalf(`"%v": failed to marshal binary: %v`, test.name, err)
@@ -1800,8 +1812,8 @@ func TestAuditContract(t *testing.T) {
 		if test.wantExpiration.Unix() != auditInfo.Expiration.Unix() {
 			t.Fatalf(`"%v": expected expiration %v != actual %v`, test.name, test.wantExpiration, auditInfo.Expiration)
 		}
-		if !bytes.Equal(txHash[:], auditInfo.Coin.ID()) {
-			t.Fatalf(`"%v": tx hash %x != coin id %x`, test.name, txHash, auditInfo.Coin.ID())
+		if !bytes.Equal(node.addr[:], auditInfo.Coin.ID()) {
+			t.Fatalf(`"%v": address %x != coin id %x`, test.name, txHash, auditInfo.Coin.ID())
 		}
 		if !bytes.Equal(test.contract, auditInfo.Contract) {
 			t.Fatalf(`"%v": expected contract %x != actual %x`, test.name, test.contract, auditInfo.Contract)

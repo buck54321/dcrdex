@@ -54,11 +54,19 @@ var (
 )
 
 var v0Gases = &dex.Gases{
-	Swap:      135000,
-	SwapAdd:   113000,
-	Redeem:    63000,
-	RedeemAdd: 32000,
-	Refund:    43000,
+	Swap:      135_000,
+	SwapAdd:   113_000,
+	Redeem:    63_000,
+	RedeemAdd: 32_000,
+	Refund:    43_000,
+}
+
+var v2Gases = &dex.Gases{
+	Swap:      50_000, // [48072 74276 100477 126682 152874]
+	SwapAdd:   27_000,
+	Redeem:    42_000, // [39832 50894 61956 73016 84067]
+	RedeemAdd: 14_000,
+	// Refund: TODO,
 }
 
 // LoadGenesisFile loads a Genesis config from a json file.

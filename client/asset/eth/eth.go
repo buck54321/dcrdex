@@ -31,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 var (
@@ -189,6 +190,7 @@ type ethFetcher interface {
 	sendToAddr(ctx context.Context, addr common.Address, val uint64) (*types.Transaction, error)
 	transactionConfirmations(context.Context, common.Hash) (uint32, error)
 	sendSignedTransaction(ctx context.Context, tx *types.Transaction) error
+	chainConfig() *params.ChainConfig
 }
 
 // Check that ExchangeWallet satisfies the asset.Wallet interface.
@@ -472,6 +474,23 @@ func (c *coin) Value() uint64 {
 }
 
 var _ asset.Coin = (*coin)(nil)
+
+type auditCoin struct {
+	value     uint64
+	initiator common.Address
+}
+
+func (c *auditCoin) ID() dex.Bytes {
+	return c.initiator[:]
+}
+
+func (c *auditCoin) String() string {
+	return fmt.Sprintf("%s:%d", c.initiator, c.value)
+}
+
+func (c *auditCoin) Value() uint64 {
+	return c.value
+}
 
 // decodeFundingCoinID decodes a coin id into a coin object. This function ensures
 // that the id contains an encoded fundingCoinID whose address is the same as
@@ -881,9 +900,15 @@ func (eth *ExchangeWallet) AuditContract(coinID, contract, txData dex.Bytes, reb
 		return nil, errors.New("AuditContract: tx does not initiate secret hash")
 	}
 
-	coin := &coin{
-		id:    coinID,
-		value: initiation.Value,
+	ethSigner := types.LatestSigner(eth.node.chainConfig())
+	initiator, err := ethSigner.Sender(tx) // zero Address on error
+	if err != nil {
+		return nil, fmt.Errorf("error parsing initiator from transaction: %v", err)
+	}
+
+	coin := &auditCoin{
+		initiator: initiator,
+		value:     initiation.Value,
 	}
 
 	// The counter-party should have broadcasted the contract tx but rebroadcast
