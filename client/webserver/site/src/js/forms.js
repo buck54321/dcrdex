@@ -1006,6 +1006,10 @@ function isTruthyString (s) {
 
 function unitInfo (xc, assetID) {
   const dexAsset = xc.assets[assetID]
+
+  console.log("--unitInfo.dexAsset", dexAsset)
+  console.log("--unitInfo.supportedAsset", app().assets[assetID])
+
   if (dexAsset && dexAsset.unitInfo.conventional.conversionFactor > 0) return dexAsset.unitInfo
   const supportedAsset = app().assets[assetID]
   if (!supportedAsset) return null
