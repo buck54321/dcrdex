@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"decred.org/dcrdex/client/core"
+	"decred.org/dcrdex/client/core/simharness"
 	"decred.org/dcrdex/dex/calc"
 )
 
@@ -37,8 +38,8 @@ func (s *sniper) SetupWallets(m *Mantle) {
 
 	m.log.Infof("Sniper has been initialized with %d max orders per epoch"+
 		"per epoch, %s to %s %s balance, and %s to %s %s balance, %d initial funding coins",
-		s.maxOrdsPerEpoch, valString(minBaseQty, baseSymbol), valString(maxBaseQty, baseSymbol), baseSymbol,
-		valString(minQuoteQty, quoteSymbol), valString(maxQuoteQty, quoteSymbol), quoteSymbol, numCoins)
+		s.maxOrdsPerEpoch, simharness.ValString(minBaseQty, baseSymbol), simharness.ValString(maxBaseQty, baseSymbol), baseSymbol,
+		simharness.ValString(minQuoteQty, quoteSymbol), simharness.ValString(maxQuoteQty, quoteSymbol), quoteSymbol, numCoins)
 
 }
 

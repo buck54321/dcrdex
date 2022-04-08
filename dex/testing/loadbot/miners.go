@@ -6,6 +6,8 @@ package main
 import (
 	"math/rand"
 	"time"
+
+	"decred.org/dcrdex/client/core/simharness"
 )
 
 // blockEvery2 will randomize the delay, but aim for 1 block of each asset
@@ -18,7 +20,7 @@ func blockEvery2() {
 			symbol = quoteSymbol
 		}
 		log.Debugf("mining %s", symbol)
-		mine(symbol, alpha)
+		simharness.Mine(ctx, symbol, alpha)
 
 		getDelay := func() time.Duration {
 			return time.Duration(rand.Float64()*float64(epochDuration))*time.Millisecond + 2*time.Second
@@ -42,7 +44,7 @@ func moreThanOneBlockPer() {
 			symbol = quoteSymbol
 		}
 		log.Debugf("mining %s", symbol)
-		mine(symbol, alpha)
+		simharness.Mine(ctx, symbol, alpha)
 		select {
 		case <-time.After(time.Millisecond * time.Duration(epochDuration) * 4 / 9):
 		case <-ctx.Done():

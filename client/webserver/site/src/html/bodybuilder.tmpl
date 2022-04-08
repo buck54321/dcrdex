@@ -38,10 +38,8 @@
     </div>
 
     <div class="d-inline-block position-relative{{if not $authed}} d-hide{{end}}" id="profileMenuEntry">
-      <span class="ico-profile fs20 hoverbright" id="profileIcon"></span>
+      <span class="ico-hamburger fs20 hoverbright" id="profileIcon"></span>
     </div>
-
-    <a href="/settings" class="ico-settings hoverbright fs24"></a>
 
   </div>
   <div id="loader" class="fill-abs flex-center d-hide">
@@ -76,9 +74,23 @@
   </div>
 
   <div id="profileBox" class="d-hide">
-    <div class="icon fs20 ico-profile p-1" id="innerProfileIcon"></div>
-    <span class="demi hoverbright pointer" id="profileSignout">[[[Sign Out]]]</span>
-    <a href="/orders" class="demi hoverbright plainlink pt-2">[[[Order History]]]</a>
+    <div class="icon fs20 ico-hamburger p-1" id="innerProfileIcon"></div>
+    <div class="demi hoverbright pointer d-flex align-items-center py-1" id="profileSignout">
+      <span class="ico-profile fs16 me-2"></span>
+      [[[Sign Out]]]
+    </div>
+    <a href="/orders" class="demi hoverbright plainlink d-flex align-items-center py-1">
+      <span class="ico-settings fs16 me-2"></span>
+      [[[Order History]]]
+    </a>
+    <a href="/mm" class="demi hoverbright plainlink d-flex align-items-center py-1">
+      <span class="ico-barchart fs16 me-2"></span>
+      [[[Market Making]]]
+    </a>
+    <a href="/settings" class="demi hoverbright plainlink d-flex align-items-center py-1">
+      <span class="ico-settings fs16 me-2"></span>
+      [[[Settings]]]
+    </a>
   </div>
 
 </header>

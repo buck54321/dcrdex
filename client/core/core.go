@@ -970,7 +970,7 @@ func (c *Core) connectedDEX(addr string) (*dexConnection, error) {
 	}
 
 	if dc.acct.locked() {
-		return nil, fmt.Errorf("cannot place order on a locked %s account. Are you logged in?", dc.acct.host)
+		return nil, fmt.Errorf("account for %s is locked. Are you logged in?", dc.acct.host)
 	}
 
 	if !connected {
@@ -1128,7 +1128,7 @@ type Core struct {
 	tickSched    map[order.OrderID]*time.Timer
 
 	noteMtx   sync.RWMutex
-	noteChans []chan Notification
+	noteChans map[uint64]chan Notification
 
 	piSyncMtx sync.Mutex
 	piSyncers map[order.OrderID]chan struct{}
@@ -1141,6 +1141,15 @@ type Core struct {
 	// stopFiatRateFetching will be used to shutdown fetchFiatExchangeRates
 	// goroutine when all rate sources have been disabled.
 	stopFiatRateFetching context.CancelFunc
+
+	mm struct {
+		sync.RWMutex
+		bots  map[uint64]*makerBot
+		cache struct {
+			sync.RWMutex
+			prices map[string]*stampedPrice
+		}
+	}
 }
 
 // New is the constructor for a new Core.
@@ -1209,7 +1218,7 @@ func New(cfg *Config) (*Core, error) {
 		return nil, err
 	}
 
-	core := &Core{
+	c := &Core{
 		cfg:           cfg,
 		credentials:   creds,
 		ready:         make(chan struct{}),
@@ -1229,6 +1238,7 @@ func New(cfg *Config) (*Core, error) {
 		newCrypter:    encrypt.NewCrypter,
 		reCrypter:     encrypt.Deserialize,
 		latencyQ:      wait.NewTickerQueue(recheckInterval),
+		noteChans:     make(map[uint64]chan Notification),
 
 		locale:             locale,
 		localePrinter:      message.NewPrinter(lang),
@@ -1236,11 +1246,13 @@ func New(cfg *Config) (*Core, error) {
 
 		fiatRateSources: make(map[string]*commonRateSource),
 	}
+	c.mm.bots = make(map[uint64]*makerBot)
+	c.mm.cache.prices = make(map[string]*stampedPrice)
 
 	// Populate the initial user data. User won't include any DEX info yet, as
 	// those are retrieved when Run is called and the core connects to the DEXes.
-	core.log.Debugf("new client core created")
-	return core, nil
+	c.log.Debugf("new client core created")
+	return c, nil
 }
 
 // Run runs the core. Satisfies the runner.Runner interface.
@@ -1746,6 +1758,7 @@ func (c *Core) User() *User {
 		Initialized:        c.IsInitialized(),
 		SeedGenerationTime: c.seedGenerationTime,
 		FiatRates:          c.fiatConversions(),
+		Bots:               c.bots(),
 	}
 }
 
@@ -3607,6 +3620,10 @@ func (c *Core) Login(pw []byte) (*LoginResult, error) {
 		c.log.Errorf("Login -> NotificationsN error: %v", err)
 	}
 
+	if err := c.loadBotPrograms(); err != nil {
+		c.log.Errorf("Error loading bot programs: %v", err)
+	}
+
 	result := &LoginResult{
 		Notifications: notes,
 		DEXes:         dexStats,
@@ -4352,11 +4369,15 @@ func (c *Core) PreOrder(form *TradeForm) (*OrderEstimate, error) {
 // Trade is used to place a market or limit order.
 func (c *Core) Trade(pw []byte, form *TradeForm) (*Order, error) {
 	// Check the user password.
-	crypter, err := c.encryptionKey(pw)
-	if err != nil {
-		return nil, fmt.Errorf("Trade password error: %w", err)
+	var crypter encrypt.Crypter
+	if len(pw) > 0 {
+		var err error
+		crypter, err = c.encryptionKey(pw)
+		if err != nil {
+			return nil, fmt.Errorf("Trade password error: %w", err)
+		}
+		defer crypter.Close()
 	}
-	defer crypter.Close()
 	dc, err := c.connectedDEX(form.Host)
 	if err != nil {
 		return nil, err
@@ -4403,36 +4424,45 @@ func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter e
 	accountRedeemer, isAccountRedemption := toWallet.Wallet.(asset.AccountLocker)
 	accountRefunder, isAccountRefund := fromWallet.Wallet.(asset.AccountLocker)
 
-	prepareWallet := func(w *xcWallet) error {
-		// NOTE: If the wallet is already internally unlocked (the decrypted
-		// password cached in xcWallet.pw), this could be done without the
-		// crypter via refreshUnlock.
-		err := c.connectAndUnlock(crypter, w)
+	if crypter != nil {
+		prepareWallet := func(w *xcWallet) error {
+			// NOTE: If the wallet is already internally unlocked (the decrypted
+			// password cached in xcWallet.pw), this could be done without the
+			// crypter via refreshUnlock.
+			err := c.connectAndUnlock(crypter, w)
+			if err != nil {
+				return fmt.Errorf("%s connectAndUnlock error: %w",
+					wallets.fromAsset.Symbol, err)
+			}
+			w.mtx.RLock()
+			defer w.mtx.RUnlock()
+			if w.peerCount == 0 {
+				return fmt.Errorf("%s wallet has no network peers (check your network or firewall)",
+					unbip(w.AssetID))
+			}
+			if !w.synced {
+				return fmt.Errorf("%s still syncing. progress = %.2f%%", unbip(w.AssetID),
+					w.syncProgress*100)
+			}
+			return nil
+		}
+
+		err = prepareWallet(fromWallet)
 		if err != nil {
-			return fmt.Errorf("%s connectAndUnlock error: %w",
-				wallets.fromAsset.Symbol, err)
+			return nil, 0, err
 		}
-		w.mtx.RLock()
-		defer w.mtx.RUnlock()
-		if w.peerCount == 0 {
-			return fmt.Errorf("%s wallet has no network peers (check your network or firewall)",
-				unbip(w.AssetID))
+
+		err = prepareWallet(toWallet)
+		if err != nil {
+			return nil, 0, err
 		}
-		if !w.synced {
-			return fmt.Errorf("%s still syncing. progress = %.2f%%", unbip(w.AssetID),
-				w.syncProgress*100)
-		}
-		return nil
 	}
 
-	err = prepareWallet(fromWallet)
-	if err != nil {
-		return nil, 0, err
+	if !toWallet.unlocked() {
+		return nil, 0, fmt.Errorf("%s wallet not unlocked", wallets.toAsset.Symbol)
 	}
-
-	err = prepareWallet(toWallet)
-	if err != nil {
-		return nil, 0, err
+	if !fromWallet.unlocked() {
+		return nil, 0, fmt.Errorf("%s wallet not unlocked", wallets.fromAsset.Symbol)
 	}
 
 	// Get an address for the swap contract.
@@ -4681,6 +4711,7 @@ func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter e
 			Options:            form.Options,
 			RedemptionReserves: redemptionReserves,
 			ChangeCoin:         changeID,
+			ProgramID:          form.Program,
 		},
 		Order: ord,
 	}
@@ -4811,7 +4842,6 @@ func (c *Core) walletSet(dc *dexConnection, baseID, quoteID uint32, sell bool) (
 	}, nil
 }
 
-// Cancel is used to send a cancel order which cancels a limit order.
 func (c *Core) Cancel(pw []byte, oidB dex.Bytes) error {
 	// Check the user password.
 	_, err := c.encryptionKey(pw)
@@ -4823,7 +4853,10 @@ func (c *Core) Cancel(pw []byte, oidB dex.Bytes) error {
 	if err != nil {
 		return err
 	}
+	return c.cancelOrder(oid)
+}
 
+func (c *Core) cancelOrder(oid order.OrderID) error {
 	for _, dc := range c.dexConnections() {
 		found, err := c.tryCancel(dc, oid)
 		if err != nil {
@@ -4834,7 +4867,7 @@ func (c *Core) Cancel(pw []byte, oidB dex.Bytes) error {
 		}
 	}
 
-	return fmt.Errorf("Cancel: failed to find order %s", oidB)
+	return fmt.Errorf("Cancel: failed to find order %s", oid)
 }
 
 // authDEX authenticates the connection for a DEX.

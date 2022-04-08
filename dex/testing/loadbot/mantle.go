@@ -4,12 +4,9 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"math/rand"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +14,7 @@ import (
 	"time"
 
 	"decred.org/dcrdex/client/core"
+	"decred.org/dcrdex/client/core/simharness"
 	"decred.org/dcrdex/client/db"
 	"decred.org/dcrdex/dex"
 )
@@ -49,28 +47,9 @@ func runTrader(t Trader, name string) {
 	if ctx.Err() != nil {
 		return
 	}
-	cert := filepath.Join(dextestDir, "dcrdex", "rpc.cert")
-	exchange, err := m.GetDEXConfig(hostAddr, cert)
-	if err != nil {
-		m.fatalError("unable to get dex config: %v", err)
-		return
-	}
-	feeAsset := exchange.RegFees[unbip(regAsset)]
-	if feeAsset == nil {
-		m.fatalError("dex does not support asset %v for registration", unbip(regAsset))
-		return
-	}
-	fee := feeAsset.Amt
 
-	_, err = m.Register(&core.RegisterForm{
-		Addr:    hostAddr,
-		AppPass: pass,
-		Fee:     fee,
-		Asset:   &regAsset,
-		Cert:    cert,
-	})
-	if err != nil {
-		m.fatalError("registration error: %v", err)
+	if err = simharness.RegisterCore(m.Core, unbip(regAsset)); err != nil {
+		m.fatalError("RegisterCore error: %v", err)
 		return
 	}
 
@@ -285,76 +264,10 @@ func (m *Mantle) truncatedMidGap() uint64 {
 // createWallet creates a new wallet/account for the asset and node. If an error
 // is encountered, LoadBot will be killed.
 func (m *Mantle) createWallet(symbol, node string, minFunds, maxFunds uint64, numCoins int) {
-	// Generate a name for this wallet.
-	name := randomToken()
-	var rpcPort string
-	switch symbol {
-	case eth:
-		// Nothing to do here for internal wallets.
-	case dcr:
-		cmdOut := <-harnessCtl(ctx, symbol, fmt.Sprintf("./%s", node), "createnewaccount", name)
-		if cmdOut.err != nil {
-			m.fatalError("%s create account error: %v", symbol, cmdOut.err)
-			return
-		}
-		// Even though the harnessCtl is synchronous, I've still observed some
-		// issues with trying to create the wallet immediately.
-		<-time.After(time.Second)
-	case ltc, bch, btc:
-		cmdOut := <-harnessCtl(ctx, symbol, "./new-wallet", node, name)
-		if cmdOut.err != nil {
-			m.fatalError("%s create account error: %v", symbol, cmdOut.err)
-			return
-		}
-		<-time.After(time.Second)
-	case doge, zec:
-		// Some coins require a totally new node. Create it and monitor
-		// it. Shut it down with the stop function before exiting.
-		addrs, err := findOpenAddrs(2)
-		if err != nil {
-			m.fatalError("unable to find open ports: %v", err)
-			return
-		}
-		addrPort := addrs[0].String()
-		_, rpcPort, err = net.SplitHostPort(addrPort)
-		if err != nil {
-			m.fatalError("unable to split addr and port: %v", err)
-			return
-		}
-		addrPort = addrs[1].String()
-		_, networkPort, err := net.SplitHostPort(addrPort)
-		if err != nil {
-			m.fatalError("unable to split addr and port: %v", err)
-			return
-		}
-
-		// NOTE: The exec package seems to listen for a SIGINT and call
-		// cmd.Process.Kill() when it happens. Because of this it seems
-		// zec will error when we run the stop-wallet script because the
-		// node already shut down when killing with ctrl-c. doge however
-		// does not respect the kill command and still needs the wallet
-		// to be stopped here. So, it is probably fine to ignore the
-		// error returned from stop-wallet.
-		stopFn := func(ctx context.Context) {
-			<-harnessCtl(ctx, symbol, "./stop-wallet", rpcPort)
-		}
-		if err = harnessProcessCtl(symbol, stopFn, "./start-wallet", name, rpcPort, networkPort); err != nil {
-			m.fatalError("%s create account error: %v", symbol, err)
-			return
-		}
-		<-time.After(time.Second * 3)
-		if symbol == zec {
-			<-time.After(time.Second * 10)
-		}
-		// Connect the new node to the alpha node.
-		cmdOut := <-harnessCtl(ctx, symbol, "./connect-alpha", rpcPort)
-		if cmdOut.err != nil {
-			m.fatalError("%s create account error: %v", symbol, cmdOut.err)
-			return
-		}
-		<-time.After(time.Second)
-	default:
-		m.fatalError("createWallet: symbol %s unknown", symbol)
+	name, rpcPort, err := simharness.CreateWallet(ctx, symbol, node)
+	if err != nil {
+		m.fatalError("error creating rpc wallet: %v", err)
+		return
 	}
 
 	var walletPass []byte
@@ -366,7 +279,7 @@ func (m *Mantle) createWallet(symbol, node string, minFunds, maxFunds uint64, nu
 	}
 	w := newBotWallet(symbol, node, name, rpcPort, walletPass, minFunds, maxFunds, numCoins)
 	m.wallets[w.assetID] = w
-	err := m.CreateWallet(pass, walletPass, w.form)
+	err = m.CreateWallet(pass, walletPass, w.form)
 	if err != nil {
 		m.fatalError("Mantle %s failed to create wallet: %v", m.name, err)
 		return
@@ -385,44 +298,16 @@ func (m *Mantle) createWallet(symbol, node string, minFunds, maxFunds uint64, nu
 	if numCoins != 0 {
 		chunk := (maxFunds + minFunds) / 2 / uint64(numCoins)
 		for i := 0; i < numCoins; i++ {
-			if err = send(symbol, node, coreWallet.Address, chunk); err != nil {
+			if err = simharness.Send(ctx, symbol, node, coreWallet.Address, chunk); err != nil {
 				m.fatalError(err.Error())
 				return
 			}
 		}
 	}
-	<-mine(symbol, node)
+	<-simharness.Mine(ctx, symbol, node)
 
 	// Wallet syncing time. If not synced within five seconds trading will fail.
 	time.Sleep(time.Second * 5)
-}
-
-func send(symbol, node, addr string, val uint64) error {
-	var res *harnessResult
-	switch symbol {
-	case btc, dcr, ltc, doge, bch:
-		res = <-harnessCtl(ctx, symbol, fmt.Sprintf("./%s", node), "sendtoaddress", addr, valString(val, symbol))
-	case zec:
-		// sendtoaddress will choose spent outputs if a block was
-		// recently mined. Use the zecSendMtx to ensure we have waited
-		// a sec after mining.
-		//
-		// TODO: This is not great and does not allow for multiple
-		// loadbots to run on zec at once. Find a better way to avoid
-		// double spends. Alternatively, wait for zec to fix this and
-		// remove the lock https://github.com/zcash/zcash/issues/6045
-		zecSendMtx.Lock()
-		res = <-harnessCtl(ctx, symbol, fmt.Sprintf("./%s", node), "sendtoaddress", addr, valString(val, symbol))
-		zecSendMtx.Unlock()
-	case eth:
-		// eth values are always handled as gwei, so multiply by 1e9
-		// here to convert to wei.
-		res = <-harnessCtl(ctx, symbol, fmt.Sprintf("./%s", node), "attach", fmt.Sprintf("--exec personal.sendTransaction({from:eth.accounts[1],to:\"%s\",gasPrice:200e9,value:%de9},\"%s\")", addr, val, pass))
-	default:
-		return fmt.Errorf("send unknown symbol %q", symbol)
-	}
-	return res.err
-
 }
 
 // replenishBalances will run replenishBalance for all wallets.
@@ -444,7 +329,7 @@ func (m *Mantle) replenishBalance(w *botWallet) {
 	}
 
 	m.log.Debugf("Balance note received for %s (minFunds = %s, maxFunds = %s): %s",
-		w.symbol, valString(w.minFunds, w.symbol), valString(w.maxFunds, w.symbol), mustJSON(bal))
+		w.symbol, simharness.ValString(w.minFunds, w.symbol), simharness.ValString(w.maxFunds, w.symbol), mustJSON(bal))
 
 	// If over or under max, make the average of the two.
 	wantBal := (w.maxFunds + w.minFunds) / 2
@@ -452,8 +337,8 @@ func (m *Mantle) replenishBalance(w *botWallet) {
 	if bal.Available < w.minFunds {
 		chunk := (wantBal - bal.Available) / uint64(w.numCoins)
 		for i := 0; i < w.numCoins; i++ {
-			m.log.Debugf("Requesting %s from %s alpha node", valString(chunk, w.symbol), w.symbol)
-			if err = send(w.symbol, alpha, w.address, chunk); err != nil {
+			m.log.Debugf("Requesting %s from %s alpha node", simharness.ValString(chunk, w.symbol), w.symbol)
+			if err = simharness.Send(ctx, w.symbol, alpha, w.address, chunk); err != nil {
 				m.fatalError("error refreshing balance for %s: %v", w.symbol, err)
 				return
 			}
@@ -461,7 +346,7 @@ func (m *Mantle) replenishBalance(w *botWallet) {
 	} else if bal.Available > w.maxFunds {
 		// Send some back to the alpha address.
 		amt := bal.Available - wantBal
-		m.log.Debugf("Sending %s back to %s alpha node", valString(amt, w.symbol), w.symbol)
+		m.log.Debugf("Sending %s back to %s alpha node", simharness.ValString(amt, w.symbol), w.symbol)
 		_, err := m.Send(pass, w.assetID, amt, returnAddress(w.symbol, alpha), false)
 		if err != nil {
 			m.fatalError("failed to send funds to alpha: %v", err)
@@ -477,13 +362,6 @@ func mustJSON(thing interface{}) string {
 		return "invalid json: " + err.Error()
 	}
 	return string(s)
-}
-
-// valString returns a string representation of the value in conventional
-// units.
-func valString(v uint64, assetSymbol string) string {
-	precisionStr := fmt.Sprintf("%%.%vf", math.Log10(float64(conversionFactors[assetSymbol])))
-	return fmt.Sprintf(precisionStr, float64(v)/float64(conversionFactors[assetSymbol]))
 }
 
 // coreOrder creates a *core.Order.
@@ -566,88 +444,8 @@ type botWallet struct {
 // once per epoch, if it falls outside of the range [minFunds, maxFunds].
 // Set numCoins to at least twice the the maximum number of (booked + epoch)
 // orders the wallet is expected to support.
-func newBotWallet(symbol, node, name string, port string, pass []byte, minFunds, maxFunds uint64, numCoins int) *botWallet {
-	var form *core.WalletForm
-	switch symbol {
-	case dcr:
-		form = &core.WalletForm{
-			Type:    "dcrwalletRPC",
-			AssetID: dcrID,
-			Config: map[string]string{
-				"account":   name,
-				"username":  "user",
-				"password":  "pass",
-				"rpccert":   filepath.Join(dextestDir, "dcr/"+node+"/rpc.cert"),
-				"rpclisten": port,
-			},
-		}
-	case btc:
-		form = &core.WalletForm{
-			Type:    "bitcoindRPC",
-			AssetID: btcID,
-			Config: map[string]string{
-				"walletname":  name,
-				"rpcuser":     "user",
-				"rpcpassword": "pass",
-				"rpcport":     port,
-			},
-		}
-	case ltc:
-		form = &core.WalletForm{
-			Type:    "litecoindRPC",
-			AssetID: ltcID,
-			Config: map[string]string{
-				"walletname":  name,
-				"rpcuser":     "user",
-				"rpcpassword": "pass",
-				"rpcport":     port,
-			},
-		}
-	case bch:
-		form = &core.WalletForm{
-			Type:    "bitcoindRPC",
-			AssetID: bchID,
-			Config: map[string]string{
-				"walletname":  name,
-				"rpcuser":     "user",
-				"rpcpassword": "pass",
-				"rpcport":     port,
-			},
-		}
-	case zec:
-		form = &core.WalletForm{
-			Type:    "zcashdRPC",
-			AssetID: zecID,
-			Config: map[string]string{
-				"walletname":  name,
-				"rpcuser":     "user",
-				"rpcpassword": "pass",
-				"rpcport":     port,
-			},
-		}
-	case doge:
-		form = &core.WalletForm{
-			Type:    "dogecoindRPC",
-			AssetID: dogeID,
-			Config: map[string]string{
-				"walletname":  name,
-				"rpcuser":     "user",
-				"rpcpassword": "pass",
-				"rpcport":     port,
-			},
-		}
-	case eth:
-		form = &core.WalletForm{
-			Type:    "geth",
-			AssetID: ethID,
-			Config: map[string]string{
-				"walletname":  name,
-				"rpcuser":     "user",
-				"rpcpassword": "pass",
-				"rpcport":     port,
-			},
-		}
-	}
+func newBotWallet(symbol, node, name string, rpcStr string, pass []byte, minFunds, maxFunds uint64, numCoins int) *botWallet {
+	form := simharness.RPCWalletForm(symbol, node, name, rpcStr)
 	return &botWallet{
 		form:     form,
 		name:     name,

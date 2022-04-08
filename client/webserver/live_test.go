@@ -414,6 +414,12 @@ func (t *tBookFeed) Candles(dur string) error {
 	return nil
 }
 
+type liveBot struct {
+	botType string
+	pgm     *core.MakerProgram
+	running bool
+}
+
 type TCore struct {
 	reg       *core.RegisterForm
 	inited    bool
@@ -437,6 +443,7 @@ type TCore struct {
 	orderMtx    sync.Mutex
 	epochOrders []*core.BookUpdate
 	fiatSources map[string]bool
+	bots        map[uint64]*liveBot
 }
 
 // TDriver implements the interface required of all exchange wallets.
@@ -487,6 +494,7 @@ func newTCore() *TCore {
 			"Messari":     true,
 			"Coinpaprika": true,
 		},
+		bots: make(map[uint64]*liveBot),
 	}
 }
 
@@ -1402,6 +1410,15 @@ func (c *TCore) User() *core.User {
 	if c.reg != nil {
 		exchanges = tExchanges
 	}
+	bots := make([]*core.BotReport, 0, len(c.bots))
+	for pgmID, bot := range c.bots {
+		bots = append(bots, &core.BotReport{
+			ProgramID: pgmID,
+			Program:   bot.pgm,
+			Running:   bot.running,
+		})
+	}
+
 	user := &core.User{
 		Exchanges:   exchanges,
 		Initialized: c.inited,
@@ -1417,6 +1434,7 @@ func (c *TCore) User() *core.User {
 			145: 114.68,    // bch
 			60:  1_209.51,  // eth
 		},
+		Bots: bots,
 	}
 	return user
 }
@@ -1640,6 +1658,55 @@ func (c *TCore) FiatRateSources() map[string]bool {
 	return c.fiatSources
 }
 
+var botCounter uint64
+
+func (c *TCore) CreateBot(pw []byte, botType string, pgm *core.MakerProgram) (uint64, error) {
+	i := atomic.AddUint64(&botCounter, 1)
+	c.bots[i] = &liveBot{
+		botType: botType,
+		pgm:     pgm,
+		running: true,
+	}
+	c.sendBotNote(core.TopicBotCreated, i, true, pgm)
+	return i, nil
+}
+
+func (c *TCore) sendBotNote(topic core.Topic, pgmID uint64, running bool, pgm *core.MakerProgram) {
+	note := db.NewNotification(core.NoteTypeBot, topic, "", "", db.Data)
+	c.noteFeed <- &core.BotNote{
+		Notification: note,
+		Report: &core.BotReport{
+			ProgramID: pgmID,
+			Program:   pgm,
+			Running:   running,
+		},
+	}
+}
+
+func (c *TCore) StartBot(pw []byte, pgmID uint64) error {
+	c.bots[pgmID].running = true
+	c.sendBotNote(core.TopicBotStarted, pgmID, true, c.bots[pgmID].pgm)
+	return nil
+}
+
+func (c *TCore) StopBot(pgmID uint64) error {
+	c.bots[pgmID].running = false
+	c.sendBotNote(core.TopicBotStopped, pgmID, false, c.bots[pgmID].pgm)
+	return nil
+}
+
+func (c *TCore) UpdateBotProgram(pgmID uint64, pgm *core.MakerProgram) error {
+	c.bots[pgmID].pgm = pgm
+	c.sendBotNote(core.TopicBotUpdated, pgmID, c.bots[pgmID].running, pgm)
+	return nil
+}
+
+func (c *TCore) RetireBot(pgmID uint64) error {
+	c.sendBotNote(core.TopicBotRetired, pgmID, false, c.bots[pgmID].pgm)
+	delete(c.bots, pgmID)
+	return nil
+}
+
 func TestServer(t *testing.T) {
 	// Register dummy drivers for unimplemented assets.
 	asset.Register(22, &TDriver{})  // mona
@@ -1650,8 +1717,8 @@ func TestServer(t *testing.T) {
 	numBuys = 10
 	numSells = 10
 	feedPeriod = 5000 * time.Millisecond
-	initialize := false
-	register := false
+	initialize := true
+	register := true
 	forceDisconnectWallet = true
 	gapWidthFactor = 0.2
 	randomPokes = false

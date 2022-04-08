@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 
+	"decred.org/dcrdex/client/core/simharness"
 	"decred.org/dcrdex/dex/calc"
 )
 
@@ -45,15 +46,15 @@ func runHeavy() {
 	log.Infof("loading the beta node wallets")
 	for i := 0; i < 10; i++ {
 		for j := 0; j < 5; j++ {
-			if err := send(baseSymbol, alpha, betaAddrBase, quote); err != nil {
+			if err := simharness.Send(ctx, baseSymbol, alpha, betaAddrBase, quote); err != nil {
 				panic(fmt.Errorf("unable to send funds to quote asset: %v", err))
 			}
-			if err := send(quoteSymbol, alpha, betaAddrQuote, base); err != nil {
+			if err := simharness.Send(ctx, quoteSymbol, alpha, betaAddrQuote, base); err != nil {
 				panic(fmt.Errorf("unable to send funds to base asset: %v", err))
 			}
 		}
-		<-mine(quoteSymbol, alpha)
-		<-mine(baseSymbol, alpha)
+		<-simharness.Mine(ctx, quoteSymbol, alpha)
+		<-simharness.Mine(ctx, baseSymbol, alpha)
 		if ctx.Err() != nil {
 			return
 		}

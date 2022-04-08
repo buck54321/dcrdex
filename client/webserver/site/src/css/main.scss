@@ -178,7 +178,7 @@ header.maintop a:hover,
   cursor: pointer;
 }
 
-div.mainlinks .hoverbright:hover {
+#header .hoverbright:hover {
   color: $dark_bg_3;
 }
 
@@ -231,6 +231,10 @@ input[type=number] {
 
 .max-h-100 {
   max-height: 100%;
+}
+
+.grey {
+  color: #777;
 }
 
 div.note-indicator {

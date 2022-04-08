@@ -118,6 +118,7 @@ type User struct {
 	SeedGenerationTime uint64                     `json:"seedgentime"`
 	Assets             map[uint32]*SupportedAsset `json:"assets"`
 	FiatRates          map[uint32]float64         `json:"fiatRates"`
+	Bots               []*BotReport               `json:"bots"`
 }
 
 // SupportedAsset is data about an asset and possibly the wallet associated
@@ -815,6 +816,7 @@ type TradeForm struct {
 	Rate    uint64            `json:"rate"`
 	TifNow  bool              `json:"tifnow"`
 	Options map[string]string `json:"options"`
+	Program uint64            // Bot program ID
 }
 
 // marketName is a string ID constructed from the asset IDs.
@@ -923,4 +925,18 @@ type PreAccelerate struct {
 	SuggestedRate     uint64                   `json:"suggestedRate"`
 	SuggestedRange    asset.XYRange            `json:"suggestedRange"`
 	EarlyAcceleration *asset.EarlyAcceleration `json:"earlyAcceleration,omitempty"`
+}
+
+type BotOrder struct {
+	Host     string            `json:"host"`
+	MarketID string            `json:"marketID"`
+	OrderID  dex.Bytes         `json:"orderID"`
+	Status   order.OrderStatus `json:"status"`
+}
+
+type BotReport struct {
+	ProgramID uint64        `json:"programID"`
+	Program   *MakerProgram `json:"program"`
+	Running   bool          `json:"running"`
+	Orders    []*BotOrder   `json:"orders"`
 }

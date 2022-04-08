@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"decred.org/dcrdex/client/core"
+	"decred.org/dcrdex/client/core/simharness"
 )
 
 // The pingPonger is a Trader that simply sends single-lot, mid-gap rate orders
@@ -40,8 +41,8 @@ func (p *pingPonger) SetupWallets(m *Mantle) {
 	m.createWallet(quoteSymbol, alpha, minQuoteQty, maxQuoteQty, numCoins)
 	m.log.Infof("Ping Ponger has been initialized with %s to %s %s balance, "+
 		"and %s to %s %s balance, %d initial funding coins",
-		valString(minBaseQty, baseSymbol), valString(maxBaseQty, baseSymbol), baseSymbol,
-		valString(minQuoteQty, quoteSymbol), valString(maxQuoteQty, quoteSymbol), quoteSymbol, numCoins)
+		simharness.ValString(minBaseQty, baseSymbol), simharness.ValString(maxBaseQty, baseSymbol), baseSymbol,
+		simharness.ValString(minQuoteQty, quoteSymbol), simharness.ValString(maxQuoteQty, quoteSymbol), quoteSymbol, numCoins)
 }
 
 // HandleNotification is part of the Trader interface.

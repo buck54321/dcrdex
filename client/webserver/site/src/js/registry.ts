@@ -55,7 +55,7 @@ export interface Market {
   startepoch: number
   buybuffer: number
   orders: Order[]
-  spot: Spot
+  spot: Spot | undefined
 }
 
 export interface Order {
@@ -242,6 +242,7 @@ export interface User {
   fiatRates: Record<number, number>
   authed: boolean // added by webserver
   ok: boolean // added by webserver
+  bots: BotReport[]
 }
 
 export interface CoreNote {
@@ -279,6 +280,10 @@ export type WalletStateNote = WalletConfigNote
 export interface SpotPriceNote extends CoreNote {
   host: string
   spots: Record<string, Spot>
+}
+
+export interface BotNote extends CoreNote {
+  report: BotReport
 }
 
 export interface MatchNote extends CoreNote {
@@ -363,8 +368,8 @@ export interface XYRange {
 }
 
 export interface OrderOption extends ConfigOption {
-  boolean: BooleanConfig
-  xyRange: XYRange
+  boolean?: BooleanConfig
+  xyRange?: XYRange
 }
 
 export interface SwapEstimate {
@@ -461,6 +466,30 @@ export interface OrderFilter {
   hosts: string[]
   assets: number[]
   statuses: number[]
+}
+
+export interface MakerProgram {
+  host: string
+  baseID: number
+  quoteID: number
+  lots: number
+  oracleWeighting: number
+  oracleBias: number
+  driftTolerance: number
+  spreadMultiplier: number
+}
+
+export interface BotOrder {
+  host: string
+  marketID: string
+  orderID: string
+}
+
+export interface BotReport {
+  programID: number
+  program: MakerProgram
+  running: boolean
+  orders: BotOrder
 }
 
 export interface Application {

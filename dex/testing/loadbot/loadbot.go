@@ -16,14 +16,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"math/rand"
 	"net"
 	"os"
-	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
@@ -39,9 +37,9 @@ import (
 	_ "decred.org/dcrdex/client/asset/eth"
 	_ "decred.org/dcrdex/client/asset/ltc"
 	_ "decred.org/dcrdex/client/asset/zec"
+	"decred.org/dcrdex/client/core/simharness"
 	"decred.org/dcrdex/dex"
 	"decred.org/dcrdex/dex/calc"
-	"decred.org/dcrdex/dex/config"
 	dexeth "decred.org/dcrdex/dex/networks/eth"
 	dexsrv "decred.org/dcrdex/server/dex"
 	toxiproxy "github.com/Shopify/toxiproxy/v2/client"
@@ -72,14 +70,13 @@ var (
 	bchID, _    = dex.BipSymbolID(bch)
 	zecID, _    = dex.BipSymbolID(zec)
 	loggerMaker *dex.LoggerMaker
-	hostAddr    = "127.0.0.1:17273"
 	pass        = []byte("abc")
 	log         dex.Logger
 	unbip       = dex.BipIDSymbol
+	hostAddr    = simharness.Host
 
-	usr, _     = user.Current()
-	dextestDir = filepath.Join(usr.HomeDir, "dextest")
-	botDir     = filepath.Join(dextestDir, "loadbot")
+	usr, _ = user.Current()
+	botDir = filepath.Join(simharness.Dir, "loadbot")
 
 	ctx, quit = context.WithCancel(context.Background())
 
@@ -99,9 +96,6 @@ var (
 	defaultMidGap, marketBuyBuffer float64
 	keepMidGap                     bool
 
-	processesMtx sync.Mutex
-	processes    []*process
-
 	// zecSendMtx prevents sending funds too soon after mining a block and
 	// the harness choosing spent outputs for zcash.
 	zecSendMtx sync.Mutex
@@ -109,32 +103,6 @@ var (
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
-}
-
-// process stores a long running command and the funcion to stop it on shutdown.
-type process struct {
-	cmd    *exec.Cmd
-	stopFn func(ctx context.Context)
-}
-
-// findOpenAddrs finds unused addresses.
-func findOpenAddrs(n int) ([]net.Addr, error) {
-	addrs := make([]net.Addr, 0, n)
-	for i := 0; i < n; i++ {
-		addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-		if err != nil {
-			return nil, err
-		}
-
-		l, err := net.ListenTCP("tcp", addr)
-		if err != nil {
-			return nil, err
-		}
-		defer l.Close()
-		addrs = append(addrs, l.Addr())
-	}
-
-	return addrs, nil
 }
 
 // rpcAddr is the RPC address needed for creation of a wallet connected to the
@@ -182,98 +150,10 @@ func returnAddress(symbol, node string) string {
 	return betaAddrQuote
 }
 
-// mine will mine a single block on the node and asset indicated.
-func mine(symbol, node string) <-chan *harnessResult {
-	n := 1
-	switch symbol {
-	case eth:
-		// geth may not include some tx at first because ???. Mine more.
-		n = 4
-	case zec:
-		// zcash has a problem selecting unused utxo for a second when
-		// also mining. https://github.com/zcash/zcash/issues/6045
-		zecSendMtx.Lock()
-		defer func() {
-			time.Sleep(time.Second)
-			zecSendMtx.Unlock()
-		}()
-	}
-	return harnessCtl(ctx, symbol, fmt.Sprintf("./mine-%s", node), fmt.Sprintf("%d", n))
-}
-
-// harnessResult is the result of a harnessCtl command.
-type harnessResult struct {
-	err    error
-	output string
-	cmd    string
-}
-
-// String returns a result string for the harnessResult.
-func (res *harnessResult) String() string {
-	if res.err != nil {
-		return fmt.Sprintf("error running harness command %q: %v", res.cmd, res.err)
-	}
-	return fmt.Sprintf("response from harness command %q: %s", res.cmd, res.output)
-}
-
-// harnessCtl will run the command from the harness-ctl directory for the
-// specified symbol. ctx shadows the global context. The global context is not
-// used because stopping some nodes will occur after it is canceled.
-func harnessCtl(ctx context.Context, symbol, cmd string, args ...string) <-chan *harnessResult {
-	dir := filepath.Join(dextestDir, symbol, "harness-ctl")
-	c := make(chan *harnessResult)
-	go func() {
-		fullCmd := strings.Join(append([]string{cmd}, args...), " ")
-		command := exec.CommandContext(ctx, cmd, args...)
-		command.Dir = dir
-		output, err := command.Output()
-		if err != nil {
-			var exitErr *exec.ExitError
-			if errors.As(err, &exitErr) {
-				log.Errorf("exec error (%s) %q: %v: %s", symbol, cmd, err, string(exitErr.Stderr))
-			} else {
-				log.Errorf("%s harnessCtl error running %q: %v", symbol, cmd, err)
-			}
-		}
-		c <- &harnessResult{
-			err:    err,
-			output: strings.TrimSpace(string(output)),
-			cmd:    fullCmd,
-		}
-	}()
-	return c
-}
-
-// harnessProcessCtl will run the long running command from the harness-ctl
-// directory for the specified symbol. The command and stop function are saved
-// to a global slice for stopping later.
-func harnessProcessCtl(symbol string, stopFn func(context.Context), cmd string, args ...string) error {
-	processesMtx.Lock()
-	defer processesMtx.Unlock()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	dir := filepath.Join(dextestDir, symbol, "harness-ctl")
-	// Killing the process with ctx or process.Kill *sometimes* does not
-	// seem to stop the coin daemon. Kill later with an rpc "stop" command
-	// contained in the stop function.
-	command := exec.Command(cmd, args...)
-	command.Dir = dir
-	p := &process{
-		cmd:    command,
-		stopFn: stopFn,
-	}
-	if err := command.Start(); err != nil {
-		return fmt.Errorf("unable to start process: %v", err)
-	}
-	processes = append(processes, p)
-	return nil
-}
-
 // nextAddr returns a new address, as well as the selected port, both as
 // strings.
 func nextAddr() (addrPort, port string, err error) {
-	addrs, err := findOpenAddrs(1)
+	addrs, err := simharness.FindOpenAddrs(1)
 	if err != nil {
 		return "", "", err
 	}
@@ -283,20 +163,6 @@ func nextAddr() (addrPort, port string, err error) {
 		return "", "", err
 	}
 	return addrPort, port, nil
-}
-
-// shutdown stops some long running processes.
-func shutdown() {
-	processesMtx.Lock()
-	defer processesMtx.Unlock()
-	for _, p := range processes {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-		defer cancel()
-		p.stopFn(ctx)
-		if err := p.cmd.Wait(); err != nil {
-			fmt.Printf("failed to wait for stopped process: %v\n", err)
-		}
-	}
 }
 
 func main() {
@@ -317,7 +183,7 @@ func main() {
 }
 
 func run() error {
-	defer shutdown()
+	defer simharness.Shutdown()
 	var programName string
 	var debug, trace, latency500, shaky500, slow100, spotty20, registerWithQuote bool
 	var m, n int
@@ -379,14 +245,9 @@ func run() error {
 	}
 	conversionFactors[quoteSymbol] = ui.Conventional.ConversionFactor
 
-	f, err := os.ReadFile(filepath.Join(dextestDir, "dcrdex", "markets.json"))
+	mktsCfg, err := simharness.ServerMarketsConfig()
 	if err != nil {
-		return fmt.Errorf("error reading simnet dcrdex markets.json file: %v", err)
-	}
-	var mktsCfg marketsDotJSON
-	err = json.Unmarshal(f, &mktsCfg)
-	if err != nil {
-		return fmt.Errorf("error unmarshaling markets.json: %v", err)
+		return err
 	}
 
 	markets := make([]string, len(mktsCfg.Markets))
@@ -431,10 +292,10 @@ func run() error {
 
 	// Load the asset node configs. We'll need the wallet RPC addresses.
 	// Note that the RPC address may be modified if toxiproxy is used below.
-	alphaCfgBase = loadNodeConfig(baseSymbol, alpha)
-	betaCfgBase = loadNodeConfig(baseSymbol, beta)
-	alphaCfgQuote = loadNodeConfig(quoteSymbol, alpha)
-	betaCfgQuote = loadNodeConfig(quoteSymbol, beta)
+	alphaCfgBase = simharness.LoadNodeConfig(baseSymbol, alpha)
+	betaCfgBase = simharness.LoadNodeConfig(baseSymbol, beta)
+	alphaCfgQuote = simharness.LoadNodeConfig(quoteSymbol, alpha)
+	betaCfgQuote = simharness.LoadNodeConfig(quoteSymbol, beta)
 
 	loggerMaker, err = dex.NewLoggerMaker(os.Stdout, logLevel)
 	if err != nil {
@@ -458,11 +319,11 @@ func run() error {
 		default:
 			return "", fmt.Errorf("getAddress: unknown symbol %q", symbol)
 		}
-		res := <-harnessCtl(ctx, symbol, fmt.Sprintf("./%s", node), args...)
-		if res.err != nil {
-			return "", fmt.Errorf("error getting %s address: %v", symbol, res.err)
+		res := <-simharness.Ctl(ctx, symbol, fmt.Sprintf("./%s", node), args...)
+		if res.Err != nil {
+			return "", fmt.Errorf("error getting %s address: %v", symbol, res.Err)
 		}
-		return strings.Trim(res.output, `"`), nil
+		return strings.Trim(res.Output, `"`), nil
 	}
 
 	if alphaAddrBase, err = getAddress(baseSymbol, alpha); err != nil {
@@ -478,29 +339,11 @@ func run() error {
 		return err
 	}
 
-	unlockWallets := func(symbol string) error {
-		switch symbol {
-		case btc, ltc, doge, bch:
-			<-harnessCtl(ctx, symbol, "./alpha", "walletpassphrase", "abc", "4294967295")
-			<-harnessCtl(ctx, symbol, "./beta", "walletpassphrase", "abc", "4294967295")
-		case dcr:
-			<-harnessCtl(ctx, dcr, "./alpha", "walletpassphrase", "abc", "0")
-			<-harnessCtl(ctx, dcr, "./beta", "walletpassphrase", "abc", "0") // creating new accounts requires wallet unlocked
-			<-harnessCtl(ctx, dcr, "./beta", "unlockaccount", "default", "abc")
-		case eth, zec:
-			// eth unlocking for send, so no need to here. Mining
-			// accounts are always unlocked. zec is unlocked already.
-		default:
-			return fmt.Errorf("unlockWallets: unknown symbol %q", symbol)
-		}
-		return nil
-	}
-
 	// Unlock wallets, since they may have been locked on a previous shutdown.
-	if err = unlockWallets(baseSymbol); err != nil {
+	if err = simharness.UnlockWallet(ctx, baseSymbol); err != nil {
 		return err
 	}
-	if err = unlockWallets(quoteSymbol); err != nil {
+	if err = simharness.UnlockWallet(ctx, quoteSymbol); err != nil {
 		return err
 	}
 
@@ -605,7 +448,7 @@ func run() error {
 			if err != nil {
 				return fmt.Errorf("unable to get a new port: %v", err)
 			}
-			proxy, err := toxiClient.CreateProxy("dcrdex_"+toxic.Name, newAddr, hostAddr)
+			proxy, err := toxiClient.CreateProxy("dcrdex_"+toxic.Name, newAddr, simharness.Host)
 			if err != nil {
 				return fmt.Errorf("failed to create %s proxy for host: %v", toxic.Name, err)
 			}
@@ -643,31 +486,4 @@ func run() error {
 			since, orderCounter, matchCounter, rate)
 	}
 	return nil
-}
-
-// marketsDotJSON models the server's markets.json configuration file.
-type marketsDotJSON struct {
-	Markets []*struct {
-		Base     string  `json:"base"`
-		Quote    string  `json:"quote"`
-		LotSize  uint64  `json:"lotSize"`
-		RateStep uint64  `json:"rateStep"`
-		Duration uint64  `json:"epochDuration"`
-		MBBuffer float64 `json:"marketBuyBuffer"`
-	} `json:"markets"`
-	Assets map[string]*dexsrv.AssetConf `json:"assets"`
-}
-
-// loadNodeConfig loads the INI configuration for the specified node into a
-// map[string]string.
-func loadNodeConfig(symbol, node string) map[string]string {
-	cfgPath := filepath.Join(dextestDir, symbol, node, node+".conf")
-	if symbol == eth {
-		cfgPath = filepath.Join(dextestDir, symbol, node, "node", "eth.conf")
-	}
-	cfg, err := config.Parse(cfgPath)
-	if err != nil {
-		panic(fmt.Sprintf("error parsing harness config file at %s: %v", cfgPath, err))
-	}
-	return cfg
 }

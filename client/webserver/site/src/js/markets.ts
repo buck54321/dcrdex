@@ -51,6 +51,7 @@ import {
   OrderOption,
   ConnectionStatus
 } from './registry'
+import { setOptionTemplates } from './opts'
 
 const bind = Doc.bind
 
@@ -240,7 +241,7 @@ export default class MarketsPage extends BasePage {
     }
 
     // Prepare templates for the buy and sell tables and the user's order table.
-    OrderUtil.setOptionTemplates(page)
+    setOptionTemplates(page)
     Doc.cleanTemplates(page.rowTemplate, page.liveTemplate, page.durBttnTemplate, page.booleanOptTmpl, page.rangeOptTmpl, page.orderOptTmpl)
 
     // Prepare the list of markets.
@@ -2418,7 +2419,7 @@ class MarketRow {
     tmpl.quoteIcon.src = Doc.logoPath(mkt.quotesymbol)
     tmpl.baseSymbol.textContent = mkt.basesymbol.toUpperCase()
     tmpl.quoteSymbol.textContent = mkt.quotesymbol.toUpperCase()
-    this.setSpot(mkt.spot)
+    if (mkt.spot) this.setSpot(mkt.spot)
   }
 
   setSpot (spot: Spot) {

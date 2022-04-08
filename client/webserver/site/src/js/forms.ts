@@ -21,6 +21,7 @@ import {
   XYRange,
   WalletStateNote
 } from './registry'
+import { XYRangeHandler } from './opts'
 
 interface ConfigOptionInput extends HTMLInputElement {
   configOpt: ConfigOption
@@ -1041,7 +1042,7 @@ export class AccelerateOrderForm {
     const selected = () => { /* do nothing */ }
     const roundY = true
     const updateRate = (_: number, newY: number) => { this.acceleratedRate = newY }
-    const rangeHandler = new OrderUtil.XYRangeHandler(preAccelerate.suggestedRange,
+    const rangeHandler = new XYRangeHandler(preAccelerate.suggestedRange,
       preAccelerate.suggestedRange.start.x, updateRate, () => this.updateAccelerationEstimate(), selected, roundY)
     Doc.empty(page.sliderContainer)
     page.sliderContainer.appendChild(rangeHandler.control)

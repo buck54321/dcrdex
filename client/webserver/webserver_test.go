@@ -208,6 +208,26 @@ func (c *TCore) WalletRestorationInfo(pw []byte, assetID uint32) ([]*asset.Walle
 	return nil, nil
 }
 
+func (c *TCore) CreateBot(pw []byte, botType string, pgm *core.MakerProgram) (uint64, error) {
+	return 1, nil
+}
+
+func (c *TCore) StartBot(pw []byte, pgmID uint64) error {
+	return nil
+}
+
+func (c *TCore) StopBot(pgmID uint64) error {
+	return nil
+}
+
+func (c *TCore) UpdateBotProgram(pgmID uint64, pgm *core.MakerProgram) error {
+	return nil
+}
+
+func (c *TCore) RetireBot(pgmID uint64) error {
+	return nil
+}
+
 type TWriter struct {
 	b []byte
 }

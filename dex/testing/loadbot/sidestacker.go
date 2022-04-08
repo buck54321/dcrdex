@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"decred.org/dcrdex/client/core"
+	"decred.org/dcrdex/client/core/simharness"
 	"decred.org/dcrdex/dex/calc"
 	"decred.org/dcrdex/dex/msgjson"
 	"decred.org/dcrdex/dex/order"
@@ -80,10 +81,10 @@ func (s *sideStacker) SetupWallets(m *Mantle) {
 	m.createWallet(quoteSymbol, s.node, minQuoteQty, maxQuoteQty, quoteCoins)
 	m.log.Infof("Side Stacker has been initialized with %d target standing orders, %d orders "+
 		"per epoch, %s to %s %s balance, and %s to %s %s balance, %d initial %s coins, %d initial %s coins",
-		s.numStanding, s.ordsPerEpoch, valString(minBaseQty, baseSymbol), valString(maxBaseQty, baseSymbol), baseSymbol,
-		valString(minQuoteQty, quoteSymbol), valString(maxQuoteQty, quoteSymbol), quoteSymbol, baseCoins, baseSymbol, quoteCoins, quoteSymbol)
-	<-mine(baseSymbol, alpha)
-	<-mine(quoteSymbol, alpha)
+		s.numStanding, s.ordsPerEpoch, simharness.ValString(minBaseQty, baseSymbol), simharness.ValString(maxBaseQty, baseSymbol), baseSymbol,
+		simharness.ValString(minQuoteQty, quoteSymbol), simharness.ValString(maxQuoteQty, quoteSymbol), quoteSymbol, baseCoins, baseSymbol, quoteCoins, quoteSymbol)
+	<-simharness.Mine(ctx, baseSymbol, alpha)
+	<-simharness.Mine(ctx, quoteSymbol, alpha)
 }
 
 // HandleNotification is part of the Trader interface.

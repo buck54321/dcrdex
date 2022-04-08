@@ -8,6 +8,7 @@ import MarketsPage from './markets'
 import OrdersPage from './orders'
 import OrderPage from './order'
 import DexSettingsPage from './dexsettings'
+import MarketMakerPage from './mm'
 import { RateEncodingFactor, StatusExecuted, hasLiveMatches } from './orderutil'
 import { getJSON, postJSON } from './http'
 import * as ntfn from './notifications'
@@ -29,6 +30,7 @@ import {
   MatchNote,
   ConnEventNote,
   SpotPriceNote,
+  BotNote,
   UnitInfo,
   WalletDefinition,
   WalletBalance,
@@ -36,7 +38,8 @@ import {
   NoteElement,
   BalanceResponse,
   APIResponse,
-  RateNote
+  RateNote,
+  BotReport
 } from './registry'
 
 const idel = Doc.idel // = element by id
@@ -69,7 +72,8 @@ const constructors: Record<string, PageClass> = {
   settings: SettingsPage,
   orders: OrdersPage,
   order: OrderPage,
-  dexsettings: DexSettingsPage
+  dexsettings: DexSettingsPage,
+  mm: MarketMakerPage
 }
 
 // unathedPages are pages that don't require authorization to load.
@@ -112,7 +116,8 @@ export default class Application {
       assets: {},
       fiatRates: {},
       authed: false,
-      ok: true
+      ok: true,
+      bots: []
     }
     this.seedGenTime = 0
     this.commitHash = process.env.COMMITHASH || ''
@@ -604,18 +609,27 @@ export default class Application {
       }
       case 'fiatrateupdate': {
         this.fiatRatesMap = (note as RateNote).fiatRates
+        break
+      }
+      case 'bot': {
+        const n = note as BotNote
+        const [r, bots] = [n.report, this.user.bots]
+        const idx = bots.findIndex((report: BotReport) => report.programID === r.programID)
+        switch (n.topic) {
+          case 'BotRetired':
+            if (idx >= 0) bots.splice(idx, 1)
+            break
+          default:
+            if (idx >= 0) bots[idx] = n.report
+            else bots.push(n.report)
+        }
       }
     }
 
     // Inform the page.
     for (const feeder of this.noteReceivers) {
       const f = feeder[note.type]
-      if (!f) continue
-      try {
-        f(note)
-      } catch (error) {
-        console.error('note feeder error:', error.message ? error.message : error)
-      }
+      if (f) f(note)
     }
     // Discard data notifications.
     if (note.severity < ntfn.POKE) return

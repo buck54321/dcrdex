@@ -1085,6 +1085,102 @@ func (s *WebServer) apiToggleRateSource(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, simpleAck(), s.indent)
 }
 
+func (s *WebServer) apiCreateBot(w http.ResponseWriter, r *http.Request) {
+	form := &struct {
+		AppPW   encode.PassBytes   `json:"appPW"`
+		BotType string             `json:"botType"`
+		Program *core.MakerProgram `json:"program"`
+	}{}
+	defer form.AppPW.Clear()
+	if !readPost(w, r, form) {
+		return
+	}
+	pw, err := s.resolvePass(form.AppPW, r)
+	if err != nil {
+		s.writeAPIError(w, fmt.Errorf("password error: %w", err))
+		return
+	}
+	pgmID, err := s.core.CreateBot(pw, form.BotType, form.Program)
+	if err != nil {
+		s.writeAPIError(w, fmt.Errorf("error creating bot: %w", err))
+		return
+	}
+	writeJSON(w, &struct {
+		OK        bool   `json:"ok"`
+		ProgramID uint64 `json:"programID"`
+	}{
+		OK:        true,
+		ProgramID: pgmID,
+	}, s.indent)
+}
+
+func (s *WebServer) apiStartBot(w http.ResponseWriter, r *http.Request) {
+	form := &struct {
+		AppPW     encode.PassBytes `json:"appPW"`
+		ProgramID uint64           `json:"programID"`
+	}{}
+	defer form.AppPW.Clear()
+	if !readPost(w, r, form) {
+		return
+	}
+	pw, err := s.resolvePass(form.AppPW, r)
+	if err != nil {
+		s.writeAPIError(w, fmt.Errorf("password error: %w", err))
+		return
+	}
+	if err = s.core.StartBot(pw, form.ProgramID); err != nil {
+		s.writeAPIError(w, fmt.Errorf("error starting bot: %w", err))
+		return
+	}
+	writeJSON(w, simpleAck(), s.indent)
+}
+
+func (s *WebServer) apiStopBot(w http.ResponseWriter, r *http.Request) {
+	form := &struct {
+		ProgramID uint64 `json:"programID"`
+	}{}
+	if !readPost(w, r, form) {
+		return
+	}
+	err := s.core.StopBot(form.ProgramID)
+	if err != nil {
+		s.writeAPIError(w, fmt.Errorf("error stopping bot: %w", err))
+		return
+	}
+	writeJSON(w, simpleAck(), s.indent)
+}
+
+func (s *WebServer) apiUpdateBotProgram(w http.ResponseWriter, r *http.Request) {
+	form := &struct {
+		ProgramID uint64             `json:"programID"`
+		Program   *core.MakerProgram `json:"program"`
+	}{}
+	if !readPost(w, r, form) {
+		return
+	}
+	err := s.core.UpdateBotProgram(form.ProgramID, form.Program)
+	if err != nil {
+		s.writeAPIError(w, fmt.Errorf("error updating bot program: %w", err))
+		return
+	}
+	writeJSON(w, simpleAck(), s.indent)
+}
+
+func (s *WebServer) apiRetireBot(w http.ResponseWriter, r *http.Request) {
+	form := &struct {
+		ProgramID uint64 `json:"programID"`
+	}{}
+	if !readPost(w, r, form) {
+		return
+	}
+	err := s.core.RetireBot(form.ProgramID)
+	if err != nil {
+		s.writeAPIError(w, fmt.Errorf("error retiring bot: %w", err))
+		return
+	}
+	writeJSON(w, simpleAck(), s.indent)
+}
+
 // writeAPIError logs the formatted error and sends a standardResponse with the
 // error message.
 func (s *WebServer) writeAPIError(w http.ResponseWriter, err error) {

@@ -122,6 +122,11 @@ type clientCore interface {
 	WalletRestorationInfo(pw []byte, assetID uint32) ([]*asset.WalletRestoration, error)
 	ToggleRateSourceStatus(src string, disable bool) error
 	FiatRateSources() map[string]bool
+	CreateBot(pw []byte, botType string, pgm *core.MakerProgram) (uint64, error)
+	StartBot(pw []byte, pgmID uint64) error
+	StopBot(pgmID uint64) error
+	UpdateBotProgram(pgmID uint64, pgm *core.MakerProgram) error
+	RetireBot(pgmID uint64) error
 }
 
 var _ clientCore = (*core.Core)(nil)
@@ -304,6 +309,7 @@ func New(cfg *Config) (*WebServer, error) {
 					webAuth.Get(exportOrderRoute, s.handleExportOrders)
 					webAuth.Get(homeRoute, s.handleHome)
 					webAuth.Get(marketsRoute, s.handleMarkets)
+					webAuth.Get(marketMakerRoute, s.handleMarketMaker)
 				})
 			})
 
@@ -362,6 +368,11 @@ func New(cfg *Config) (*WebServer, error) {
 			apiAuth.Post("/updatedexhost", s.apiUpdateDEXHost)
 			apiAuth.Post("/restorewalletinfo", s.apiRestoreWalletInfo)
 			apiAuth.Post("/toggleratesource", s.apiToggleRateSource)
+			apiAuth.Post("/createbot", s.apiCreateBot)
+			apiAuth.Post("/startbot", s.apiStartBot)
+			apiAuth.Post("/stopbot", s.apiStopBot)
+			apiAuth.Post("/updatebotprogram", s.apiUpdateBotProgram)
+			apiAuth.Post("/retirebot", s.apiRetireBot)
 		})
 	})
 
@@ -433,6 +444,7 @@ func (s *WebServer) buildTemplates(lang string) error {
 		addTemplate("login", bb, "forms").
 		addTemplate("register", bb, "forms").
 		addTemplate("markets", bb, "forms").
+		addTemplate("mm", bb, "forms").
 		addTemplate("wallets", bb, "forms").
 		addTemplate("settings", bb, "forms").
 		addTemplate("orders", bb).

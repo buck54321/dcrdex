@@ -90,12 +90,12 @@ export default class Doc {
   }
 
   /* bind binds the function to the event for the element. */
-  static bind (el: EventTarget, ev: string, f: (e: Event) => void) {
+  static bind (el: EventTarget, ev: string, f: EventListenerOrEventListenerObject): void {
     el.addEventListener(ev, f)
   }
 
   /* unbind removes the handler for the event from the element. */
-  static unbind (el: EventTarget, ev: string, f: (e: Event) => void) {
+  static unbind (el: EventTarget, ev: string, f: (e: Event) => void): void {
     el.removeEventListener(ev, f)
   }
 
@@ -131,6 +131,19 @@ export default class Doc {
       height: h,
       centerX: left + w / 2,
       centerY: top + h / 2
+    }
+  }
+
+  static descendentMetrics (parent: PageElement, kid: PageElement): LayoutMetrics {
+    const parentMetrics = Doc.layoutMetrics(parent)
+    const kidMetrics = Doc.layoutMetrics(kid)
+    return {
+      bodyTop: kidMetrics.bodyTop - parentMetrics.bodyTop,
+      bodyLeft: kidMetrics.bodyLeft - parentMetrics.bodyLeft,
+      width: kidMetrics.width,
+      height: kidMetrics.height,
+      centerX: kidMetrics.centerX - parentMetrics.bodyLeft,
+      centerY: kidMetrics.centerY - parentMetrics.bodyTop
     }
   }
 
