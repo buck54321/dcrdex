@@ -266,6 +266,8 @@ type BTCCloneCFG struct {
 	// output value) that doesn't depend on the serialized size of the output.
 	// If ConstantDustLimit is zero, dexbtc.IsDust is used.
 	ConstantDustLimit uint64
+	// SupportsCPFP is true if the wallet supports child pays for parent.
+	SupportsCPFP bool
 }
 
 // outPoint is the hash and output index of a transaction output.
@@ -594,6 +596,7 @@ type baseWallet struct {
 	estimateFee       func(RawRequester, uint64) (uint64, error)
 	decodeAddr        dexbtc.AddressDecoder
 	net               dex.Network
+	supportsCPFP      bool
 
 	tipMtx     sync.RWMutex
 	currentTip *block
@@ -618,7 +621,6 @@ type ExchangeWalletFullNode struct {
 }
 
 // Check that wallets satisfy their supported interfaces.
-
 var _ asset.Wallet = (*baseWallet)(nil)
 var _ asset.Accelerator = (*baseWallet)(nil)
 var _ asset.Rescanner = (*ExchangeWalletSPV)(nil)
@@ -721,6 +723,7 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, net dex.Network) (ass
 		DefaultFallbackFee:  defaultFee,
 		DefaultFeeRateLimit: defaultFeeRateLimit,
 		Segwit:              true,
+		SupportsCPFP:        true,
 	}
 
 	switch cfg.Type {
@@ -856,6 +859,7 @@ func newUnconnectedWallet(cfg *BTCCloneCFG, walletCfg *WalletConfig) (*baseWalle
 		decodeAddr:          addrDecoder,
 		walletInfo:          cfg.WalletInfo,
 		net:                 cfg.Network,
+		supportsCPFP:        cfg.SupportsCPFP,
 	}
 
 	if w.estimateFee == nil {
@@ -2042,6 +2046,12 @@ func (btc *baseWallet) signedAccelerationTx(swapCoins, accelerationCoins []dex.B
 	return tx, output, txFee + additionalFeesRequired, nil
 }
 
+// CanAccelerate returns whether or not the wallet supports acceleration.
+// Some of the BTC clones do not support it.
+func (btc *baseWallet) CanAccelerate() bool {
+	return btc.supportsCPFP
+}
+
 // AccelerateOrder uses the Child-Pays-For-Parent technique to accelerate a
 // chain of swap transactions and previous accelerations. It broadcasts a new
 // transaction with a fee high enough so that the average fee of all the
@@ -2052,6 +2062,10 @@ func (btc *baseWallet) signedAccelerationTx(swapCoins, accelerationCoins []dex.B
 //
 // The returned change coin may be nil, and should be checked before use.
 func (btc *baseWallet) AccelerateOrder(swapCoins, accelerationCoins []dex.Bytes, changeCoin dex.Bytes, requiredForRemainingSwaps, newFeeRate uint64) (asset.Coin, string, error) {
+	if !btc.supportsCPFP {
+		return nil, "", fmt.Errorf("this wallet does not support acceleration")
+	}
+
 	btc.fundingMtx.Lock()
 	defer btc.fundingMtx.Unlock()
 
@@ -2109,6 +2123,10 @@ func (btc *baseWallet) AccelerateOrder(swapCoins, accelerationCoins []dex.Bytes,
 // the amount of funds that will need to be spent in order to increase the
 // average fee rate to the desired amount.
 func (btc *baseWallet) AccelerationEstimate(swapCoins, accelerationCoins []dex.Bytes, changeCoin dex.Bytes, requiredForRemainingSwaps, newFeeRate uint64) (uint64, error) {
+	if !btc.supportsCPFP {
+		return 0, fmt.Errorf("this wallet does not support acceleration")
+	}
+
 	btc.fundingMtx.RLock()
 	defer btc.fundingMtx.RUnlock()
 	_, _, fee, err := btc.signedAccelerationTx(swapCoins, accelerationCoins, changeCoin, requiredForRemainingSwaps, newFeeRate)
@@ -2173,6 +2191,10 @@ func tooEarlyToAccelerate(txs []*GetTransactionResult, accelerationCoins []dex.B
 func (btc *baseWallet) PreAccelerate(swapCoins, accelerationCoins []dex.Bytes, changeCoin dex.Bytes, requiredForRemainingSwaps, feeSuggestion uint64) (currentEffectiveRate uint64, suggestedRange asset.XYRange, err error) {
 	makeError := func(err error) (uint64, asset.XYRange, error) {
 		return 0, asset.XYRange{}, err
+	}
+
+	if !btc.supportsCPFP {
+		return makeError(fmt.Errorf("this wallet does not support acceleration"))
 	}
 
 	changeTxHash, changeVout, err := decodeCoinID(changeCoin)
