@@ -35,7 +35,9 @@ import {
   LogMessage,
   NoteElement,
   BalanceResponse,
-  APIResponse
+  APIResponse,
+  RateNote,
+  PageElement
 } from './registry'
 
 const idel = Doc.idel // = element by id
@@ -91,6 +93,8 @@ export default class Application {
   assets: Record<number, SupportedAsset>
   exchanges: Record<string, Exchange>
   walletMap: Record<number, WalletState>
+  fiatRatesMap: Record<number, number>
+  disableConversion: boolean
   tooltip: HTMLElement
   page: Record<string, HTMLElement>
   loadedPage: Page | null
@@ -101,12 +105,15 @@ export default class Application {
     this.notes = []
     this.pokes = []
     // The "user" is a large data structure that contains nearly all state
-    // information, including exchanges, markets, wallets, and orders.
+    // information, including exchanges, markets, wallets, orders and exchange
+    // rates for assets.
     this.user = {
       exchanges: {},
       inited: false,
       seedgentime: 0,
       assets: {},
+      fiatRates: {},
+      disableConversion: true,
       authed: false,
       ok: true
     }
@@ -221,12 +228,15 @@ export default class Application {
     this.user = user
     this.assets = user.assets
     this.exchanges = user.exchanges
+    this.disableConversion = user.disableConversion
     this.walletMap = {}
+    this.fiatRatesMap = user.fiatRates
     for (const [assetID, asset] of (Object.entries(user.assets) as [any, SupportedAsset][])) {
       if (asset.wallet) {
         this.walletMap[assetID] = asset.wallet
       }
     }
+
     this.updateMenuItemsDisplay()
     return user
   }
@@ -549,15 +559,37 @@ export default class Application {
         else if (!updateOrder(mkt, order)) mkt.orders.push(order)
         break
       }
+      case 'fiatrateupdate': {
+        const r: RateNote = note as RateNote
+        this.fiatRatesMap = r.fiatRates
+        if (!this.walletMap) break
+        for (const [assetID, wallet] of (Object.entries(this.walletMap) as [any, WalletState][])) {
+          if (!wallet) continue
+          const rate = r.fiatRates[assetID]
+          const fiatDiv = this.main.querySelector(`[data-conversion-target="${assetID}"]`) as PageElement
+          if (!fiatDiv || !fiatDiv.firstElementChild) continue
+          fiatDiv.firstElementChild.textContent = Doc.formatAssetValue(wallet.balance.available, rate, this.unitInfo(assetID))
+          if (rate && !this.disableConversion) Doc.show(fiatDiv)
+          else Doc.hide(fiatDiv)
+        }
+      }
+        break
       case 'balance': {
         const n: BalanceNote = note as BalanceNote
         const asset = this.user.assets[n.assetID]
         // Balance updates can come before the user is fetched after login.
         if (!asset) break
         const w = asset.wallet
-        if (w) w.balance = n.balance
-        break
+        if (!w) break
+        w.balance = n.balance
+        const rate = this.fiatRatesMap[w.assetID]
+        const fiatDiv = this.main.querySelector(`[data-conversion-target="${n.assetID}"]`) as PageElement
+        if (!fiatDiv || !fiatDiv.firstElementChild) return
+        fiatDiv.firstElementChild.textContent = Doc.formatAssetValue(n.balance.available, rate, this.unitInfo(n.assetID))
+        if (rate && !this.disableConversion) Doc.show(fiatDiv)
+        else Doc.hide(fiatDiv)
       }
+        break
       case 'feepayment':
         this.handleFeePaymentNote(note as FeePaymentNote)
         break
@@ -569,10 +601,17 @@ export default class Application {
         const asset = this.assets[wallet.assetID]
         asset.wallet = wallet
         this.walletMap[wallet.assetID] = wallet
+        const bal = wallet.balance.available
         const balances = this.main.querySelectorAll(`[data-balance-target="${wallet.assetID}"]`)
-        balances.forEach(el => { el.textContent = Doc.formatFullPrecision(wallet.balance.available, asset.info.unitinfo) })
-        break
+        balances.forEach(el => { el.textContent = Doc.formatFullPrecision(bal, asset.info.unitinfo) })
+        const rate = this.fiatRatesMap[wallet.assetID]
+        const fiatDiv = this.main.querySelector(`[data-conversion-target="${wallet.assetID}"]`) as PageElement
+        if (!fiatDiv || !fiatDiv.firstElementChild) break
+        fiatDiv.firstElementChild.textContent = Doc.formatAssetValue(bal, rate, asset.info.unitinfo)
+        if (rate && !this.disableConversion) Doc.show(fiatDiv)
+        else Doc.hide(fiatDiv)
       }
+        break
       case 'match': {
         const n = note as MatchNote
         const ord = this.order(n.orderID)

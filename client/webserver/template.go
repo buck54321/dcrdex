@@ -190,6 +190,7 @@ func (t *templates) execWithReload(name string, data interface{}) (string, error
 // templateFuncs are able to be called during template execution.
 var templateFuncs = template.FuncMap{
 	"toUpper": strings.ToUpper,
+	"toTitle": strings.Title,
 	// logoPath gets the logo image path for the base asset of the specified
 	// market.
 	"logoPath": func(symbol string) string {

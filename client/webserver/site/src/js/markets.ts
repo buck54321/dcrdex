@@ -1392,23 +1392,52 @@ export default class MarketsPage extends BasePage {
     if (order.isLimit) {
       Doc.show(page.verifyLimit)
       Doc.hide(page.verifyMarket)
+      Doc.hide(page.vFiatTotal)
+      Doc.hide(page.vFiatQty)
       const orderDesc = `Limit ${buySellStr} Order`
       page.vOrderType.textContent = order.tifnow ? orderDesc + ' (immediate)' : orderDesc
       page.vRate.textContent = Doc.formatCoinValue(order.rate / this.market.rateConversionFactor)
       page.vQty.textContent = Doc.formatCoinValue(order.qty, baseAsset.info.unitinfo)
-      page.vTotal.textContent = Doc.formatCoinValue(order.rate / OrderUtil.RateEncodingFactor * order.qty, quoteAsset.info.unitinfo)
+      const total = order.rate / OrderUtil.RateEncodingFactor * order.qty
+      page.vTotal.textContent = Doc.formatCoinValue(total, quoteAsset.info.unitinfo)
+      // Format quantity fiat value.
+      if (page.vFiatQty.firstElementChild) {
+        const rate = app().fiatRatesMap[baseAsset.id]
+        page.vFiatQty.firstElementChild.textContent = Doc.formatAssetValue(order.qty, rate, baseAsset.info.unitinfo)
+        if (rate && !app().disableConversion) Doc.show(page.vFiatQty)
+      }
+      // Format total fiat value.
+      if (page.vFiatTotal.firstElementChild) {
+        const rate = app().fiatRatesMap[quoteAsset.id]
+        page.vFiatTotal.firstElementChild.textContent = Doc.formatAssetValue(total, rate, quoteAsset.info.unitinfo)
+        if (rate && !app().disableConversion) Doc.show(page.vFiatTotal)
+      }
     } else {
       Doc.hide(page.verifyLimit)
       Doc.show(page.verifyMarket)
+      Doc.hide(page.vmFromTotalFiat)
       page.vOrderType.textContent = `Market ${buySellStr} Order`
-      page.vmFromTotal.textContent = Doc.formatCoinValue(order.qty / 1e8)
       page.vmFromAsset.textContent = fromAsset.symbol.toUpperCase()
+      page.vmFromTotal.textContent = Doc.formatCoinValue(order.qty / 1e8)
+      // Format fromAsset fiat value.
+      if (page.vmFromTotalFiat.firstElementChild) {
+        const rate = app().fiatRatesMap[fromAsset.id]
+        page.vmFromTotalFiat.firstElementChild.textContent = Doc.formatAssetValue(order.qty, rate, fromAsset.info.unitinfo)
+        if (rate && !app().disableConversion) Doc.show(page.vmFromTotalFiat)
+      }
       const gap = this.midGap()
       if (gap) {
         Doc.show(page.vMarketEstimate)
+        Doc.hide(page.vmTotalFiat)
         const received = order.sell ? order.qty * gap : order.qty / gap
         page.vmToTotal.textContent = Doc.formatCoinValue(received, toAsset.info.unitinfo)
         page.vmToAsset.textContent = toAsset.symbol.toUpperCase()
+        // Format recieved value.
+        if (page.vmTotalFiat.firstElementChild) {
+          const rate = app().fiatRatesMap[toAsset.id]
+          page.vmTotalFiat.firstElementChild.textContent = Doc.formatAssetValue(received, rate, toAsset.info.unitinfo)
+          if (rate && !app().disableConversion) Doc.show(page.vmTotalFiat)
+        }
       } else {
         Doc.hide(page.vMarketEstimate)
       }

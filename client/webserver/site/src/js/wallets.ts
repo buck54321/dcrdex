@@ -12,7 +12,9 @@ import {
   WalletDefinition,
   BalanceNote,
   WalletStateNote,
-  Market
+  Market,
+  RateNote,
+  WalletState
 } from './registry'
 
 const bind = Doc.bind
@@ -199,11 +201,37 @@ export default class WalletsPage extends BasePage {
     // amount field.
     bind(page.sendAvail, 'click', () => {
       const asset = this.sendAsset
-      page.sendAmt.value = String(asset.wallet.balance.available / asset.info.unitinfo.conventional.conversionFactor)
+      const bal = asset.wallet.balance.available
+      const unitInfo = asset.info.unitinfo
+      const rate = app().fiatRatesMap[asset.id]
+      if (rate && page.sendValue.firstElementChild) page.sendValue.firstElementChild.textContent = Doc.formatAssetValue(bal, rate, unitInfo)
+      else Doc.hide(page.sendValue)
+      page.sendAmt.value = String(bal / unitInfo.conventional.conversionFactor)
       // Ensure we don't check subtract checkbox for assets that don't have a
       // withdraw method.
       if ((asset.wallet.traits & traitWithdrawer) === 0) page.subtractCheckBox.checked = false
       else page.subtractCheckBox.checked = true
+    })
+
+    for (const [assetID, wallet] of (Object.entries(app().walletMap) as [any, WalletState][])) {
+      if (!wallet) continue
+      const rate = app().fiatRatesMap[assetID]
+      const fiatDiv = this.page.walletTable.querySelector(`[data-conversion-target="${assetID}"]`) as PageElement
+      if (!fiatDiv || !fiatDiv.firstElementChild) continue
+      fiatDiv.firstElementChild.textContent = Doc.formatAssetValue(wallet.balance.available, rate, app().unitInfo(assetID))
+      if (rate && !app().disableConversion) Doc.show(fiatDiv)
+      else Doc.hide(fiatDiv)
+    }
+
+    // Display fiat value for current send amount.
+    bind(page.sendAmt, 'input', () => {
+      const asset = this.sendAsset
+      if (!asset) return
+      const amt = parseFloat(page.sendAmt.value || '0')
+      const conversionFactor = asset.info.unitinfo.conventional.conversionFactor
+      const rate = app().fiatRatesMap[asset.id]
+      if (rate && page.sendValue.firstElementChild) page.sendValue.firstElementChild.textContent = Doc.formatAssetValue(amt * conversionFactor, rate, app().unitInfo(asset.id))
+      else Doc.hide(page.sendValue)
     })
 
     // A link on the wallet reconfiguration form to show/hide the password field.
@@ -228,6 +256,7 @@ export default class WalletsPage extends BasePage {
     this.showMarkets(firstRow.assetID)
 
     this.notifiers = {
+      fiatrateupdate: (note: RateNote) => { this.handleRatesNote(note) },
       balance: (note: BalanceNote) => { this.handleBalanceNote(note) },
       walletstate: (note: WalletStateNote) => { this.handleWalletStateNote(note) },
       walletconfig: (note: WalletStateNote) => { this.handleWalletStateNote(note) }
@@ -549,8 +578,12 @@ export default class WalletsPage extends BasePage {
     page.sendAddr.value = ''
     page.sendAmt.value = ''
     page.sendPW.value = ''
-
     page.sendErr.textContent = ''
+
+    Doc.hide(page.sendValue)
+    const rate = app().fiatRatesMap[asset.id]
+    if (page.sendValue.firstElementChild) page.sendValue.firstElementChild.textContent = Doc.formatAssetValue(0, rate, app().unitInfo(asset.id))
+    if (rate && !app().disableConversion) Doc.show(page.sendValue)
     page.sendAvail.textContent = Doc.formatFullPrecision(wallet.balance.available, asset.info.unitinfo)
     page.sendLogo.src = Doc.logoPath(asset.symbol)
     page.sendName.textContent = asset.info.name
@@ -720,10 +753,34 @@ export default class WalletsPage extends BasePage {
     }
   }
 
-  /* handleBalance handles notifications updating a wallet's balance. */
+  /* handleBalance handles notifications updating a wallet's balance and assets'
+     value in default fiat exchange rate.
+  . */
   handleBalanceNote (note: BalanceNote) {
     const td = Doc.safeSelector(this.page.walletTable, `[data-balance-target="${note.assetID}"]`)
     td.textContent = Doc.formatFullPrecision(note.balance.available, app().unitInfo(note.assetID))
+    const rate = app().fiatRatesMap[note.assetID]
+    const fiatDiv = Doc.safeSelector(this.page.walletTable, `[data-conversion-target="${note.assetID}"]`)
+    if (!fiatDiv.firstElementChild) return
+    fiatDiv.firstElementChild.textContent = Doc.formatAssetValue(note.balance.available, rate, app().unitInfo(note.assetID))
+    if (rate && !app().disableConversion) Doc.show(fiatDiv)
+    else Doc.hide(fiatDiv)
+  }
+
+  /* handleRatesNote handles fiat rate notifications, updating the fiat value of
+   *  all supported assets.
+   */
+  handleRatesNote (note: RateNote) {
+    app().fiatRatesMap = note.fiatRates
+    for (const [assetID, wallet] of (Object.entries(app().walletMap) as [any, WalletState][])) {
+      if (!wallet) continue
+      const rate = note.fiatRates[assetID]
+      const fiatDiv = this.page.walletTable.querySelector(`[data-conversion-target="${assetID}"]`) as PageElement
+      if (!fiatDiv || !fiatDiv.firstElementChild) continue
+      fiatDiv.firstElementChild.textContent = Doc.formatAssetValue(wallet.balance.available, rate, app().unitInfo(assetID))
+      if (rate && !app().disableConversion) Doc.show(fiatDiv)
+      else Doc.hide(fiatDiv)
+    }
   }
 
   /*

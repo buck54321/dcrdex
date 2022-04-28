@@ -20,6 +20,7 @@ export default class SettingsPage extends BasePage {
   currentDEX: Exchange
   page: Record<string, PageElement>
   forms: PageElement[]
+  exchangeRateSources: PageElement[]
   regAssetForm: forms.FeeAssetSelectionForm
   confirmRegisterForm: forms.ConfirmRegistrationForm
   newWalletForm: forms.NewWalletForm
@@ -37,6 +38,7 @@ export default class SettingsPage extends BasePage {
     const page = this.page = Doc.idDescendants(body)
 
     this.forms = Doc.applySelector(page.forms, ':scope > form')
+    this.exchangeRateSources = Doc.applySelector(page.exchangeRateSources, 'input[type=checkbox]')
 
     Doc.bind(page.darkMode, 'click', () => {
       State.dark(page.darkMode.checked || false)
@@ -57,6 +59,20 @@ export default class SettingsPage extends BasePage {
     Doc.bind(page.addADex, 'click', () => {
       this.dexAddrForm.refresh()
       this.showForm(page.dexAddrForm)
+    })
+
+    this.exchangeRateSources.forEach(src => {
+      Doc.bind(src, 'change', async () => {
+        const res = await postJSON('/api/ratesourcesettings', {
+          disable: !src.checked,
+          source: src.value
+        })
+        if (!app().checkResponse(res)) {
+          src.checked = !src.checked
+        }
+        // Update asset rate values and disable conversion status.
+        await app().fetchUser()
+      })
     })
 
     // Asset selection

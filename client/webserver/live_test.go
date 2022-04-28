@@ -1612,6 +1612,12 @@ func (c *TCore) UpdateCert(string, []byte) error {
 func (c *TCore) UpdateDEXHost(string, string, []byte, interface{}) (*core.Exchange, error) {
 	return nil, nil
 }
+func (c *TCore) ToggleRateSourceStatus(src string, disable bool) error {
+	return nil
+}
+func (c *TCore) ExchangeRateSources() map[string]bool {
+	return nil
+}
 
 func TestServer(t *testing.T) {
 	// Register dummy drivers for unimplemented assets.

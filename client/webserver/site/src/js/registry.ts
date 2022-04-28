@@ -239,6 +239,8 @@ export interface User {
   inited: boolean
   seedgentime: number
   assets: Record<number, SupportedAsset>
+  fiatRates: Record<number, number>
+  disableConversion: boolean
   authed: boolean // added by webserver
   ok: boolean // added by webserver
 }
@@ -263,6 +265,10 @@ export interface FeePaymentNote extends CoreNote {
 export interface BalanceNote extends CoreNote {
   assetID: number
   balance: WalletBalance
+}
+
+export interface RateNote extends CoreNote {
+  fiatRates: Record<number, number>
 }
 
 export interface WalletConfigNote extends CoreNote {
@@ -465,6 +471,8 @@ export interface Application {
   header: HTMLElement
   walletMap: Record<number, WalletState>
   exchanges: Record<string, Exchange>
+  disableConversion: boolean
+  fiatRatesMap: Record<number, number>
   showPopups: boolean
   commitHash: string
   start (): Promise<void>

@@ -119,6 +119,8 @@ type clientCore interface {
 	AccelerationEstimate(oidB dex.Bytes, newFeeRate uint64) (uint64, error)
 	UpdateCert(host string, cert []byte) error
 	UpdateDEXHost(oldHost, newHost string, appPW []byte, certI interface{}) (*core.Exchange, error)
+	ToggleRateSourceStatus(src string, disable bool) error
+	ExchangeRateSources() map[string]bool
 }
 
 var _ clientCore = (*core.Core)(nil)
@@ -357,6 +359,7 @@ func New(cfg *Config) (*WebServer, error) {
 			apiAuth.Post("/accelerationestimate", s.apiAccelerationEstimate)
 			apiAuth.Post("/updatecert", s.apiUpdateCert)
 			apiAuth.Post("/updatedexhost", s.apiUpdateDEXHost)
+			apiAuth.Post("/ratesourcesettings", s.apiRateSourceSettings)
 		})
 	})
 

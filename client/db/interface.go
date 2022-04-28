@@ -130,4 +130,10 @@ type DB interface {
 	SetSeedGenerationTime(time uint64) error
 	// SeedGenerationTime fetches the time when the app seed was generated.
 	SeedGenerationTime() (uint64, error)
+	// DisabledRateSources retrieves disabled exchange rate sources from the
+	// database.
+	DisabledRateSources() ([]string, error)
+	// SaveDisabledRateSources saves disabled exchange rate sources in the
+	// database.
+	SaveDisabledRateSources(disabledSources []string) error
 }

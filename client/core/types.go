@@ -117,6 +117,8 @@ type User struct {
 	Initialized        bool                       `json:"inited"`
 	SeedGenerationTime uint64                     `json:"seedgentime"`
 	Assets             map[uint32]*SupportedAsset `json:"assets"`
+	FiatRates          map[uint32]float64         `json:"fiatRates"`
+	DisableConversion  bool                       `json:"disableConversion"`
 }
 
 // SupportedAsset is data about an asset and possibly the wallet associated

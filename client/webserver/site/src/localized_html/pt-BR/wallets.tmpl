@@ -71,9 +71,16 @@
             <span class="fs20">{{.Info.Name}}</span>
             <span class="fs15">({{toUpper .Symbol}})</span>
           </td>
-          <td data-balance-target="{{.ID}}">
+         <td>
             {{if .Wallet}}
+            <div data-balance-target="{{.ID}}">
               {{.Info.UnitInfo.ConventionalString .Wallet.Balance.Available}}
+            </div>
+            <div
+             data-conversion-target={{.ID}}
+             class="d-inline d-hide"> &dollar;
+             <span></span>
+            </div>
             {{else}}
               0.00000000
             {{end}}
@@ -164,6 +171,7 @@
           <!-- <div class="d-inline">tx fees: <span id="sendFee"></span> <span id="sendUnit"></span>/byte</div> -->
         </div>
       </div>
+      <div id="sendValue" class="mt-2 d-hide">Value: &dollar; <span></span></div>
       <div id="toggleSubtract" class="form-check pt-2">
            <input class="form-check-input" type="checkbox" id="subtractCheckBox">
            <label for="subtractCheckBox" class="form-label ps-1">Subtract fees from amount sent.</label>

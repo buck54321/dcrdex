@@ -32,7 +32,6 @@ import (
 	"decred.org/dcrdex/dex/encrypt"
 	"decred.org/dcrdex/dex/msgjson"
 	"decred.org/dcrdex/dex/order"
-	"decred.org/dcrdex/dex/order/test"
 	ordertest "decred.org/dcrdex/dex/order/test"
 	"decred.org/dcrdex/dex/wait"
 	"decred.org/dcrdex/server/account"
@@ -530,7 +529,12 @@ func (tdb *TDB) SetSeedGenerationTime(time uint64) error {
 func (tdb *TDB) SeedGenerationTime() (uint64, error) {
 	return 0, nil
 }
-
+func (tdb *TDB) DisabledRateSources() ([]string, error) {
+	return nil, nil
+}
+func (tdb *TDB) SaveDisabledRateSources(disableSources []string) error {
+	return nil
+}
 func (tdb *TDB) Recrypt(creds *db.PrimaryCredentials, oldCrypter, newCrypter encrypt.Crypter) (
 	walletUpdates map[uint32][]byte, acctUpdates map[string][]byte, err error) {
 
@@ -1070,6 +1074,13 @@ func randomAsset() *msgjson.Asset {
 
 func randomMsgMarket() (baseAsset, quoteAsset *msgjson.Asset) {
 	return randomAsset(), randomAsset()
+}
+
+func tFetcher(_ context.Context, log dex.Logger, _ map[uint32]*SupportedAsset) map[uint32]float64 {
+	fiatRates := make(map[uint32]float64)
+	fiatRates[tUTXOAssetA.ID] = 45
+	fiatRates[tUTXOAssetB.ID] = 32000
+	return fiatRates
 }
 
 type testRig struct {
@@ -4827,7 +4838,7 @@ func TestReconcileTrades(t *testing.T) {
 			clientOrders: []*trackedTrade{},
 			serverOrders: []*msgjson.OrderStatus{
 				{
-					ID:     test.RandomOrderID().Bytes(),
+					ID:     ordertest.RandomOrderID().Bytes(),
 					Status: uint16(order.OrderStatusBooked),
 				},
 			},
@@ -9058,5 +9069,162 @@ func TestLCM(t *testing.T) {
 			t.Fatalf("%q: expected %d %d %d but got %d %d %d", test.name,
 				test.wantDenom, test.wantMultA, test.wantMultB, denom, multA, multB)
 		}
+	}
+}
+
+func TestToggleRateSourceStatus(t *testing.T) {
+	rig := newTestRig()
+	defer rig.shutdown()
+	tCore := rig.core
+	tCore.exchangeRateSources = make(map[string]*commonSource)
+
+	tests := []struct {
+		name, source  string
+		wantErr, init bool
+	}{{
+		name:    "Invalid rate source",
+		source:  "binance",
+		wantErr: true,
+	}, {
+		name:    "ok valid source",
+		source:  messari,
+		wantErr: false,
+	}, {
+		name:    "ok already disabled/not initialized || enabled",
+		source:  messari,
+		wantErr: false,
+	}}
+
+	// Test disabling exchange rate source.
+	for _, test := range tests {
+		err := tCore.ToggleRateSourceStatus(test.source, true)
+		if test.wantErr {
+			if err == nil {
+				t.Fatalf("%s: expected error", test.name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", test.name, err)
+		}
+	}
+
+	// Test enabling exchange rate source.
+	for _, test := range tests {
+		if test.init {
+			tCore.exchangeRateSources[test.source] = newcommonSource(tCore.log, tFetcher)
+		}
+		err := tCore.ToggleRateSourceStatus(test.source, false)
+		if test.wantErr {
+			if err == nil {
+				t.Fatalf("%s: expected error", test.name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", test.name, err)
+		}
+	}
+}
+
+func TestIsConversionDisabled(t *testing.T) {
+	rig := newTestRig()
+	defer rig.shutdown()
+	tCore := rig.core
+	tCore.exchangeRateSources = make(map[string]*commonSource)
+
+	tests := []struct {
+		name                    string
+		init, disableConversion bool
+	}{{
+		name: "Conversion not disabled",
+		init: true,
+	}, {
+		name:              "Conversion disabled",
+		disableConversion: true,
+	}}
+
+	for _, test := range tests {
+		if test.init {
+			tCore.exchangeRateSources["testsource"] = newcommonSource(tCore.log, tFetcher)
+		} else if len(tCore.exchangeRateSources) != 0 {
+			for token := range tCore.exchangeRateSources {
+				delete(tCore.exchangeRateSources, token)
+			}
+		}
+		isDisabled := tCore.isConversionDisabled()
+		if test.disableConversion {
+			if isDisabled {
+				continue
+			}
+			t.Fatalf("%s: expected fiat conversion to be disabled", test.name)
+		}
+		if isDisabled {
+			t.Fatalf("%s: fiat conversion should not be diabled", test.name)
+		}
+
+	}
+
+}
+
+func TestExchangeRateSources(t *testing.T) {
+	rig := newTestRig()
+	defer rig.shutdown()
+	tCore := rig.core
+	tCore.exchangeRateSources = make(map[string]*commonSource)
+	supportedFetchers := len(exchangeRateFetchers)
+	rateSources := tCore.ExchangeRateSources()
+	if len(rateSources) != supportedFetchers {
+		t.Fatalf("Expected %d number of exchange rate source/fetchers", supportedFetchers)
+	}
+}
+
+func TestFetchAllFiatRates(t *testing.T) {
+	rig := newTestRig()
+	defer rig.shutdown()
+	tCore := rig.core
+	tCore.exchangeRateSources = make(map[string]*commonSource)
+
+	// No exchange rate source initialized
+	fiatRates := tCore.fetchAllFiatRates()
+	if len(fiatRates) != 0 {
+		t.Fatal("Unexpected asset rate values.")
+	}
+
+	// Initialize exchange rate sources.
+	for token := range exchangeRateFetchers {
+		tCore.exchangeRateSources[token] = newcommonSource(tCore.log, tFetcher)
+	}
+
+	// Fetch asset rates.
+	tCore.wg.Add(1)
+	go func() {
+		defer tCore.wg.Done()
+		tCore.refreshExchangeRate()
+	}()
+	tCore.wg.Wait()
+
+	// Expects assets exchange rate values.
+	fiatRates = tCore.fetchAllFiatRates()
+	if len(fiatRates) != 2 {
+		t.Fatal("Expected assets exchange rate for two assets")
+	}
+
+	// Exchange rates for assets can expire, and exchange rate fetchers can be
+	// removed if expired.
+	time.Sleep(2 * time.Second)
+	for token, source := range tCore.exchangeRateSources {
+		if source.isExpired(2 * time.Second) {
+			delete(tCore.exchangeRateSources, token)
+		}
+	}
+
+	fiatRates = tCore.fetchAllFiatRates()
+	if len(fiatRates) != 0 {
+		t.Fatal("Unexpected assets exchange rate values, expected to ignore expired exchange rates.")
+	}
+
+	if !tCore.isConversionDisabled() {
+		t.Fatal("Expected fiat conversion to be disabled, all rate source data has expired.")
 	}
 }
