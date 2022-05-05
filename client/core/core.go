@@ -4323,7 +4323,7 @@ func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter e
 	}
 
 	// Get an address for the swap contract.
-	addr, err := toWallet.DepositAddress()
+	redeemAddr, err := toWallet.DepositAddress()
 	if err != nil {
 		return nil, 0, codedError(walletErr, fmt.Errorf("%s Address error: %w", wallets.toAsset.Symbol, err))
 	}
@@ -4445,7 +4445,7 @@ func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter e
 				Coins:    coinIDs,
 				Sell:     form.Sell,
 				Quantity: form.Qty,
-				Address:  addr,
+				Address:  redeemAddr,
 			},
 			Rate:  form.Rate,
 			Force: tif,
@@ -4457,7 +4457,7 @@ func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter e
 				Coins:    coinIDs,
 				Sell:     form.Sell,
 				Quantity: form.Qty,
-				Address:  addr,
+				Address:  redeemAddr,
 			},
 		}
 	}

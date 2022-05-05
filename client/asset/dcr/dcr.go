@@ -2209,7 +2209,7 @@ func (dcr *ExchangeWallet) LocktimeExpired(contract dex.Bytes) (bool, time.Time,
 	dcr.tipMtx.RUnlock()
 	hdr, err := dcr.wallet.GetBlockHeader(dcr.ctx, blockHash)
 	if err != nil {
-		return false, time.Time{}, fmt.Errorf("unable to retreive the block header: %w", err)
+		return false, time.Time{}, fmt.Errorf("unable to retrieve the block header: %w", err)
 	}
 	return time.Unix(hdr.MedianTime, 0).After(contractExpiry), contractExpiry, nil
 }

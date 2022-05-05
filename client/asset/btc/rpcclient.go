@@ -4,7 +4,6 @@
 package btc
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -303,12 +302,17 @@ func (wc *rpcClient) getBestBlockHash() (*chainhash.Hash, error) {
 }
 
 // getBestBlockHeight returns the height of the top mainchain block.
-func (wc *rpcClient) getBestBlockHeight() (int32, error) {
+func (wc *rpcClient) getBestBlockHeader() (*blockHeader, error) {
 	tipHash, err := wc.getBestBlockHash()
 	if err != nil {
-		return -1, err
+		return nil, err
 	}
-	header, err := wc.getBlockHeader(tipHash)
+	return wc.getBlockHeader(tipHash)
+}
+
+// getBestBlockHeight returns the height of the top mainchain block.
+func (wc *rpcClient) getBestBlockHeight() (int32, error) {
+	header, err := wc.getBestBlockHeader()
 	if err != nil {
 		return -1, err
 	}
@@ -443,6 +447,10 @@ func (wc *rpcClient) externalAddress() (btcutil.Address, error) {
 		return wc.address("bech32")
 	}
 	return wc.address("legacy")
+}
+
+func (wc *rpcClient) refundAddress() (btcutil.Address, error) {
+	return wc.externalAddress()
 }
 
 // address is used internally for fetching addresses of various types from the
@@ -782,23 +790,4 @@ func (wc *rpcClient) call(method string, args anylist, thing interface{}) error 
 		return json.Unmarshal(b, thing)
 	}
 	return nil
-}
-
-// serializeMsgTx serializes the wire.MsgTx.
-func serializeMsgTx(msgTx *wire.MsgTx) ([]byte, error) {
-	buf := bytes.NewBuffer(make([]byte, 0, msgTx.SerializeSize()))
-	err := msgTx.Serialize(buf)
-	if err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-// msgTxFromBytes creates a wire.MsgTx by deserializing the transaction.
-func msgTxFromBytes(txB []byte) (*wire.MsgTx, error) {
-	msgTx := new(wire.MsgTx)
-	if err := msgTx.Deserialize(bytes.NewReader(txB)); err != nil {
-		return nil, err
-	}
-	return msgTx, nil
 }

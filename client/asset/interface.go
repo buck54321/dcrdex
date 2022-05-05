@@ -326,8 +326,12 @@ type Wallet interface {
 	// known when the init transaction was created. The client should store this
 	// information for persistence across sessions.
 	Refund(coinID, contract dex.Bytes, feeSuggestion uint64) (dex.Bytes, error)
-	// DepositAddress returns an address for depositing funds into the
-	// exchange wallet.
+	// DepositAddress returns an address for depositing funds into the exchange
+	// wallet. This is also used to get addresses for an counterparty's swap
+	// contract, meaning it is called from (*Core).prepareTrackedTrade when for
+	// each trade order is *submitted*. If these are unique addresses and the
+	// orders are canceled, the gap limit may become a headache when restoring
+	// the wallet.
 	DepositAddress() (string, error)
 	// OwnsDepositAddress indicates if the provided address can be used
 	// to deposit funds into the wallet.

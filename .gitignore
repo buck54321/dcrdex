@@ -28,3 +28,5 @@ wiki
 dex/testing/loadbot/loadbot
 bin/
 client/webserver/site/template-builder/template-builder
+client/asset/btc/electrum/example/server/server
+client/asset/btc/electrum/example/wallet/wallet
