@@ -33,7 +33,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
-	"github.com/decred/dcrd/dcrjson/v4" // for dcrjson.RPCError returns from rpcclient
 	"github.com/decred/dcrd/rpcclient/v7"
 )
 
@@ -3632,9 +3631,6 @@ func (btc *baseWallet) RegFeeConfirmations(_ context.Context, id dex.Bytes) (con
 	}
 	tx, err := btc.node.getWalletTransaction(txHash)
 	if err != nil {
-		if isTxNotFoundErr(err) {
-			return 0, asset.CoinNotFoundError
-		}
 		return 0, err
 	}
 	return uint32(tx.Confirmations), nil
@@ -4374,29 +4370,6 @@ func decodeCoinID(coinID dex.Bytes) (*chainhash.Hash, uint32, error) {
 	var txHash chainhash.Hash
 	copy(txHash[:], coinID[:32])
 	return &txHash, binary.BigEndian.Uint32(coinID[32:]), nil
-}
-
-// isTxNotFoundErr will return true if the error indicates that the requested
-// transaction is not known. The error must be dcrjson.RPCError with a numeric
-// code equal to btcjson.ErrRPCNoTxInfo.
-func isTxNotFoundErr(err error) bool {
-	// We are using dcrd's client with Bitcoin Core, so errors will be of type
-	// dcrjson.RPCError, but numeric codes should come from btcjson.
-	const errRPCNoTxInfo = int(btcjson.ErrRPCNoTxInfo)
-	var rpcErr *dcrjson.RPCError
-	return errors.As(err, &rpcErr) && int(rpcErr.Code) == errRPCNoTxInfo
-}
-
-// isMethodNotFoundErr will return true if the error indicates that the RPC
-// method was not found by the RPC server. The error must be dcrjson.RPCError
-// with a numeric code equal to btcjson.ErrRPCMethodNotFound.Code or a message
-// containing "method not found".
-func isMethodNotFoundErr(err error) bool {
-	var errRPCMethodNotFound = int(btcjson.ErrRPCMethodNotFound.Code)
-	var rpcErr *dcrjson.RPCError
-	return errors.As(err, &rpcErr) &&
-		(int(rpcErr.Code) == errRPCMethodNotFound ||
-			strings.Contains(strings.ToLower(rpcErr.Message), "method not found"))
 }
 
 // toBTC returns a float representation in conventional units for the sats.

@@ -60,6 +60,7 @@ import (
 const (
 	WalletTransactionNotFound = dex.ErrorKind("wallet transaction not found")
 	SpentStatusUnknown        = dex.ErrorKind("spend status not known")
+	// NOTE: possibly unexport the two above error kinds.
 
 	// defaultBroadcastWait is long enough for btcwallet's PublishTransaction
 	// method to record the outgoing transaction and queue it for broadcasting.
@@ -1817,6 +1818,9 @@ func (w *spvWallet) getTransaction(txHash *chainhash.Hash) (*GetTransactionResul
 	// This is what the JSON-RPC does (and has since at least May 2018).
 	details, err := w.wallet.walletTransaction(txHash)
 	if err != nil {
+		if errors.Is(err, WalletTransactionNotFound) {
+			return nil, asset.CoinNotFoundError // for the asset.Wallet interface
+		}
 		return nil, err
 	}
 
