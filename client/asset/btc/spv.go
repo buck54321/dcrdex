@@ -776,15 +776,9 @@ func (w *spvWallet) changeAddress() (btcutil.Address, error) {
 	return w.wallet.NewChangeAddress(w.acctNum, waddrmgr.KeyScopeBIP0084)
 }
 
-// addressPKH gets a new base58-encoded (P2PKH) external address from the
+// externalAddress gets a new bech32-encoded (P2WPKH) external address from the
 // wallet.
-func (w *spvWallet) addressPKH() (btcutil.Address, error) {
-	return nil, errors.New("unimplemented")
-}
-
-// addressWPKH gets a new bech32-encoded (P2WPKH) external address from the
-// wallet.
-func (w *spvWallet) addressWPKH() (btcutil.Address, error) {
+func (w *spvWallet) externalAddress() (btcutil.Address, error) {
 	return w.wallet.NewAddress(w.acctNum, waddrmgr.KeyScopeBIP0084)
 }
 
