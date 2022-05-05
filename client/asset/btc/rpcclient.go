@@ -8,7 +8,9 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/decred/dcrd/dcrjson/v4" // for dcrjson.RPCError returns from rpcclient
 )
 
 const (
@@ -54,6 +57,30 @@ const (
 	methodGetNetworkInfo     = "getnetworkinfo"
 	methodGetBlockchainInfo  = "getblockchaininfo"
 )
+
+// isTxNotFoundErr will return true if the error indicates that the requested
+// transaction is not known. The error must be dcrjson.RPCError with a numeric
+// code equal to btcjson.ErrRPCNoTxInfo. WARNING: This is specific to errors
+// from an RPC to a bitcoind (or clone) using dcrd's rpcclient!
+func isTxNotFoundErr(err error) bool {
+	// We are using dcrd's client with Bitcoin Core, so errors will be of type
+	// dcrjson.RPCError, but numeric codes should come from btcjson.
+	const errRPCNoTxInfo = int(btcjson.ErrRPCNoTxInfo)
+	var rpcErr *dcrjson.RPCError
+	return errors.As(err, &rpcErr) && int(rpcErr.Code) == errRPCNoTxInfo
+}
+
+// isMethodNotFoundErr will return true if the error indicates that the RPC
+// method was not found by the RPC server. The error must be dcrjson.RPCError
+// with a numeric code equal to btcjson.ErrRPCMethodNotFound.Code or a message
+// containing "method not found".
+func isMethodNotFoundErr(err error) bool {
+	var errRPCMethodNotFound = int(btcjson.ErrRPCMethodNotFound.Code)
+	var rpcErr *dcrjson.RPCError
+	return errors.As(err, &rpcErr) &&
+		(int(rpcErr.Code) == errRPCMethodNotFound ||
+			strings.Contains(strings.ToLower(rpcErr.Message), "method not found"))
+}
 
 // RawRequester defines decred's rpcclient RawRequest func where all RPC
 // requests sent through. For testing, it can be satisfied by a stub.
@@ -485,6 +512,9 @@ func (wc *rpcClient) getWalletTransaction(txHash *chainhash.Hash) (*GetTransacti
 	tx := new(GetTransactionResult)
 	err := wc.call(methodGetTransaction, anylist{txHash.String()}, tx)
 	if err != nil {
+		if isTxNotFoundErr(err) {
+			return nil, asset.CoinNotFoundError
+		}
 		return nil, err
 	}
 	return tx, nil
