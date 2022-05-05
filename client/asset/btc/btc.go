@@ -1125,7 +1125,7 @@ func (btc *baseWallet) SyncStatus() (bool, float32, error) {
 // OwnsDepositAddress indicates if the provided address can be used
 // to deposit funds into the wallet.
 func (btc *baseWallet) OwnsDepositAddress(address string) (bool, error) {
-	addr, err := btc.decodeAddr(address, btc.chainParams)
+	addr, err := btc.decodeAddr(address, btc.chainParams) // maybe move into the ownsAddress impls
 	if err != nil {
 		return false, err
 	}
@@ -2691,7 +2691,7 @@ func (btc *baseWallet) Swap(swaps *asset.Swaps) ([]asset.Receipt, asset.Coin, ui
 		totalOut += contract.Value
 		// revokeAddr is the address belonging to the key that will be
 		// used to sign and refund a swap past its encoded refund locktime.
-		revokeAddr, err := btc.externalAddress()
+		revokeAddr, err := btc.node.externalAddress()
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("error creating revocation address: %w", err)
 		}
@@ -3505,7 +3505,7 @@ func (btc *baseWallet) refundTx(txHash *chainhash.Hash, vout uint32, contract de
 // DepositAddress returns an address for depositing funds into the
 // exchange wallet.
 func (btc *baseWallet) DepositAddress() (string, error) {
-	addr, err := btc.externalAddress()
+	addr, err := btc.node.externalAddress()
 	if err != nil {
 		return "", err
 	}
@@ -4320,14 +4320,6 @@ type blockHeader struct {
 	Height            int64  `json:"height"`
 	Time              int64  `json:"time"`
 	PreviousBlockHash string `json:"previousblockhash"`
-}
-
-// externalAddress will return a new address for public use.
-func (btc *baseWallet) externalAddress() (btcutil.Address, error) {
-	if btc.segwit {
-		return btc.node.addressWPKH()
-	}
-	return btc.node.addressPKH()
 }
 
 // hashContract hashes the contract for use in a p2sh or p2wsh pubkey script.

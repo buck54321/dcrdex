@@ -17,7 +17,7 @@ import (
 type Wallet interface {
 	RawRequester
 	connect(ctx context.Context, wg *sync.WaitGroup) error
-	estimateSmartFee(confTarget int64, mode *btcjson.EstimateSmartFeeMode) (*btcjson.EstimateSmartFeeResult, error)
+	estimateSmartFee(confTarget int64, mode *btcjson.EstimateSmartFeeMode) (*btcjson.EstimateSmartFeeResult, error) // consider ditching these btcjson types
 	sendRawTransaction(tx *wire.MsgTx) (*chainhash.Hash, error)
 	getTxOut(txHash *chainhash.Hash, index uint32, pkScript []byte, startTime time.Time) (*wire.TxOut, uint32, error)
 	getBlockHash(blockHeight int64) (*chainhash.Hash, error)
@@ -29,9 +29,8 @@ type Wallet interface {
 	listUnspent() ([]*ListUnspentResult, error)
 	lockUnspent(unlock bool, ops []*output) error
 	listLockUnspent() ([]*RPCOutpoint, error)
-	changeAddress() (btcutil.Address, error)
-	addressPKH() (btcutil.Address, error)
-	addressWPKH() (btcutil.Address, error)
+	changeAddress() (btcutil.Address, error) // warning: don't just use the Stringer if there's a "recode" function for a clone e.g. BCH
+	externalAddress() (btcutil.Address, error)
 	signTx(inTx *wire.MsgTx) (*wire.MsgTx, error)
 	privKeyForAddress(addr string) (*btcec.PrivateKey, error)
 	walletUnlock(pw []byte) error

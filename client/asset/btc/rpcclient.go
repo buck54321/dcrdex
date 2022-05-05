@@ -414,16 +414,11 @@ func (wc *rpcClient) changeAddress() (btcutil.Address, error) {
 	return wc.decodeAddr(addrStr, wc.chainParams)
 }
 
-// AddressPKH gets a new base58-encoded (P2PKH) external address from the
-// wallet.
-func (wc *rpcClient) addressPKH() (btcutil.Address, error) {
+func (wc *rpcClient) externalAddress() (btcutil.Address, error) {
+	if wc.segwit {
+		return wc.address("bech32")
+	}
 	return wc.address("legacy")
-}
-
-// addressWPKH gets a new bech32-encoded (P2WPKH) external address from the
-// wallet.
-func (wc *rpcClient) addressWPKH() (btcutil.Address, error) {
-	return wc.address("bech32")
 }
 
 // address is used internally for fetching addresses of various types from the
