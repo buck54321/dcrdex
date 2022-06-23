@@ -93,7 +93,7 @@ func (sc *ServerConn) listen(ctx context.Context) {
 		var jsonResp response
 		err = json.Unmarshal(msg, &jsonResp)
 		if err != nil {
-			sc.debug("response Unmarshal error:", err)
+			sc.debug("response Unmarshal error: %v", err)
 			continue
 		}
 
@@ -101,7 +101,7 @@ func (sc *ServerConn) listen(ctx context.Context) {
 			var ntfnParams ntfnData // the ntfn payload is in the params field of a request object (!)
 			err = json.Unmarshal(msg, &ntfnParams)
 			if err != nil {
-				sc.debug("notification Unmarshal error:", err)
+				sc.debug("notification Unmarshal error: %v", err)
 				continue
 			}
 			for _, c := range sc.subChans(jsonResp.Method) {
@@ -132,16 +132,12 @@ func (sc *ServerConn) pinger(ctx context.Context) {
 		// the next ping's response, as the ping loop is running.
 		err := sc.conn.SetReadDeadline(time.Now().Add(pingInterval * 5 / 4))
 		if err != nil {
-			if ctx.Err() == nil {
-				sc.debug("SetReadDeadline: %v", err) // just dropped conn, but for debugging...
-			}
+			sc.debug("SetReadDeadline: %v", err) // just dropped conn, but for debugging...
 			sc.cancel()
 			return
 		}
 		if err = sc.Ping(ctx); err != nil {
-			if ctx.Err() == nil {
-				sc.debug("Ping: %v", err)
-			}
+			sc.debug("Ping: %v", err)
 			sc.cancel()
 			return
 		}
@@ -372,7 +368,7 @@ func (sc *ServerConn) Request(ctx context.Context, method string, args interface
 
 	if err = sc.send(reqMsg); err != nil {
 		sc.cancel()
-		return nil
+		return err
 	}
 
 	var resp *response
@@ -448,6 +444,11 @@ type PeersResult struct {
 // Peers requests the known peers from a server (other servers). See
 // SSLPeerAddrs to assist parsing useable peers.
 func (sc *ServerConn) Peers(ctx context.Context) ([]*PeersResult, error) {
+	// Note that the Electrum exchange wallet type does not use currently this
+	// method since it follows the Electrum wallet server peer or one of the
+	// wallets other servers. See (*electrumWallet).connect and
+	// (*WalletClient).GetServers. We might wish to in the future though.
+
 	// [["ip", "host", ["featA", "featB", ...]], ...]
 	// [][]interface{}{string, string, []interface{}{string, ...}}
 	var resp [][]interface{}
@@ -495,7 +496,7 @@ func (sc *ServerConn) Peers(ctx context.Context) ([]*PeersResult, error) {
 }
 
 // SSLPeerAddrs filters the peers slice and returns the addresses in a
-// "host:port" format in separeate slices for SSL-enabled servers and optionally
+// "host:port" format in separate slices for SSL-enabled servers and optionally
 // TCP-only hidden services (.onion host names). Note that if requesting to
 // include onion hosts, the SSL slice may include onion hosts that also use SSL.
 func SSLPeerAddrs(peers []*PeersResult, includeOnion bool) (ssl, tcpOnlyOnion []string) {
@@ -507,6 +508,9 @@ peerloop:
 		}
 		var tcpOnion string // host to accept if no ssl
 		for _, feat := range peer.Feats {
+			// We require a port set after the transport letter. The default
+			// port depends on the asset network, so we could consider providing
+			// that as an input in the future, but most servers set a port.
 			if len(feat) < 2 {
 				continue
 			}
