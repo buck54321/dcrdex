@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,11 +47,13 @@ func ElectrumWallet(cfg *BTCCloneCFG) (*ExchangeWalletElectrum, error) {
 	rpcCfg := &clientCfg.RPCConfig
 	ewc := electrum.NewWalletClient(rpcCfg.RPCUser, rpcCfg.RPCPass, "http://"+rpcCfg.RPCBind)
 	ew := newElectrumWallet(ewc, &electrumWalletConfig{
-		params:       cfg.ChainParams,
-		log:          cfg.Logger.SubLogger("ELECTRUM"),
-		addrDecoder:  cfg.AddressDecoder,
-		addrStringer: cfg.AddressStringer,
-		segwit:       cfg.Segwit,
+		params:         cfg.ChainParams,
+		log:            cfg.Logger.SubLogger("ELECTRUM"),
+		addrDecoder:    cfg.AddressDecoder,
+		addrStringer:   cfg.AddressStringer,
+		txDeserializer: cfg.TxDeserializer,
+		txSerializer:   cfg.TxSerializer,
+		segwit:         cfg.Segwit,
 	})
 	btc.node = ew
 
@@ -319,7 +322,9 @@ func (btc *ExchangeWalletElectrum) watchBlocks(ctx context.Context) {
 			newTipHdr, err := btc.node.getBestBlockHeader()
 			if err != nil {
 				// NOTE: often says "height X out of range", then succeeds on next tick
-				go btc.tipChange(fmt.Errorf("failed to get best block header from %s electrum server: %w", btc.symbol, err))
+				if !strings.Contains(err.Error(), "out of range") {
+					go btc.tipChange(fmt.Errorf("failed to get best block header from %s electrum server: %w", btc.symbol, err))
+				}
 				continue
 			}
 			newTipHash, err := chainhash.NewHashFromStr(newTipHdr.Hash)
