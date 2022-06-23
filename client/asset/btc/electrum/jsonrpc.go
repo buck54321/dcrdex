@@ -25,6 +25,7 @@ type RPCError struct {
 	Message string `json:"message,omitempty"`
 }
 
+// Error satisfies the error interface.
 func (e RPCError) Error() string {
 	return fmt.Sprintf("code %d: %q", e.Code, e.Message)
 }

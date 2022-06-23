@@ -119,13 +119,15 @@ func (enm *electrumNetworkManager) BlockHeaders(ctx context.Context, startHeight
 }
 
 type electrumWallet struct {
-	log         dex.Logger
-	chainParams *chaincfg.Params
-	decodeAddr  dexbtc.AddressDecoder
-	stringAddr  dexbtc.AddressStringer
-	wallet      electrumWalletClient
-	chain       *electrumNetworkManager
-	segwit      bool
+	log           dex.Logger
+	chainParams   *chaincfg.Params
+	decodeAddr    dexbtc.AddressDecoder
+	stringAddr    dexbtc.AddressStringer
+	deserializeTx func([]byte) (*wire.MsgTx, error)
+	serializeTx   func(*wire.MsgTx) ([]byte, error)
+	wallet        electrumWalletClient
+	chain         *electrumNetworkManager
+	segwit        bool
 
 	lockedOutpointsMtx sync.RWMutex
 	lockedOutpoints    map[outPoint]struct{}
@@ -134,32 +136,46 @@ type electrumWallet struct {
 }
 
 type electrumWalletConfig struct {
-	params       *chaincfg.Params
-	log          dex.Logger
-	addrDecoder  dexbtc.AddressDecoder
-	addrStringer dexbtc.AddressStringer
-	segwit       bool // indicates if segwit addresses are expected from requests
+	params         *chaincfg.Params
+	log            dex.Logger
+	addrDecoder    dexbtc.AddressDecoder
+	addrStringer   dexbtc.AddressStringer
+	txDeserializer func([]byte) (*wire.MsgTx, error)
+	txSerializer   func(*wire.MsgTx) ([]byte, error)
+	segwit         bool // indicates if segwit addresses are expected from requests
 }
 
 func newElectrumWallet(ew electrumWalletClient, cfg *electrumWalletConfig) *electrumWallet {
-	addrDecoder := btcutil.DecodeAddress
-	if cfg.addrDecoder != nil {
-		addrDecoder = cfg.addrDecoder
+	addrDecoder := cfg.addrDecoder
+	if addrDecoder == nil {
+		addrDecoder = btcutil.DecodeAddress
 	}
 
 	addrStringer := cfg.addrStringer
-	if cfg.addrStringer == nil {
+	if addrStringer == nil {
 		addrStringer = func(addr btcutil.Address, _ *chaincfg.Params) (string, error) {
 			return addr.String(), nil
 		}
 	}
+
+	txDeserializer := cfg.txDeserializer
+	if txDeserializer == nil {
+		txDeserializer = msgTxFromBytes
+	}
+	txSerializer := cfg.txSerializer
+	if txSerializer == nil {
+		txSerializer = serializeMsgTx
+	}
+
 	return &electrumWallet{
-		log:         cfg.log,
-		chainParams: cfg.params,
-		decodeAddr:  addrDecoder,
-		stringAddr:  addrStringer,
-		wallet:      ew,
-		segwit:      cfg.segwit,
+		log:           cfg.log,
+		chainParams:   cfg.params,
+		decodeAddr:    addrDecoder,
+		stringAddr:    addrStringer,
+		deserializeTx: txDeserializer,
+		serializeTx:   txSerializer,
+		wallet:        ew,
+		segwit:        cfg.segwit,
 		// chain is constructed after wallet connects to a server
 		lockedOutpoints: make(map[outPoint]struct{}),
 	}
@@ -203,7 +219,7 @@ func (ew *electrumWallet) findRedemptionsInMempool(ctx context.Context, reqs map
 
 // END unimplemented methods
 
-// Perfer the SSL port if set, but allow TCP if that's all it has.
+// Prefer the SSL port if set, but allow TCP if that's all it has.
 func bestAddr(host string, gsr *electrum.GetServersResult) (string, *tls.Config) {
 	if gsr.SSL != 0 {
 		rootCAs, _ := x509.SystemCertPool()
@@ -238,6 +254,7 @@ func (ew *electrumWallet) connInfo(host string) (addr string, tlsConfig *tls.Con
 				sslServers = append(sslServers, srv)
 			}
 		}
+		// TODO: allow non-tcp onion hosts
 		if len(sslServers) == 0 {
 			return "", nil, errors.New("no SSL servers")
 		}
@@ -404,7 +421,7 @@ func (ew *electrumWallet) estimateSmartFee(confTarget int64, _ *btcjson.Estimate
 }
 
 func (ew *electrumWallet) sendRawTransaction(tx *wire.MsgTx) (*chainhash.Hash, error) {
-	b, err := serializeMsgTx(tx)
+	b, err := ew.serializeTx(tx)
 	if err != nil {
 		return nil, err
 	}
@@ -515,7 +532,7 @@ func (ew *electrumWallet) calcMedianTime(height int64) (time.Time, error) {
 		startHeight = 0
 	}
 
-	// TODO: check a block hash => timestamp cache, and remove the hdr return
+	// TODO: check a block hash => median time cache
 
 	hdrsRes, err := ew.chain.BlockHeaders(context.Background(), uint32(startHeight),
 		uint32(height-startHeight+1))
@@ -616,10 +633,14 @@ func (ew *electrumWallet) balances() (*GetBalancesResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	// NOTE: Nothing from the Electrum wallet's response indicates trusted vs.
+	// untrusted. To allow unconfirmed coins to be spent, we treat both
+	// confirmed and unconfirmed as trusted. This is like dogecoind's handling
+	// of balance. TODO: listunspent -> checkWalletTx(txid) -> for each
+	// input, checkWalletTx(prevout) and ismine(addr)
 	return &GetBalancesResult{
 		Mine: Balances{
-			Trusted: eBal.Confirmed + eBal.Unconfirmed,
-			// nothing indicates trusted vs untrusted
+			Trusted:  eBal.Confirmed + eBal.Unconfirmed,
 			Immature: eBal.Immature,
 		},
 	}, nil
@@ -940,7 +961,7 @@ func (ew *electrumWallet) syncStatus() (*syncStatus, error) {
 func (ew *electrumWallet) checkWalletTx(txid string) ([]byte, uint32, error) {
 	// GetWalletTxConfs only works for wallet transactions, while
 	// wallet.GetRawTransaction will try the wallet DB first, but fall back to
-	// querying a server, so do GetWalletTxConfs first.
+	// querying a server, so do GetWalletTxConfs first to prevent that.
 	confs, err := ew.wallet.GetWalletTxConfs(txid)
 	if err != nil {
 		return nil, 0, err

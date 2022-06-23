@@ -2012,7 +2012,7 @@ func (btc *baseWallet) FundingCoins(ids []dex.Bytes) (asset.Coins, error) {
 			}
 			txRaw = tx.Hex
 		}
-		msgTx, err := msgTxFromBytes(txRaw)
+		msgTx, err := btc.deserializeTx(txRaw)
 		if err != nil {
 			btc.log.Warnf("Invalid transaction %v (%x): %v", txHash, txRaw, err)
 			continue
@@ -2130,7 +2130,7 @@ func (btc *baseWallet) lookupWalletTxOutput(txHash *chainhash.Hash, vout uint32)
 		return nil, err
 	}
 
-	tx, err := msgTxFromBytes(getTxResult.Hex)
+	tx, err := btc.deserializeTx(getTxResult.Hex)
 	if err != nil {
 		return nil, err
 	}
@@ -2175,7 +2175,7 @@ func (btc *baseWallet) getTxFee(tx *wire.MsgTx) (uint64, error) {
 		if err != nil {
 			return 0, err
 		}
-		prevMsgTx, err := msgTxFromBytes(prevTx.Hex)
+		prevMsgTx, err := btc.deserializeTx(prevTx.Hex)
 		if err != nil {
 			return 0, err
 		}
@@ -2202,7 +2202,7 @@ func (btc *baseWallet) sizeAndFeesOfUnconfirmedTxs(txs []*GetTransactionResult) 
 			continue
 		}
 
-		msgTx, err := msgTxFromBytes(tx.Hex)
+		msgTx, err := btc.deserializeTx(tx.Hex)
 		if err != nil {
 			return 0, 0, err
 		}
