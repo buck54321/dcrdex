@@ -65,7 +65,7 @@ type ListUnspentResult struct {
 
 // Balance is the result of the balance RPC.
 type Balance struct {
-	Confirmed   float64 // includes spent value that is not yet confirmed
+	Confirmed   float64 // not reduced by spends until the txn is confirmed
 	Unconfirmed float64 // will be negative for sends
 	Immature    float64
 }
