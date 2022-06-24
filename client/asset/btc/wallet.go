@@ -24,7 +24,7 @@ type Wallet interface {
 	getBestBlockHeight() (int32, error)
 	medianTime() (time.Time, error)
 	balances() (*GetBalancesResult, error)
-	listUnspent() ([]*ListUnspentResult, error)
+	listUnspent() ([]*ListUnspentResult, error) // must not return locked coins
 	lockUnspent(unlock bool, ops []*output) error
 	listLockUnspent() ([]*RPCOutpoint, error)
 	changeAddress() (btcutil.Address, error) // warning: don't just use the Stringer if there's a "recode" function for a clone e.g. BCH

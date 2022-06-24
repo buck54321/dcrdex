@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"decred.org/dcrdex/client/asset/btc/electrum"
@@ -132,7 +131,9 @@ type electrumWallet struct {
 	lockedOutpointsMtx sync.RWMutex
 	lockedOutpoints    map[outPoint]struct{}
 
-	pw atomic.Value // string or nil
+	pwMtx    sync.RWMutex
+	pw       string
+	unlocked bool
 }
 
 type electrumWalletConfig struct {
@@ -482,7 +483,7 @@ func (ew *electrumWallet) getTxOutput(txHash *chainhash.Hash, vout uint32) (*wir
 		}
 	}
 
-	msgTx, err := msgTxFromBytes(txRaw)
+	msgTx, err := ew.deserializeTx(txRaw)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -656,10 +657,18 @@ func (ew *electrumWallet) listUnspent() ([]*ListUnspentResult, error) {
 		return nil, err
 	}
 
-	// TODO: filter out lockedOutpoints since listunspent returns them too.
+	// Filter out locked outpoints since listUnspent includes them.
+	lockedOPs := ew.listLockedOutpoints()
+	lockedOPMap := make(map[RPCOutpoint]bool, len(lockedOPs))
+	for _, pt := range lockedOPs {
+		lockedOPMap[*pt] = true
+	}
 
 	unspents := make([]*ListUnspentResult, 0, len(eUnspent))
 	for _, utxo := range eUnspent {
+		if lockedOPMap[RPCOutpoint{utxo.PrevOutHash, utxo.PrevOutIdx}] {
+			continue
+		}
 		addr, err := ew.decodeAddr(utxo.Address, ew.chainParams)
 		if err != nil {
 			ew.log.Warnf("Output (%v:%d) with bad address %v found: %v",
@@ -712,11 +721,6 @@ func (ew *electrumWallet) listUnspent() ([]*ListUnspentResult, error) {
 	return unspents, nil
 }
 
-// Electrum 4.0.9 can only lock an address. Only 4.2+ can lock a utxo. TODO:
-// switch between the two RPCs depending on detected wallet capability, but we
-// cannot just rely on version because e.g. Electron Cash (BCH fork) has a
-// higher version number than upstream, but it is missing several RPCs.
-// For now we will require (un)freeze_utxo.
 func (ew *electrumWallet) lockUnspent(unlock bool, ops []*output) error {
 	eUnspent, err := ew.wallet.ListUnspent()
 	if err != nil {
@@ -819,7 +823,7 @@ func (ew *electrumWallet) signTx(inTx *wire.MsgTx) (*wire.MsgTx, error) {
 	if err != nil {
 		return nil, err
 	}
-	return msgTxFromBytes(signedB)
+	return ew.deserializeTx(signedB)
 }
 
 type hash160er interface {
@@ -869,21 +873,25 @@ func (ew *electrumWallet) privKeyForAddress(addr string) (*btcec.PrivateKey, err
 }
 
 func (ew *electrumWallet) pass() (pw string, unlocked bool) {
-	pw, unlocked = ew.pw.Load().(string)
-	return
+	ew.pwMtx.RLock()
+	defer ew.pwMtx.RUnlock()
+	return ew.pw, ew.unlocked
 }
 
 // walletLock locks the wallet. Part of the btc.Wallet interface.
 func (ew *electrumWallet) walletLock() error {
-	ew.pw.Store(nil)
+	ew.pwMtx.Lock()
+	defer ew.pwMtx.Unlock()
+	ew.pw, ew.unlocked = "", false
 	return nil
 }
 
 // locked indicates if the wallet has been unlocked. Part of the btc.Wallet
 // interface.
 func (ew *electrumWallet) locked() bool {
-	_, unlocked := ew.pass()
-	return !unlocked
+	ew.pwMtx.RLock()
+	defer ew.pwMtx.RUnlock()
+	return !ew.unlocked
 }
 
 // walletPass returns the wallet passphrase. Since an empty password is valid,
@@ -909,7 +917,9 @@ func (ew *electrumWallet) walletUnlock(pw []byte) error {
 	if _, err = btcutil.DecodeWIF(wifStr); err != nil {
 		return err
 	}
-	ew.pw.Store(pass)
+	ew.pwMtx.Lock()
+	ew.pw, ew.unlocked = pass, true
+	ew.pwMtx.Unlock()
 	return nil
 }
 
@@ -1017,7 +1027,7 @@ func (ew *electrumWallet) swapConfirmations(txHash *chainhash.Hash, vout uint32,
 	// Try the wallet first in case this is a wallet transaction (own swap).
 	txRaw, confs, err := ew.checkWalletTx(txid)
 	if err == nil {
-		msgTx, err := msgTxFromBytes(txRaw)
+		msgTx, err := ew.deserializeTx(txRaw)
 		if err != nil {
 			return 0, false, err
 		}
@@ -1099,20 +1109,6 @@ func (ew *electrumWallet) sendWithSubtract(address string, value, feeRate uint64
 	if err != nil {
 		return nil, fmt.Errorf("error listing unspent outputs: %w", err)
 	}
-
-	// Filter out locked outpoints since listUnspent includes them.
-	unspentMap := make(map[RPCOutpoint]*ListUnspentResult, len(unspents))
-	for _, unspent := range unspents {
-		unspentMap[RPCOutpoint{unspent.TxID, unspent.Vout}] = unspent
-	}
-	for _, l := range ew.listLockedOutpoints() {
-		delete(unspentMap, *l)
-	}
-	unspents = make([]*ListUnspentResult, 0, len(unspentMap))
-	for _, unspent := range unspentMap {
-		unspents = append(unspents, unspent)
-	}
-
 	utxos, _, _, err := convertUnspent(0, unspents, ew.chainParams)
 	if err != nil {
 		return nil, fmt.Errorf("error converting unspent outputs: %w", err)
@@ -1158,7 +1154,7 @@ func (ew *electrumWallet) sendWithSubtract(address string, value, feeRate uint64
 	}
 	// Do some sanity checks on the generated txn: (a) only spend chosen funding
 	// coins, (b) must pay to specified address in desired amount.
-	msgTx, err := msgTxFromBytes(txRaw)
+	msgTx, err := ew.deserializeTx(txRaw)
 	if err != nil {
 		return nil, err
 	}
@@ -1234,7 +1230,7 @@ func (ew *electrumWallet) sendToAddress(address string, value, feeRate uint64, s
 	if err != nil {
 		return nil, err
 	}
-	msgTx, err := msgTxFromBytes(txRaw)
+	msgTx, err := ew.deserializeTx(txRaw)
 	if err != nil {
 		return nil, err
 	}
@@ -1251,7 +1247,7 @@ func (ew *electrumWallet) sweep(address string, feeRate uint64) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	msgTx, err := msgTxFromBytes(txRaw)
+	msgTx, err := ew.deserializeTx(txRaw)
 	if err != nil {
 		return nil, err
 	}
@@ -1270,7 +1266,7 @@ func (ew *electrumWallet) outPointAddress(txHash *chainhash.Hash, vout uint32) (
 	if err != nil {
 		return "", err
 	}
-	msgTx, err := msgTxFromBytes(txRaw)
+	msgTx, err := ew.deserializeTx(txRaw)
 	if err != nil {
 		return "", err
 	}
@@ -1324,7 +1320,7 @@ func (ew *electrumWallet) findOutputSpender(txHash *chainhash.Hash, vout uint32)
 				io.TxHash, addr, err)
 			continue
 		}
-		msgTx, err := msgTxFromBytes(txRaw)
+		msgTx, err := ew.deserializeTx(txRaw)
 		if err != nil {
 			ew.log.Warnf("Unable to decode transaction %v for address %v: %v",
 				io.TxHash, addr, err)

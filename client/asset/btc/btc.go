@@ -4258,20 +4258,28 @@ func (btc *baseWallet) spendableUTXOs(confs uint32) ([]*compositeUTXO, map[outPo
 	if err != nil {
 		return nil, nil, 0, err
 	}
+	var relock []*output
+	var i int
 	for _, utxo := range utxos {
 		// Guard against inconsistencies between the wallet's view of
 		// spendable unlocked UTXOs and ExchangeWallet's. e.g. User manually
 		// unlocked something or even restarted the wallet software.
 		pt := newOutPoint(utxo.txHash, utxo.vout)
 		if btc.fundingCoins[pt] != nil {
-			// This may happen Electrum, which returns even locked utxos in the
-			// listunspent RPC. Maybe we re-lockunspent if we hit this so
-			// electrumWallet's lockedOutpoints map is updated to prevent the
-			// listUnspent method from returning this again. Also, we should
-			// probably remove this outpoint from the slice and not return it!
 			btc.log.Warnf("Known order-funding coin %s returned by listunspent!", pt)
+			delete(utxoMap, pt)
+			relock = append(relock, &output{pt, utxo.amount})
+		} else { // in-place filter maintaining order
+			utxos[i] = utxo
+			i++
 		}
 	}
+	if len(relock) > 0 {
+		if err = btc.node.lockUnspent(false, relock); err != nil {
+			btc.log.Errorf("Failed to re-lock funding coins with wallet: %v", err)
+		}
+	}
+	utxos = utxos[:i]
 	return utxos, utxoMap, sum, nil
 }
 
