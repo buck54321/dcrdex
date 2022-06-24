@@ -137,7 +137,7 @@ func (btc *ExchangeWalletElectrum) Sweep(address string, feeSuggestion uint64) (
 		return nil, err
 	}
 
-	msgTx, err := msgTxFromBytes(txRaw)
+	msgTx, err := btc.deserializeTx(txRaw)
 	if err != nil {
 		return nil, err
 	}
