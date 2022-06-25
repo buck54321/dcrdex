@@ -759,10 +759,10 @@ unspents:
 			}
 		}
 	}
-	if len(opMap) > 0 {
+	if len(opMap) > 0 && !unlock {
 		return fmt.Errorf("failed to lock some utxos")
 		// unlock the ones we locked?
-	}
+	} // ok if unlocking spent ones
 	return nil
 }
 
