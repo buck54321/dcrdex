@@ -906,6 +906,11 @@ func testAvailableFund(t *testing.T, segwit bool, walletType string) {
 		t.Fatalf("expected spendable of value %d, got %d", lottaFunds, v)
 	}
 
+	// Return/unlock the reserved coins to avoid warning in subsequent tests
+	// about fundingCoins map containing the coins already. i.e.
+	// "Known order-funding coin %v returned by listunspent"
+	_ = wallet.ReturnCoins(spendables)
+
 	// Now with safe confirmed littleUTXO.
 	littleUTXO.SafePtr = boolPtr(true)
 	littleUTXO.Confirmations = 2
@@ -921,6 +926,7 @@ func testAvailableFund(t *testing.T, segwit bool, walletType string) {
 	if v != littleFunds {
 		t.Fatalf("expected spendable of value %d, got %d", littleFunds, v)
 	}
+	_ = wallet.ReturnCoins(spendables)
 
 	// Adding a fee bump should now require the larger UTXO.
 	ord.Options = map[string]string{swapFeeBumpKey: "1.5"}
@@ -937,10 +943,6 @@ func testAvailableFund(t *testing.T, segwit bool, walletType string) {
 	}
 	ord.Options = nil
 	littleUTXO.Confirmations = 0
-
-	// Return/unlock the reserved coins to avoid warning in subsequent tests
-	// about fundingCoins map containing the coins already. i.e.
-	// "Known order-funding coin %v returned by listunspent"
 	_ = wallet.ReturnCoins(spendables)
 
 	// Make lottaOrder unconfirmed like littleOrder, favoring little now.
@@ -1059,6 +1061,7 @@ func testAvailableFund(t *testing.T, segwit bool, walletType string) {
 	if len(coins) != 1 {
 		t.Fatalf("forced split failed - coin count != 1")
 	}
+	_ = wallet.ReturnCoins(coins)
 
 	// // Hit some error paths.
 
@@ -1100,10 +1103,11 @@ func testAvailableFund(t *testing.T, segwit bool, walletType string) {
 	node.sendErr = nil
 
 	// Success again.
-	_, _, err = wallet.FundOrder(ord)
+	spendables, _, err = wallet.FundOrder(ord)
 	if err != nil {
 		t.Fatalf("error for split tx recovery run")
 	}
+	_ = wallet.ReturnCoins(spendables)
 }
 
 // Since ReturnCoins takes the asset.Coin interface, make sure any interface
@@ -1355,10 +1359,11 @@ func TestFundEdges(t *testing.T) {
 
 	checkMax(lots, swapVal, backingFees, totalBytes*feeSuggestion, bestCaseBytes*feeSuggestion, swapVal+backingFees)
 
-	_, _, err = wallet.FundOrder(ord)
+	spendables, _, err := wallet.FundOrder(ord)
 	if err != nil {
 		t.Fatalf("error when should be enough funding in single p2pkh utxo: %v", err)
 	}
+	_ = wallet.ReturnCoins(spendables)
 
 	// For a split transaction, we would need to cover the splitTxBaggage as
 	// well.
@@ -1380,6 +1385,8 @@ func TestFundEdges(t *testing.T) {
 	if coins[0].Value() != v {
 		t.Fatalf("split performed when baggage wasn't covered")
 	}
+	_ = wallet.ReturnCoins(spendables)
+
 	// Just enough.
 	v = swapVal + backingFees
 	p2pkhUnspent.Amount = float64(v) / 1e8
@@ -1394,6 +1401,7 @@ func TestFundEdges(t *testing.T) {
 	if coins[0].Value() == v {
 		t.Fatalf("split performed when baggage wasn't covered")
 	}
+	_ = wallet.ReturnCoins(spendables)
 	wallet.useSplitTx = false
 
 	// P2SH(P2PKH) p2sh pkScript = 23 bytes, p2pkh pkScript (redeemscript) = 25 bytes
@@ -1431,6 +1439,7 @@ func TestFundEdges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error when should be enough funding in two utxos: %v", err)
 	}
+	_ = wallet.ReturnCoins(spendables)
 
 	// P2WPKH witness: RedeemP2WPKHInputWitnessWeight = 109
 	// P2WPKH input size = overhead(40) + no sigScript(1+0) + witness(ceil(109/4)) = 69 vbytes
@@ -1461,6 +1470,7 @@ func TestFundEdges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error when should be enough funding in single p2wpkh utxo: %v", err)
 	}
+	_ = wallet.ReturnCoins(spendables)
 
 	// P2WSH(P2WPKH)
 	//  p2wpkh redeem script length, btc.P2WPKHPkScriptSize: 22
@@ -1495,6 +1505,7 @@ func TestFundEdges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error when should be enough funding in single p2wsh utxo: %v", err)
 	}
+	_ = wallet.ReturnCoins(spendables)
 }
 
 func TestFundEdgesSegwit(t *testing.T) {
@@ -1574,10 +1585,11 @@ func TestFundEdgesSegwit(t *testing.T) {
 
 	checkMax(lots, swapVal, backingFees, totalBytes*feeSuggestion, bestCaseBytes*feeSuggestion, swapVal+backingFees)
 
-	_, _, err = wallet.FundOrder(ord)
+	spendables, _, err := wallet.FundOrder(ord)
 	if err != nil {
 		t.Fatalf("error when should be enough funding in single p2wpkh utxo: %v", err)
 	}
+	_ = wallet.ReturnCoins(spendables)
 
 	// For a split transaction, we would need to cover the splitTxBaggage as
 	// well.
@@ -1597,6 +1609,7 @@ func TestFundEdgesSegwit(t *testing.T) {
 	if coins[0].Value() != v {
 		t.Fatalf("split performed when baggage wasn't covered")
 	}
+	_ = wallet.ReturnCoins(spendables)
 	// Now get the split.
 	v = swapVal + backingFees
 	p2wpkhUnspent.Amount = float64(v) / 1e8
@@ -1608,6 +1621,7 @@ func TestFundEdgesSegwit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error funding split tx: %v", err)
 	}
+	_ = wallet.ReturnCoins(spendables)
 	if coins[0].Value() == v {
 		t.Fatalf("split performed when baggage wasn't covered")
 	}
