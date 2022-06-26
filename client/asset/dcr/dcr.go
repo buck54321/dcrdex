@@ -2809,6 +2809,12 @@ func (dcr *ExchangeWallet) DepositAddress() (string, error) {
 	return addr.String(), nil
 }
 
+// RedemptionAddress gets an address for use in redeeming the counterparty's
+// swap. This would be included in their swap initialization.
+func (dcr *ExchangeWallet) RedemptionAddress() (string, error) {
+	return dcr.DepositAddress()
+}
+
 // NewAddress returns a new address from the wallet. This satisfies the
 // NewAddresser interface.
 func (dcr *ExchangeWallet) NewAddress() (string, error) {

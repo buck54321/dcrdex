@@ -57,15 +57,26 @@ func ElectrumWallet(cfg *BTCCloneCFG) (*ExchangeWalletElectrum, error) {
 	})
 	btc.node = ew
 
-	return &ExchangeWalletElectrum{
+	eew := &ExchangeWalletElectrum{
 		baseWallet: btc,
 		ew:         ew,
-	}, nil
+	}
+	btc.estimateFee = eew.feeRate // use ExchangeWalletElectrum override, not baseWallet's
+
+	return eew, nil
 }
 
 // DepositAddress returns an address for depositing funds into the exchange
-// wallet. The address will be unused but not necessarily new.
+// wallet. The address will be unused but not necessarily new. Use NewAddress to
+// request a new address, but it should be used immediately.
 func (btc *ExchangeWalletElectrum) DepositAddress() (string, error) {
+	return btc.ew.wallet.GetUnusedAddress()
+}
+
+// RedemptionAddress gets an address for use in redeeming the counterparty's
+// swap. This would be included in their swap initialization. The address will
+// be unused but not necessarily new because these addresses often go unused.
+func (btc *ExchangeWalletElectrum) RedemptionAddress() (string, error) {
 	return btc.ew.wallet.GetUnusedAddress()
 }
 
@@ -73,7 +84,7 @@ func (btc *ExchangeWalletElectrum) DepositAddress() (string, error) {
 // directly. Goroutines are started to monitor for new blocks and server
 // connection changes. Satisfies the dex.Connector interface.
 func (btc *ExchangeWalletElectrum) Connect(ctx context.Context) (*sync.WaitGroup, error) {
-	wg, err := btc.connect(ctx)
+	wg, err := btc.connect(ctx) // prepares btc.ew.chainV via btc.node.connect()
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +104,7 @@ func (btc *ExchangeWalletElectrum) Connect(ctx context.Context) (*sync.WaitGroup
 		return nil, errors.New("wallet does not support the freeze_utxo command")
 	}
 
-	serverFeats, err := btc.ew.chain.Features(ctx)
+	serverFeats, err := btc.ew.chain().Features(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -103,8 +114,6 @@ func (btc *ExchangeWalletElectrum) Connect(ctx context.Context) (*sync.WaitGroup
 		return nil, fmt.Errorf("wanted genesis hash %v, got %v (wrong network)",
 			btc.chainParams.GenesisHash.String(), serverFeats.Genesis)
 	}
-
-	btc.estimateFee = btc.feeRate // use ExchangeWalletElectrum override
 
 	wg.Add(1)
 	go func() {

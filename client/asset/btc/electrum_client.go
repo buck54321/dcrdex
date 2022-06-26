@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"decred.org/dcrdex/client/asset/btc/electrum"
@@ -69,54 +70,6 @@ type electrumNetworkClient interface {
 	BlockHeaders(ctx context.Context, startHeight, count uint32) (*electrum.GetBlockHeadersResult, error)
 }
 
-// electrumNetworkManager provides a thread-safe way to use and reset the
-// mutable electrumNetworkClient field. Could replace this with a getter/setter
-// on electrumWallet, but that gets a little messy with defers capturing a
-// potentially old/replaced electrumNetworkClient.
-type electrumNetworkManager struct {
-	sync.RWMutex
-	electrumNetworkClient
-}
-
-func (enm *electrumNetworkManager) reset(cl electrumNetworkClient) {
-	enm.Lock()
-	defer enm.Unlock()
-	enm.electrumNetworkClient = cl
-}
-
-func (enm *electrumNetworkManager) Done() <-chan struct{} {
-	enm.RLock()
-	defer enm.RUnlock()
-	return enm.electrumNetworkClient.Done()
-}
-
-func (enm *electrumNetworkManager) Shutdown() {
-	enm.RLock()
-	defer enm.RUnlock()
-	enm.electrumNetworkClient.Shutdown()
-}
-
-func (enm *electrumNetworkManager) GetTransaction(ctx context.Context, txid string) (*electrum.GetTransactionResult, error) {
-	enm.RLock()
-	cl := enm.electrumNetworkClient
-	enm.RUnlock()
-	return cl.GetTransaction(ctx, txid)
-}
-
-func (enm *electrumNetworkManager) BlockHeader(ctx context.Context, height uint32) (string, error) {
-	enm.RLock()
-	cl := enm.electrumNetworkClient
-	enm.RUnlock()
-	return cl.BlockHeader(ctx, height)
-}
-
-func (enm *electrumNetworkManager) BlockHeaders(ctx context.Context, startHeight, count uint32) (*electrum.GetBlockHeadersResult, error) {
-	enm.RLock()
-	cl := enm.electrumNetworkClient
-	enm.RUnlock()
-	return cl.BlockHeaders(ctx, startHeight, count)
-}
-
 type electrumWallet struct {
 	log           dex.Logger
 	chainParams   *chaincfg.Params
@@ -125,7 +78,7 @@ type electrumWallet struct {
 	deserializeTx func([]byte) (*wire.MsgTx, error)
 	serializeTx   func(*wire.MsgTx) ([]byte, error)
 	wallet        electrumWalletClient
-	chain         *electrumNetworkManager
+	chainV        atomic.Value // electrumNetworkClient
 	segwit        bool
 
 	lockedOutpointsMtx sync.RWMutex
@@ -134,6 +87,15 @@ type electrumWallet struct {
 	pwMtx    sync.RWMutex
 	pw       string
 	unlocked bool
+}
+
+func (ew *electrumWallet) chain() electrumNetworkClient {
+	cl, _ := ew.chainV.Load().(electrumNetworkClient)
+	return cl
+}
+
+func (ew *electrumWallet) resetChain(cl electrumNetworkClient) {
+	ew.chainV.Store(cl)
 }
 
 type electrumWalletConfig struct {
@@ -327,14 +289,14 @@ func (ew *electrumWallet) connect(ctx context.Context, wg *sync.WaitGroup) error
 		return err // maybe just try a different one if it doesn't allow multiple conns
 	}
 	ew.log.Infof("Now connected to electrum server %v.", addr)
-	ew.chain = &electrumNetworkManager{electrumNetworkClient: chain}
+	ew.resetChain(chain)
 
 	// Start a goroutine to keep the chain client alive and on the same
 	// ElectrumX server as the external Electrum wallet if possible.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		defer ew.chain.Shutdown()
+		defer ew.chain().Shutdown()
 		lastWalletServer := info.Server
 
 		failing := make(map[string]int)
@@ -346,7 +308,7 @@ func (ew *electrumWallet) connect(ctx context.Context, wg *sync.WaitGroup) error
 		for {
 			var walletCheck bool
 			select {
-			case <-ew.chain.Done():
+			case <-ew.chain().Done():
 				ew.log.Warnf("Electrum server connection lost. Reconnecting in 5 seconds...")
 				select {
 				case <-time.After(5 * time.Second):
@@ -389,7 +351,7 @@ func (ew *electrumWallet) connect(ctx context.Context, wg *sync.WaitGroup) error
 			}
 
 			if walletCheck {
-				ew.chain.Shutdown()
+				ew.chain().Shutdown()
 			}
 			ew.log.Infof("Connecting to new server %v...", addr)
 			chain, err := electrum.ConnectServer(ctx, addr, srvOpts)
@@ -399,7 +361,7 @@ func (ew *electrumWallet) connect(ctx context.Context, wg *sync.WaitGroup) error
 				continue
 			}
 			ew.log.Infof("Chain service now connected to electrum server %v", addr)
-			ew.chain.reset(chain)
+			ew.resetChain(chain)
 
 			if ctx.Err() != nil { // in case shutdown while waiting on ConnectServer
 				return
@@ -472,7 +434,7 @@ func (ew *electrumWallet) getTxOutput(txHash *chainhash.Hash, vout uint32) (*wir
 	txid := txHash.String()
 	txRaw, confs, err := ew.checkWalletTx(txid)
 	if err != nil {
-		txRes, err := ew.chain.GetTransaction(context.Background(), txid)
+		txRes, err := ew.chain().GetTransaction(context.Background(), txid)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -507,7 +469,7 @@ func (ew *electrumWallet) getTxOutput(txHash *chainhash.Hash, vout uint32) (*wir
 }
 
 func (ew *electrumWallet) getBlockHeaderByHeight(height int64) (*wire.BlockHeader, error) {
-	hdrStr, err := ew.chain.BlockHeader(context.Background(), uint32(height))
+	hdrStr, err := ew.chain().BlockHeader(context.Background(), uint32(height))
 	if err != nil {
 		return nil, err
 	}
@@ -535,7 +497,7 @@ func (ew *electrumWallet) calcMedianTime(height int64) (time.Time, error) {
 
 	// TODO: check a block hash => median time cache
 
-	hdrsRes, err := ew.chain.BlockHeaders(context.Background(), uint32(startHeight),
+	hdrsRes, err := ew.chain().BlockHeaders(context.Background(), uint32(startHeight),
 		uint32(height-startHeight+1))
 	if err != nil {
 		return time.Time{}, err
@@ -784,6 +746,8 @@ func (ew *electrumWallet) listLockUnspent() ([]*RPCOutpoint, error) {
 	return ew.listLockedOutpoints(), nil
 }
 
+// externalAddress creates a fresh address beyond the default gap limit, so it
+// should be used immediately.
 func (ew *electrumWallet) externalAddress() (btcutil.Address, error) {
 	addr, err := ew.wallet.CreateNewAddress()
 	if err != nil {
@@ -792,6 +756,8 @@ func (ew *electrumWallet) externalAddress() (btcutil.Address, error) {
 	return ew.decodeAddr(addr, ew.chainParams)
 }
 
+// changeAddress creates a fresh address beyond the default gap limit, so it
+// should be used immediately.
 func (ew *electrumWallet) changeAddress() (btcutil.Address, error) {
 	return ew.externalAddress() // sadly, cannot request internal addresses
 }
@@ -924,7 +890,7 @@ func (ew *electrumWallet) walletUnlock(pw []byte) error {
 }
 
 func (ew *electrumWallet) peerCount() (uint32, error) {
-	if ew.chain == nil {
+	if ew.chain() == nil { // must work prior to resetChain
 		return 0, nil
 	}
 
@@ -933,7 +899,7 @@ func (ew *electrumWallet) peerCount() (uint32, error) {
 		return 0, err
 	}
 	select {
-	case <-ew.chain.Done():
+	case <-ew.chain().Done():
 		return 0, errors.New("electrumx server connection down")
 	default:
 	}
@@ -1000,7 +966,7 @@ func (ew *electrumWallet) getWalletTransaction(txHash *chainhash.Hash) (*GetTran
 		}, nil
 	} // else we have to ask a server for the verbose response with block info
 
-	txInfo, err := ew.chain.GetTransaction(context.Background(), txid)
+	txInfo, err := ew.chain().GetTransaction(context.Background(), txid)
 	if err != nil {
 		return nil, err
 	}
@@ -1037,7 +1003,7 @@ func (ew *electrumWallet) swapConfirmations(txHash *chainhash.Hash, vout uint32,
 		pkScript = msgTx.TxOut[vout].PkScript
 	} else {
 		// Fall back to the more expensive server request.
-		txInfo, err := ew.chain.GetTransaction(context.Background(), txid)
+		txInfo, err := ew.chain().GetTransaction(context.Background(), txid)
 		if err != nil {
 			return 0, false, err
 		}

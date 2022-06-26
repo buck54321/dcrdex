@@ -158,12 +158,6 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) 
 		return nil, fmt.Errorf("unknown network ID %v", network)
 	}
 
-	switch cfg.Type {
-	case walletTypeRPC, walletTypeLegacy:
-	default:
-		return nil, fmt.Errorf("unknown wallet type %q", cfg.Type)
-	}
-
 	// Designate the clone ports. These will be overwritten by any explicit
 	// settings in the configuration file. Bitcoin Cash uses the same default
 	// ports as Bitcoin.
@@ -186,7 +180,7 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) 
 		AddressStringer: dexbch.EncodeCashAddress,
 		// Bitcoin Cash has a custom signature hash algorithm. Since they don't
 		// have segwit, Bitcoin Cash implemented a variation of the withdrawn
-		// BIP0062 that utilizes Shnorr signatures.
+		// BIP0062 that utilizes Schnorr signatures.
 		// https://gist.github.com/markblundeberg/a3aba3c9d610e59c3c49199f697bc38b#making-unmalleable-smart-contracts
 		// https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki
 		NonSegwitSigner: rawTxInSigner,
@@ -203,7 +197,7 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) 
 	// case walletTypeElectrum:
 	// 	logger.Warnf("\n\nUNTESTED Bitcoin Cash ELECTRUM WALLET IMPLEMENTATION! DO NOT USE ON mainnet!\n\n")
 	// 	cloneCFG.FeeEstimator = nil        // Electrum can do it, use the feeRate method
-	// 	cloneCFG.SingularWallet = true     // not used, but still no path on RPC endpoint
+	// 	cloneCFG.LegacyBalance = false
 	// 	cloneCFG.Ports = dexbtc.NetPorts{} // no default ports for Electrum wallet
 	// 	return btc.ElectrumWallet(cloneCFG)
 	default:

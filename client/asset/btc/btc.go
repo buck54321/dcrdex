@@ -225,16 +225,18 @@ type TxInSigner func(tx *wire.MsgTx, idx int, subScript []byte, hashType txscrip
 
 // BTCCloneCFG holds clone specific parameters.
 type BTCCloneCFG struct {
-	WalletCFG           *asset.WalletConfig
-	MinNetworkVersion   uint64
-	WalletInfo          *asset.WalletInfo
-	Symbol              string
-	Logger              dex.Logger
-	Network             dex.Network
-	ChainParams         *chaincfg.Params
-	Ports               dexbtc.NetPorts // the default wallet RPC tcp ports used when undefined in WalletConfig
-	DefaultFallbackFee  uint64          // sats/byte
-	DefaultFeeRateLimit uint64          // sats/byte
+	WalletCFG         *asset.WalletConfig
+	MinNetworkVersion uint64
+	WalletInfo        *asset.WalletInfo
+	Symbol            string
+	Logger            dex.Logger
+	Network           dex.Network
+	ChainParams       *chaincfg.Params
+	// Ports is the default wallet RPC tcp ports used when undefined in
+	// WalletConfig.
+	Ports               dexbtc.NetPorts
+	DefaultFallbackFee  uint64 // sats/byte
+	DefaultFeeRateLimit uint64 // sats/byte
 	// LegacyBalance is for clones that don't yet support the 'getbalances' RPC
 	// call.
 	LegacyBalance bool
@@ -828,7 +830,6 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, net dex.Network) (ass
 		}
 		return &ExchangeWalletAccelerator{rpcWallet}, nil
 	case walletTypeElectrum:
-		cloneCFG.SingularWallet = true     // not used, but no path on RPC endpoint
 		cloneCFG.Ports = dexbtc.NetPorts{} // no default ports
 		return ElectrumWallet(cloneCFG)
 	default:
@@ -1956,6 +1957,26 @@ func (btc *baseWallet) ReturnCoins(unspents asset.Coins) error {
 	return btc.node.lockUnspent(true, ops)
 }
 
+// rawWalletTx gets the raw bytes of a transaction and the number of
+// confirmations. This is a wrapper for checkWalletTx (if node is a
+// walletTxChecker), with a fallback to getWalletTransaction.
+func (btc *baseWallet) rawWalletTx(hash *chainhash.Hash) ([]byte, uint32, error) {
+	if fast, ok := btc.node.(walletTxChecker); ok {
+		txRaw, confs, err := fast.checkWalletTx(hash.String())
+		if err == nil {
+			return txRaw, confs, nil
+		}
+		btc.log.Warnf("checkWalletTx: %v", err)
+		// fallback to getWalletTransaction
+	}
+
+	tx, err := btc.node.getWalletTransaction(hash)
+	if err != nil {
+		return nil, 0, err
+	}
+	return tx.Hex, uint32(tx.Confirmations), nil
+}
+
 // FundingCoins gets funding coins for the coin IDs. The coins are locked. This
 // method might be called to reinitialize an order from data stored externally.
 // This method will only return funding coins, e.g. unspent transaction outputs.
@@ -1998,19 +2019,9 @@ func (btc *baseWallet) FundingCoins(ids []dex.Bytes) (asset.Coins, error) {
 			continue
 		}
 
-		var txRaw []byte
-		if fast, ok := btc.node.(walletTxChecker); ok {
-			txRaw, _, err = fast.checkWalletTx(txHash.String())
-			if err != nil {
-				btc.log.Warnf("checkWalletTx: %v", err)
-			} // fallback to getWalletTransaction
-		}
-		if len(txRaw) == 0 {
-			tx, err := btc.node.getWalletTransaction(txHash) // maybe getTxOut()? we don't need block info or the full tx
-			if err != nil {
-				return nil, err
-			}
-			txRaw = tx.Hex
+		txRaw, _, err := btc.rawWalletTx(txHash)
+		if err != nil {
+			return nil, err
 		}
 		msgTx, err := btc.deserializeTx(txRaw)
 		if err != nil {
@@ -2032,7 +2043,7 @@ func (btc *baseWallet) FundingCoins(ids []dex.Bytes) (asset.Coins, error) {
 			continue
 		}
 		if len(addrs) != 1 {
-			btc.log.Warnf("pkScript for %v contains %d addresses instead of one: %v", pt, len(addrs))
+			btc.log.Warnf("pkScript for %v contains %d addresses instead of one", pt, len(addrs))
 			continue
 		}
 		addrStr, err := btc.stringAddr(addrs[0], btc.chainParams)
@@ -3584,6 +3595,12 @@ func (btc *baseWallet) DepositAddress() (string, error) {
 	return addrStr, nil
 }
 
+// RedemptionAddress gets an address for use in redeeming the counterparty's
+// swap. This would be included in their swap initialization.
+func (btc *baseWallet) RedemptionAddress() (string, error) {
+	return btc.DepositAddress()
+}
+
 // NewAddress returns a new address from the wallet. This satisfies the
 // NewAddresser interface.
 func (btc *baseWallet) NewAddress() (string, error) {
@@ -3644,21 +3661,10 @@ func (btc *baseWallet) send(address string, val uint64, feeRate uint64, subtract
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("SendToAddress error: %w", err)
 	}
-	var txRaw []byte
-	if fast, ok := btc.node.(walletTxChecker); ok {
-		txRaw, _, err = fast.checkWalletTx(txHash.String())
-		if err != nil {
-			btc.log.Warnf("checkWalletTx: %v", err)
-		} // fallback to getWalletTransaction
+	txRaw, _, err := btc.rawWalletTx(txHash)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("failed to locate new wallet transaction %v: %w", txHash, err)
 	}
-	if len(txRaw) == 0 {
-		txRes, err := btc.node.getWalletTransaction(txHash)
-		if err != nil {
-			return nil, 0, 0, fmt.Errorf("failed to fetch transaction after send: %w", err)
-		}
-		txRaw = txRes.Hex
-	}
-
 	tx, err := btc.deserializeTx(txRaw)
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("error decoding transaction: %w", err)
@@ -3694,18 +3700,8 @@ func (btc *baseWallet) RegFeeConfirmations(_ context.Context, id dex.Bytes) (con
 	if err != nil {
 		return 0, err
 	}
-	if fast, ok := btc.node.(walletTxChecker); ok {
-		_, confs, err = fast.checkWalletTx(txHash.String())
-		if err == nil {
-			return confs, nil
-		}
-		btc.log.Warnf("checkWalletTx: %v", err) // fallback
-	}
-	tx, err := btc.node.getWalletTransaction(txHash)
-	if err != nil {
-		return 0, err
-	}
-	return uint32(tx.Confirmations), nil
+	_, confs, err = btc.rawWalletTx(txHash)
+	return
 }
 
 func (btc *baseWallet) checkPeers() {
