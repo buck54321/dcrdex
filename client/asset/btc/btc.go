@@ -651,15 +651,20 @@ type baseWallet struct {
 	findRedemptionQueue map[outPoint]*findRedemptionReq
 }
 
+type intermediaryWallet struct {
+	*baseWallet
+	node tipRedemptionWallet
+}
+
 // ExchangeWalletSPV embeds a ExchangeWallet, but also provides the Rescan
 // method to implement asset.Rescanner.
 type ExchangeWalletSPV struct {
-	*baseWallet
+	*intermediaryWallet
 }
 
 // ExchangeWalletFullNode implements Wallet and adds the FeeRate method.
 type ExchangeWalletFullNode struct {
-	*baseWallet
+	*intermediaryWallet
 }
 
 // ExchangeWalletAccelerator implements the Accelerator interface on an
@@ -669,7 +674,7 @@ type ExchangeWalletAccelerator struct {
 }
 
 // Check that wallets satisfy their supported interfaces.
-var _ asset.Wallet = (*baseWallet)(nil)
+var _ asset.Wallet = (*intermediaryWallet)(nil)
 var _ asset.Accelerator = (*ExchangeWalletAccelerator)(nil)
 var _ asset.Accelerator = (*ExchangeWalletSPV)(nil)
 var _ asset.Withdrawer = (*baseWallet)(nil)
@@ -867,7 +872,7 @@ func newRPCWallet(requester RawRequesterWithContext, cfg *BTCCloneCFG, walletCon
 		blockDeserializer = deserializeBlock
 	}
 
-	btc.node = newRPCClient(&rpcCore{
+	node := newRPCClient(&rpcCore{
 		requester:                requester,
 		segwit:                   cfg.Segwit,
 		decodeAddr:               btc.decodeAddr,
@@ -888,7 +893,13 @@ func newRPCWallet(requester RawRequesterWithContext, cfg *BTCCloneCFG, walletCon
 		legacyValidateAddressRPC: cfg.LegacyValidateAddressRPC,
 		manualMedianTime:         cfg.ManualMedianTime,
 	})
-	return &ExchangeWalletFullNode{btc}, nil
+	btc.node = node
+	return &ExchangeWalletFullNode{
+		intermediaryWallet: &intermediaryWallet{
+			baseWallet: btc,
+			node:       node,
+		},
+	}, nil
 }
 
 func newUnconnectedWallet(cfg *BTCCloneCFG, walletCfg *WalletConfig) (*baseWallet, error) {
@@ -1012,9 +1023,15 @@ func openSPVWallet(cfg *BTCCloneCFG) (*ExchangeWalletSPV, error) {
 	}
 
 	allowAutomaticRescan := !walletCfg.ActivelyUsed
-	btc.node = loadSPVWallet(cfg.WalletCFG.DataDir, cfg.Logger.SubLogger("SPV"), cfg.ChainParams, walletCfg.adjustedBirthday(), allowAutomaticRescan)
+	node := loadSPVWallet(cfg.WalletCFG.DataDir, cfg.Logger.SubLogger("SPV"), cfg.ChainParams, walletCfg.adjustedBirthday(), allowAutomaticRescan)
+	btc.node = node
 
-	return &ExchangeWalletSPV{baseWallet: btc}, nil
+	return &ExchangeWalletSPV{
+		intermediaryWallet: &intermediaryWallet{
+			baseWallet: btc,
+			node:       node,
+		},
+	}, nil
 }
 
 // Info returns basic information about the wallet and asset.
@@ -1059,7 +1076,7 @@ func (btc *baseWallet) connect(ctx context.Context) (*sync.WaitGroup, error) {
 
 // Connect connects the wallet to the btc.Wallet backend and starts monitoring
 // blocks and peers. Satisfies the dex.Connector interface.
-func (btc *baseWallet) Connect(ctx context.Context) (*sync.WaitGroup, error) {
+func (btc *intermediaryWallet) Connect(ctx context.Context) (*sync.WaitGroup, error) {
 	wg, err := btc.connect(ctx)
 	if err != nil {
 		return nil, err
@@ -3199,7 +3216,7 @@ func (btc *baseWallet) LocktimeExpired(contract dex.Bytes) (bool, time.Time, err
 //
 // This method blocks until the redemption is found, an error occurs or the
 // provided context is canceled.
-func (btc *baseWallet) FindRedemption(ctx context.Context, coinID, _ dex.Bytes) (redemptionCoin, secret dex.Bytes, err error) {
+func (btc *intermediaryWallet) FindRedemption(ctx context.Context, coinID, _ dex.Bytes) (redemptionCoin, secret dex.Bytes, err error) {
 	txHash, vout, err := decodeCoinID(coinID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot decode contract coin id: %w", err)
@@ -3291,7 +3308,7 @@ func (btc *baseWallet) queueFindRedemptionRequest(req *findRedemptionReq) error 
 
 // tryRedemptionRequests searches all mainchain blocks with height >= startBlock
 // for redemptions.
-func (btc *baseWallet) tryRedemptionRequests(ctx context.Context, startBlock *chainhash.Hash, reqs []*findRedemptionReq) {
+func (btc *intermediaryWallet) tryRedemptionRequests(ctx context.Context, startBlock *chainhash.Hash, reqs []*findRedemptionReq) {
 	undiscovered := make(map[outPoint]*findRedemptionReq, len(reqs))
 	mempoolReqs := make(map[outPoint]*findRedemptionReq)
 	for _, req := range reqs {
@@ -3724,7 +3741,7 @@ func (btc *baseWallet) monitorPeers(ctx context.Context) {
 
 // watchBlocks pings for new blocks and runs the tipChange callback function
 // when the block changes.
-func (btc *baseWallet) watchBlocks(ctx context.Context) {
+func (btc *intermediaryWallet) watchBlocks(ctx context.Context) {
 	ticker := time.NewTicker(blockTicker)
 	defer ticker.Stop()
 
@@ -3824,7 +3841,7 @@ func (btc *baseWallet) watchBlocks(ctx context.Context) {
 
 // prepareRedemptionRequestsForBlockCheck prepares a copy of the
 // findRedemptionQueue, checking for missing block data along the way.
-func (btc *baseWallet) prepareRedemptionRequestsForBlockCheck() []*findRedemptionReq {
+func (btc *intermediaryWallet) prepareRedemptionRequestsForBlockCheck() []*findRedemptionReq {
 	// Search for contract redemption in new blocks if there
 	// are contracts pending redemption.
 	btc.findRedemptionMtx.Lock()
@@ -3844,7 +3861,7 @@ func (btc *baseWallet) prepareRedemptionRequestsForBlockCheck() []*findRedemptio
 // reportNewTip sets the currentTip. The tipChange callback function is invoked
 // and a goroutine is started to check if any contracts in the
 // findRedemptionQueue are redeemed in the new blocks.
-func (btc *baseWallet) reportNewTip(ctx context.Context, newTip *block) {
+func (btc *intermediaryWallet) reportNewTip(ctx context.Context, newTip *block) {
 	btc.tipMtx.Lock()
 	defer btc.tipMtx.Unlock()
 
@@ -3933,7 +3950,7 @@ func (btc *baseWallet) reportNewTip(ctx context.Context, newTip *block) {
 }
 
 // trySetRedemptionRequestBlock should be called with findRedemptionMtx Lock'ed.
-func (btc *baseWallet) trySetRedemptionRequestBlock(req *findRedemptionReq) {
+func (btc *intermediaryWallet) trySetRedemptionRequestBlock(req *findRedemptionReq) {
 	tx, err := btc.node.getWalletTransaction(&req.outPt.txHash)
 	if err != nil {
 		btc.log.Errorf("getWalletTransaction error for FindRedemption transaction: %v", err)
@@ -3970,7 +3987,7 @@ func (btc *baseWallet) trySetRedemptionRequestBlock(req *findRedemptionReq) {
 // checkRedemptionBlockDetails retrieves the block at blockStr and checks that
 // the provided pkScript matches the specified outpoint. The transaction's
 // block height is returned.
-func (btc *baseWallet) checkRedemptionBlockDetails(outPt outPoint, blockHash *chainhash.Hash, pkScript []byte) (int32, error) {
+func (btc *intermediaryWallet) checkRedemptionBlockDetails(outPt outPoint, blockHash *chainhash.Hash, pkScript []byte) (int32, error) {
 	blockHeight, err := btc.node.getBlockHeight(blockHash)
 	if err != nil {
 		return 0, fmt.Errorf("GetBlockHeight for redemption block %s error: %w", blockHash, err)

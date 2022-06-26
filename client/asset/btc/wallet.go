@@ -15,6 +15,7 @@ import (
 )
 
 type Wallet interface {
+	RawRequester // for estimateFee calls
 	connect(ctx context.Context, wg *sync.WaitGroup) error
 	estimateSmartFee(confTarget int64, mode *btcjson.EstimateSmartFeeMode) (*btcjson.EstimateSmartFeeResult, error) // consider ditching these btcjson types
 	sendRawTransaction(tx *wire.MsgTx) (*chainhash.Hash, error)
@@ -44,11 +45,10 @@ type Wallet interface {
 	getBestBlockHeader() (*blockHeader, error)
 	ownsAddress(addr btcutil.Address) (bool, error) // this should probably just take a string
 	getWalletTransaction(txHash *chainhash.Hash) (*GetTransactionResult, error)
+}
 
-	// WARNING: The following methods may not be implemented by all Wallet
-	// types. Care should be taken before using these in any method in which
-	// they are not already used.
-	RawRequester // for estimateFee calls
+type tipRedemptionWallet interface {
+	Wallet
 	getBlockHeight(*chainhash.Hash) (int32, error)
 	getBlockHeader(blockHash *chainhash.Hash) (*blockHeader, error)
 	getBlock(h chainhash.Hash) (*wire.MsgBlock, error)

@@ -641,9 +641,8 @@ func tNewWallet(segwit bool, walletType string) (*ExchangeWalletFullNode, *testD
 	case walletTypeSPV:
 		w, err := newUnconnectedWallet(cfg, &WalletConfig{})
 		if err == nil {
-			wallet = &ExchangeWalletFullNode{w} // ? ExchangeWalletSPV
 			neutrinoClient := &tNeutrinoClient{data}
-			wallet.node = &spvWallet{
+			node := &spvWallet{
 				chainParams: &chaincfg.MainNetParams,
 				wallet:      &tBtcWallet{data},
 				cl:          neutrinoClient,
@@ -655,6 +654,13 @@ func tNewWallet(segwit bool, walletType string) (*ExchangeWalletFullNode, *testD
 				log:         cfg.Logger.SubLogger("SPV"),
 				loader:      nil,
 			}
+			w.node = node
+			wallet = &ExchangeWalletFullNode{
+				intermediaryWallet: &intermediaryWallet{
+					baseWallet: w,
+					node:       node,
+				},
+			} // ? ExchangeWalletSPV
 		}
 	}
 

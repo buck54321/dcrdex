@@ -188,36 +188,6 @@ func (ew *electrumWallet) RawRequest(string, []json.RawMessage) (json.RawMessage
 	return nil, errors.New("not available") // and not used
 }
 
-// Electrum(X) can only get block headers by height. Getting by hash is only done
-// in new baseWallet's block handling to determine the startPoint for a
-// redemption search. However, ExchangeWalletElectrum overrides the new block
-// handling since it does not need to identify the mainchain ancestor at which
-// to start the search.
-func (ew *electrumWallet) getBlockHeader(blockHash *chainhash.Hash) (*blockHeader, error) {
-	return nil, errors.New("cannot fetch block header by hash")
-}
-
-// Electrum(X) also does not need to get block height by hash since it is only
-// used in the block filter scan for redemptions, which we override.
-func (ew *electrumWallet) getBlockHeight(*chainhash.Hash) (int32, error) {
-	return 0, errors.New("electrum cannot get height by hash")
-}
-
-// Electrum(X) cannot pull full blocks. However, it does not need to do this
-// since redemption search is not done with block filters.
-func (ew *electrumWallet) getBlock(h chainhash.Hash) (*wire.MsgBlock, error) {
-	return nil, errors.New("electrum cannot fetch blocks")
-}
-
-func (ew *electrumWallet) searchBlockForRedemptions(ctx context.Context, reqs map[outPoint]*findRedemptionReq,
-	blockHash chainhash.Hash) (discovered map[outPoint]*findRedemptionResult) {
-	return nil // electrum cannot and does not need to get blocks to find a spending txn
-}
-
-func (ew *electrumWallet) findRedemptionsInMempool(ctx context.Context, reqs map[outPoint]*findRedemptionReq) (discovered map[outPoint]*findRedemptionResult) {
-	return nil // electrum cannot and does not need to get mempool contents to find a spending txn
-}
-
 // END unimplemented methods
 
 // Prefer the SSL port if set, but allow TCP if that's all it has.
