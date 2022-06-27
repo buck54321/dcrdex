@@ -366,10 +366,18 @@ func (ew *electrumWallet) sendRawTransaction(tx *wire.MsgTx) (*chainhash.Hash, e
 	if err != nil {
 		return nil, err // well that sucks, it's already sent
 	}
+	ops := make([]*output, len(tx.TxIn))
+	for i, txIn := range tx.TxIn {
+		prevOut := txIn.PreviousOutPoint
+		ops[i] = &output{pt: newOutPoint(&prevOut.Hash, prevOut.Index)}
+	}
+	if err = ew.lockUnspent(true, ops); err != nil {
+		ew.log.Errorf("Failed to unlock spent UTXOs: %v", err)
+	}
 	return hash, nil
 }
 
-func (ew *electrumWallet) outputIsSpent(txid string, vout uint32, pkScript []byte) (bool, error) {
+func (ew *electrumWallet) outputIsSpent(txHash *chainhash.Hash, vout uint32, pkScript []byte) (bool, error) {
 	_, addrs, _, err := txscript.ExtractPkScriptAddrs(pkScript, ew.chainParams)
 	if err != nil {
 		return false, fmt.Errorf("failed to decode pkScript: %w", err)
@@ -381,17 +389,27 @@ func (ew *electrumWallet) outputIsSpent(txid string, vout uint32, pkScript []byt
 	if err != nil {
 		return false, fmt.Errorf("invalid address encoding: %w", err)
 	}
-	// Now see the unspent outputs for this address include this outpoint.
+	// Now see if the unspent outputs for this address include this outpoint.
 	addrUnspents, err := ew.wallet.GetAddressUnspent(addr)
 	if err != nil {
 		return false, fmt.Errorf("getaddressunspent: %w", err)
 	}
+	txid := txHash.String()
 	for _, utxo := range addrUnspents {
 		if utxo.TxHash == txid && uint32(utxo.TxPos) == vout {
 			return false, nil // still unspent
 		}
 	}
-	return true, nil // not in the unspent list
+	ew.log.Infof("Output %s:%d not found in unspent output list. Searching for spending txn...",
+		txid, vout)
+	// getaddressunspent can sometimes exclude an unspent output if it is new,
+	// so now search for an actual spending txn, which is a more expensive
+	// operation so we only fall back on this.
+	spendTx, _, err := ew.findOutputSpender(txHash, vout)
+	if err != nil {
+		return false, fmt.Errorf("failure while checking for spending txn: %v", err)
+	}
+	return spendTx != nil, nil
 }
 
 func (ew *electrumWallet) getTxOut(txHash *chainhash.Hash, vout uint32, _ []byte, _ time.Time) (*wire.TxOut, uint32, error) {
@@ -427,7 +445,7 @@ func (ew *electrumWallet) getTxOutput(txHash *chainhash.Hash, vout uint32) (*wir
 
 	// Given the pkScript, we can query for unspent outputs to see if this one
 	// is unspent.
-	spent, err := ew.outputIsSpent(txid, vout, pkScript)
+	spent, err := ew.outputIsSpent(txHash, vout, pkScript)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -662,6 +680,7 @@ func (ew *electrumWallet) lockUnspent(unlock bool, ops []*output) error {
 	for _, op := range ops {
 		opMap[op.pt] = struct{}{}
 	}
+	// For the ones that appear in listunspent, use (un)freeze_utxo also.
 unspents:
 	for _, utxo := range eUnspent {
 		for op := range opMap {
@@ -670,7 +689,8 @@ unspents:
 				// repeatedly for the same address.
 				if unlock {
 					if err = ew.wallet.UnfreezeUTXO(utxo.PrevOutHash, utxo.PrevOutIdx); err != nil {
-						return err
+						ew.log.Warnf("UnfreezeUTXO(%s:%d) failed: %v", utxo.PrevOutHash, utxo.PrevOutIdx, err)
+						// Maybe we lost a race somewhere. Keep going.
 					}
 					ew.lockedOutpointsMtx.Lock()
 					delete(ew.lockedOutpoints, op)
@@ -680,7 +700,7 @@ unspents:
 				}
 
 				if err = ew.wallet.FreezeUTXO(utxo.PrevOutHash, utxo.PrevOutIdx); err != nil {
-					return err
+					ew.log.Warnf("FreezeUTXO(%s:%d) failed: %v", utxo.PrevOutHash, utxo.PrevOutIdx, err)
 				}
 				// listunspent returns locked utxos, so we have to track it.
 				ew.lockedOutpointsMtx.Lock()
@@ -691,10 +711,18 @@ unspents:
 			}
 		}
 	}
+
+	// If not in the listunspent response, fail if trying to lock, otherwise
+	// just remove them from the lockedOutpoints map (unlocking spent UTXOs).
 	if len(opMap) > 0 && !unlock {
 		return fmt.Errorf("failed to lock some utxos")
-		// unlock the ones we locked?
-	} // ok if unlocking spent ones
+	}
+	for op := range opMap {
+		ew.lockedOutpointsMtx.Lock()
+		delete(ew.lockedOutpoints, op)
+		ew.lockedOutpointsMtx.Unlock()
+	}
+
 	return nil
 }
 
@@ -991,37 +1019,22 @@ func (ew *electrumWallet) swapConfirmations(txHash *chainhash.Hash, vout uint32,
 		}
 	}
 
-	// Decode the pkScript and extract the address.
-	scriptClass, addrs, _, err := txscript.ExtractPkScriptAddrs(pkScript, ew.chainParams)
+	spent, err = ew.outputIsSpent(txHash, vout, pkScript)
 	if err != nil {
-		return 0, false, fmt.Errorf("invalid pkScript: %v", err)
-	}
-	switch scriptClass { // require p2sh or p2wsh... necessary?
-	case txscript.ScriptHashTy, txscript.WitnessV0ScriptHashTy:
-	default:
-		return 0, false, fmt.Errorf("pkScript not a script hash: %v", scriptClass)
-	}
-	if len(addrs) != 1 {
-		return 0, false, fmt.Errorf("invalid pkScript: %d addresses", len(addrs))
-	}
-	swapAddr, err := ew.stringAddr(addrs[0], ew.chainParams)
-	if len(addrs) != 1 {
-		return 0, false, fmt.Errorf("invalid swap address encoding: %w", err)
-	}
-
-	// Now see if the unspent outputs for this address include this outpoint.
-	addrUnspents, err := ew.wallet.GetAddressUnspent(swapAddr)
-	if err != nil {
-		return 0, false, fmt.Errorf("getaddressunspent: %v", err)
-	}
-	spent = true
-	for _, utxo := range addrUnspents {
-		if utxo.TxHash == txid && uint32(utxo.TxPos) == vout {
-			spent = false
-			break
-		}
+		return 0, false, err
 	}
 	return confs, spent, nil
+}
+
+// tryRemoveLocalTx attempts to remove a "local" transaction from the Electrum
+// wallet. Such a transaction is unbroadcasted. This may be necessary if a
+// broadcast of a local txn attempt failed so that the inputs are available for
+// other transactions.
+func (ew *electrumWallet) tryRemoveLocalTx(txid string) {
+	if err := ew.wallet.RemoveLocalTx(txid); err != nil {
+		ew.log.Errorf("Failed to remove local transaction %s: %v",
+			txid, err)
+	}
 }
 
 func (ew *electrumWallet) sendWithSubtract(address string, value, feeRate uint64) (*chainhash.Hash, error) {
@@ -1116,7 +1129,7 @@ func (ew *electrumWallet) sendWithSubtract(address string, value, feeRate uint64
 
 	txid, err := ew.wallet.Broadcast(txRaw)
 	if err != nil {
-		ew.wallet.RemoveLocalTx(msgTx.TxHash().String())
+		ew.tryRemoveLocalTx(msgTx.TxHash().String())
 		return nil, err
 	}
 	return chainhash.NewHashFromStr(txid) // hope this doesn't error because it's already sent
@@ -1172,7 +1185,7 @@ func (ew *electrumWallet) sendToAddress(address string, value, feeRate uint64, s
 	}
 	txid, err := ew.wallet.Broadcast(txRaw)
 	if err != nil {
-		ew.wallet.RemoveLocalTx(msgTx.TxHash().String())
+		ew.tryRemoveLocalTx(msgTx.TxHash().String())
 		return nil, err
 	}
 	return chainhash.NewHashFromStr(txid)
@@ -1189,15 +1202,14 @@ func (ew *electrumWallet) sweep(address string, feeRate uint64) ([]byte, error) 
 	}
 	_, err = ew.wallet.Broadcast(txRaw)
 	if err != nil {
-		ew.wallet.RemoveLocalTx(msgTx.TxHash().String())
+		ew.tryRemoveLocalTx(msgTx.TxHash().String())
 		return nil, err
 	}
 
 	return txRaw, nil
 }
 
-func (ew *electrumWallet) outPointAddress(txHash *chainhash.Hash, vout uint32) (string, error) {
-	txid := txHash.String()
+func (ew *electrumWallet) outPointAddress(txid string, vout uint32) (string, error) {
 	txRaw, err := ew.wallet.GetRawTransaction(txid)
 	if err != nil {
 		return "", err
@@ -1225,17 +1237,17 @@ func (ew *electrumWallet) outPointAddress(txHash *chainhash.Hash, vout uint32) (
 }
 
 func (ew *electrumWallet) findOutputSpender(txHash *chainhash.Hash, vout uint32) (*wire.MsgTx, uint32, error) {
-	addr, err := ew.outPointAddress(txHash, vout)
+	txid := txHash.String()
+	addr, err := ew.outPointAddress(txid, vout)
 	if err != nil {
 		return nil, 0, fmt.Errorf("invalid outpoint address: %w", err)
 	}
-	// NOTE: we could start with GetAddressUnspent to detect unspent before
+	// NOTE: Caller should already have determined the output is spent before
 	// requesting the entire address history.
 	hist, err := ew.wallet.GetAddressHistory(addr)
 	if err != nil {
 		return nil, 0, fmt.Errorf("unable to get address history: %w", err)
 	}
-	txid := txHash.String()
 
 	sort.Slice(hist, func(i, j int) bool {
 		return hist[i].Height > hist[j].Height // descending

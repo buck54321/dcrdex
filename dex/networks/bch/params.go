@@ -59,7 +59,7 @@ var (
 		// registration, so our only requirement is that it is unique. This one
 		// was just generated with a prng.
 		Net:         0xee87f733,
-		GenesisHash: nil, // TODO or unused with simnet?
+		GenesisHash: mustHash("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"), // same as BTC!
 	})
 )
 

@@ -65,7 +65,7 @@ var (
 		Net:            0x9acb0442,
 		HDPrivateKeyID: [4]byte{0x04, 0x35, 0x83, 0x94}, // starts with tprv
 		HDPublicKeyID:  [4]byte{0x04, 0x35, 0x87, 0xcf}, // starts with tpub
-		GenesisHash:    nil,                             // TODO or unused with simnet?
+		GenesisHash:    mustHash("530827f38f93b43ed12af0b3ad25a288dc02ed74d6d7857862df51fc56c416f9"),
 	})
 )
 

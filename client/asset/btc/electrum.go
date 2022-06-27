@@ -110,9 +110,9 @@ func (btc *ExchangeWalletElectrum) Connect(ctx context.Context) (*sync.WaitGroup
 	}
 	// TODO: for chainforks with the same genesis hash (BTC -> BCH), compare a
 	// block hash at some post-fork height.
-	if btc.chainParams.GenesisHash.String() != serverFeats.Genesis {
+	if genesis := btc.chainParams.GenesisHash; genesis != nil && genesis.String() != serverFeats.Genesis {
 		return nil, fmt.Errorf("wanted genesis hash %v, got %v (wrong network)",
-			btc.chainParams.GenesisHash.String(), serverFeats.Genesis)
+			genesis.String(), serverFeats.Genesis)
 	}
 
 	wg.Add(1)
