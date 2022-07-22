@@ -530,6 +530,20 @@ const CoinExplorers: Record<number, Record<number, (cid: string) => string>> = {
       return `https://goerli.etherscan.io/tx/${cid}`
     }
   },
+  60001: { // usdc
+    [Mainnet]: (cid: string) => {
+      if (cid.length === 42) {
+        return `https://etherscan.io/address/${cid}`
+      }
+      return `https://etherscan.io/tx/${cid}`
+    },
+    [Testnet]: (cid: string) => {
+      if (cid.length === 42) {
+        return `https://goerli.etherscan.io/address/${cid}`
+      }
+      return `https://goerli.etherscan.io/tx/${cid}`
+    }
+  },
   3: { // doge
     [Mainnet]: (cid: string) => `https://dogeblocks.com/tx/${cid.split(':')[0]}`,
     [Testnet]: (cid: string) => `https://blockexplorer.one/dogecoin/testnet/tx/${cid.split(':')[0]}`

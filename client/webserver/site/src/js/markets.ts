@@ -2495,6 +2495,7 @@ interface BalanceWidgetElement {
   tmpl: Record<string, PageElement>
   iconBox: PageElement
   stateIcons: WalletIcons
+  parentBal?: PageElement
 }
 
 /*
@@ -2535,7 +2536,6 @@ class BalanceWidget {
       stateIcons: new WalletIcons(qtmpl.walletState)
     }
     qtmpl.balanceRowTmpl.remove()
-    // this.parentRow = els.parentBalance
 
     app().registerNoteFeeder({
       balance: (note: BalanceNote) => { this.updateAsset(note.assetID) },
@@ -2628,7 +2628,10 @@ class BalanceWidget {
       const balTmpl = Doc.parseTemplate(row)
       balTmpl.title.textContent = title
       balTmpl.bal.textContent = Doc.formatCoinValue(bal, ui)
-      if (icon) balTmpl.bal.append(icon)
+      if (icon) {
+        balTmpl.bal.append(icon)
+        tmpl.parentBal = balTmpl.bal
+      }
     }
 
     addRow(intl.prep(intl.ID_AVAILABLE), bal.available, asset.unitInfo)
@@ -2653,9 +2656,8 @@ class BalanceWidget {
 
   /* updateParent updates the side's parent asset balance. */
   updateParent (side: BalanceWidgetElement) {
-    const { wallet: { balance }, unitInfo, symbol } = app().assets[side.parentID]
+    const { wallet: { balance }, unitInfo } = app().assets[side.parentID]
     side.tmpl.parentBal.textContent = Doc.formatCoinValue(balance.available, unitInfo)
-    side.tmpl.parentLogo.src = Doc.logoPath(symbol)
   }
 
   /*

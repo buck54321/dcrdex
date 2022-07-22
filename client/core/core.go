@@ -1679,8 +1679,8 @@ func (c *Core) connectAndUpdateWallet(w *xcWallet) error {
 		}
 		if !parentWallet.connected() {
 			if err := c.connectAndUpdateWallet(parentWallet); err != nil {
-				return fmt.Errorf("failed to connect %s parent wallet for %s token",
-					unbip(token.ParentID), unbip(assetID))
+				return fmt.Errorf("failed to connect %s parent wallet for %s token: %v",
+					unbip(token.ParentID), unbip(assetID), err)
 			}
 		}
 	}

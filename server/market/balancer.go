@@ -79,7 +79,7 @@ func NewDEXBalancer(tunnels map[string]PendingAccounter, assets map[uint32]*asse
 			}
 			bb.feeFamily[parentID] = parent.assetInfo
 			for tokenID := range asset.Tokens(parentID) {
-				if tokenID == assetID { // Don't double count
+				if tokenID == assetID || assets[tokenID] == nil { // Don't double count
 					continue
 				}
 				bb.feeFamily[tokenID] = &assets[tokenID].Asset

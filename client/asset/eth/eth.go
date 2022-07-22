@@ -30,7 +30,6 @@ import (
 	"decred.org/dcrdex/dex/config"
 	"decred.org/dcrdex/dex/encode"
 	"decred.org/dcrdex/dex/keygen"
-	"decred.org/dcrdex/dex/networks/erc20"
 	dexeth "decred.org/dcrdex/dex/networks/eth"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	"github.com/decred/dcrd/hdkeychain/v3"
@@ -60,7 +59,8 @@ func registerToken(tokenID uint32, desc string, nets ...dex.Network) {
 func init() {
 	asset.Register(BipID, &Driver{})
 	// Test token
-	registerToken(testTokenID, "A token wallet for the DEX test token. Used for testing DEX software.", dex.Simnet)
+	registerToken(simnetTokenID, "A token wallet for the DEX test token. Used for testing DEX software.", dex.Simnet)
+	registerToken(usdcTokenID, "The USDC Ethereum ERC20 token.", dex.Testnet)
 }
 
 const (
@@ -83,7 +83,8 @@ const (
 )
 
 var (
-	testTokenID, _ = dex.BipSymbolID("dextt.eth")
+	simnetTokenID, _ = dex.BipSymbolID("dextt.eth")
+	usdcTokenID, _   = dex.BipSymbolID("usdc.eth")
 	// blockTicker is the delay between calls to check for new blocks.
 	blockTicker     = time.Second
 	peerCountTicker = 5 * time.Second
@@ -1482,7 +1483,7 @@ func (w *assetWallet) approvalGas(newGas *big.Int, ver uint32) (uint64, error) {
 	if approveEst, err := w.estimateApproveGas(newGas); err != nil {
 		return 0, fmt.Errorf("error estimating approve gas: %v", err)
 	} else if approveEst > approveGas {
-		w.log.Warnf("Approve gas estimate %d is greater than the expected value %d. Using live estimate + 10%.")
+		w.log.Warnf("Approve gas estimate %d is greater than the expected value %d. Using live estimate + 10%%.", approveEst, approveGas)
 		return approveEst * 11 / 10, nil
 	}
 	return approveGas, nil
@@ -1756,6 +1757,8 @@ func (w *TokenWallet) Swap(swaps *asset.Swaps) ([]asset.Receipt, asset.Coin, uin
 		return fail("Swap: initiate error: %w", err)
 	}
 
+	contractAddr := dexeth.Tokens[w.assetID].NetTokens[w.net].SwapContracts[swaps.Version].Address.String()
+
 	txHash := tx.Hash()
 	for _, swap := range swaps.Contracts {
 		var secretHash [dexeth.SecretHashSize]byte
@@ -1766,7 +1769,7 @@ func (w *TokenWallet) Swap(swaps *asset.Swaps) ([]asset.Receipt, asset.Coin, uin
 			txHash:       txHash,
 			secretHash:   secretHash,
 			ver:          swaps.Version,
-			contractAddr: erc20.ContractAddresses[swaps.Version][w.net].String(),
+			contractAddr: contractAddr,
 		})
 	}
 
@@ -3387,7 +3390,7 @@ func (w *assetWallet) confirmRedemption(coinID dex.Bytes, redemption *asset.Rede
 
 	monitoredTx, err := w.getLatestMonitoredTx(txHash)
 	if err != nil {
-		w.log.Error("getLatestMonitoredTx error: %v", err)
+		w.log.Errorf("getLatestMonitoredTx error: %v", err)
 		return w.confirmRedemptionWithoutMonitoredTx(txHash, redemption, feeWallet)
 	}
 	// This mutex is locked inside of getLatestMonitoredTx.
@@ -3799,7 +3802,7 @@ func checkTxStatus(receipt *types.Receipt, gasLimit uint64) error {
 // factor of 2. The account should already have a trading balance of at least
 // maxSwaps gwei (token or eth), and sufficient eth balance to cover the
 // requisite tx fees.
-func GetGasEstimates(ctx context.Context, cl ethFetcher, c contractor, maxSwaps int, g *dexeth.Gases, waitForMined func()) error {
+func GetGasEstimates(ctx context.Context, cl ethFetcher, c contractor, maxSwaps int, g *dexeth.Gases, waitForMined func(), waitForReceipt func(ethFetcher, *types.Transaction) (*types.Receipt, error)) error {
 	tokenContractor, isToken := c.(tokenContractor)
 
 	stats := struct {
@@ -3909,7 +3912,7 @@ func GetGasEstimates(ctx context.Context, cl ethFetcher, c contractor, maxSwaps 
 			return fmt.Errorf("initiate error for %d swaps: %v", n, err)
 		}
 		waitForMined()
-		receipt, _, err := cl.transactionReceipt(ctx, tx.Hash())
+		receipt, err := waitForReceipt(cl, tx)
 		if err != nil {
 			return err
 		}
@@ -3919,7 +3922,7 @@ func GetGasEstimates(ctx context.Context, cl ethFetcher, c contractor, maxSwaps 
 		stats.swaps = append(stats.swaps, receipt.GasUsed)
 
 		if isToken {
-			receipt, _, err = cl.transactionReceipt(ctx, approveTx.Hash())
+			receipt, err = waitForReceipt(cl, approveTx)
 			if err != nil {
 				return err
 			}
@@ -3927,7 +3930,7 @@ func GetGasEstimates(ctx context.Context, cl ethFetcher, c contractor, maxSwaps 
 				return err
 			}
 			stats.approves = append(stats.approves, receipt.GasUsed)
-			receipt, _, err = cl.transactionReceipt(ctx, transferTx.Hash())
+			receipt, err = waitForReceipt(cl, transferTx)
 			if err != nil {
 				return err
 			}
@@ -3962,7 +3965,7 @@ func GetGasEstimates(ctx context.Context, cl ethFetcher, c contractor, maxSwaps 
 			return fmt.Errorf("redeem error for %d swaps: %v", n, err)
 		}
 		waitForMined()
-		receipt, _, err = cl.transactionReceipt(ctx, tx.Hash())
+		receipt, err = waitForReceipt(cl, tx)
 		if err != nil {
 			return err
 		}

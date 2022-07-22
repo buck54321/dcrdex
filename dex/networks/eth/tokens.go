@@ -125,6 +125,61 @@ var Tokens = map[uint32]*Token{
 			},
 		},
 	},
+	usdcTokenID: {
+		EVMFactor: new(int64),
+		Token: &dex.Token{
+			ParentID: EthBipID,
+			Name:     "USDC",
+			UnitInfo: dex.UnitInfo{
+				AtomicUnit: "microUSD",
+				Conventional: dex.Denomination{
+					Unit:             "USDC",
+					ConversionFactor: 1e6,
+				},
+			},
+		},
+		NetTokens: map[dex.Network]*NetToken{
+			dex.Mainnet: {
+				Address:       common.Address{},
+				SwapContracts: map[uint32]*SwapContract{},
+			},
+			dex.Testnet: {
+				Address: common.HexToAddress("0x07865c6e87b9f70255377e024ace6630c1eaa37f"),
+				SwapContracts: map[uint32]*SwapContract{
+					0: {
+						Address: common.HexToAddress("0x9E493d3766989e701797b9371682B7b94fD8Af9c"),
+						Gas: Gases{
+							// Results from client's GetGasEstimates.
+							//
+							//   First swap used 170853 gas
+							//     4 additional swaps averaged 112586 gas each
+							//     [170853 283439 396025 508611 621197]
+							//   First redeem used 83874 gas
+							//     4 additional redeems averaged 31644 gas each
+							//     [83874 115518 147162 178795 210451]
+							//   Average of 5 refunds: 64337
+							//     [64337 64337 64337 64337 64337]
+							//   Average of 5 approvals: 42802
+							//     [42802 42802 42802 42802 42802]
+							//   Average of 5 transfers: 38800
+							//     [38800 38800 38800 38800 38800]
+							Swap:      175_000,
+							SwapAdd:   115_000,
+							Redeem:    87_000,
+							RedeemAdd: 33_000,
+							Refund:    67_000,
+							Approve:   45_000,
+							Transfer:  41_000,
+						},
+					},
+				},
+			},
+			dex.Simnet: {
+				Address:       common.Address{},
+				SwapContracts: map[uint32]*SwapContract{},
+			},
+		},
+	},
 }
 
 // VersionedNetworkToken retrieves the token, token address, and swap contract

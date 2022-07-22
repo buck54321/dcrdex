@@ -293,6 +293,12 @@ type multiRPCClient struct {
 	endpoints   []string
 	providers   []*provider
 
+	lastNonce struct {
+		sync.Mutex
+		nonce uint64
+		stamp time.Time
+	}
+
 	// When we send transactions close together, we'll want to use the same
 	// provider.
 	lastProvider struct {
@@ -502,6 +508,43 @@ func (m *multiRPCClient) connect(ctx context.Context) (err error) {
 	return nil
 }
 
+// unusedNonce returns true when a nonce has not been received recently.
+func (m *multiRPCClient) unusedNonce(nonce uint64) bool {
+	const expiration = time.Minute
+	ln := &m.lastNonce
+	set := func() bool {
+		ln.nonce = nonce
+		ln.stamp = time.Now()
+		return true
+	}
+	ln.Lock()
+	defer ln.Unlock()
+	// Ok if the nonce is larger than previous.
+	if ln.nonce < nonce {
+		return set()
+	}
+	// Ok if initiation.
+	if ln.stamp.IsZero() {
+		return set()
+	}
+	// Ok if expiration has passed.
+	if time.Now().After(ln.stamp.Add(expiration)) {
+		return set()
+	}
+	// Nonce is the same or less that previous and expiration has not
+	// passed.
+	return false
+}
+
+// voidUnusedNonce sets time to zero time so that the next call to unusedNonce
+// will return true. This is needed when we know that a tx has failed at the
+// time of sending so that the same nonce can be used again.
+func (m *multiRPCClient) voidUnusedNonce() {
+	m.lastNonce.Lock()
+	defer m.lastNonce.Unlock()
+	m.lastNonce.stamp = time.Time{}
+}
+
 func (m *multiRPCClient) reconfigure(ctx context.Context, settings map[string]string) error {
 	providerDef := settings[providersKey]
 	if len(providerDef) == 0 {
@@ -577,7 +620,7 @@ func (m *multiRPCClient) transactionReceipt(ctx context.Context, txHash common.H
 		return err
 	}); err != nil {
 		if isNotFoundError(err) {
-			return nil, nil, asset.ErrNotEnoughConfirms
+			return nil, nil, asset.CoinNotFoundError
 		}
 		return nil, nil, err
 	}
@@ -800,10 +843,33 @@ func (m *multiRPCClient) nonceProviderList() []*provider {
 
 // nextNonce returns the next nonce number for the account.
 func (m *multiRPCClient) nextNonce(ctx context.Context) (nonce uint64, err error) {
-	return nonce, m.withPreferred(func(p *provider) error {
-		nonce, err = p.ec.PendingNonceAt(ctx, m.creds.addr)
-		return err
-	})
+	checks := 5
+	checkDelay := time.Second * 5
+	for i := 0; i < checks; i++ {
+		var host string
+		err = m.withPreferred(func(p *provider) error {
+			host = p.host
+			nonce, err = p.ec.PendingNonceAt(ctx, m.creds.addr)
+			return err
+		})
+		if err != nil {
+			return 0, err
+		}
+		if m.unusedNonce(nonce) {
+			return nonce, nil
+		}
+		m.log.Warnf("host %s returned recently used account nonce number %d. try %d of %d.",
+			host, nonce, i+1, checks)
+		// Delay all but the last check.
+		if i+1 < checks {
+			select {
+			case <-time.After(checkDelay):
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			}
+		}
+	}
+	return 0, errors.New("preferred provider returned a recently used account nonce")
 }
 
 func (m *multiRPCClient) address() common.Address {
@@ -954,19 +1020,15 @@ func (m *multiRPCClient) syncProgress(ctx context.Context) (prog *ethereum.SyncP
 func (m *multiRPCClient) transactionConfirmations(ctx context.Context, txHash common.Hash) (confs uint32, err error) {
 	var r *types.Receipt
 	var tip *types.Header
-	var notFound bool
 	if err := m.withPreferred(func(p *provider) error {
 		r, err = p.ec.TransactionReceipt(ctx, txHash)
 		if err != nil {
-			if isNotFoundError(err) {
-				notFound = true
-			}
 			return err
 		}
 		tip, err = p.bestHeader(ctx, m.log)
 		return err
 	}); err != nil {
-		if notFound {
+		if isNotFoundError(err) {
 			return 0, asset.CoinNotFoundError
 		}
 		return 0, err

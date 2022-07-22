@@ -117,7 +117,9 @@ func newCommonRateSource(fetcher rateFetcher) *commonRateSource {
 func fetchCoinpaprikaRates(ctx context.Context, log dex.Logger, assets map[uint32]*SupportedAsset) map[uint32]float64 {
 	fiatRates := make(map[uint32]float64)
 	for assetID, sa := range assets {
-		if sa.Wallet == nil {
+		// TODO: asset.Info will be nil for tokens. Make this work for
+		// tokens.
+		if sa.Wallet == nil || sa.Info == nil {
 			// we don't want to fetch rates for assets with no wallet.
 			continue
 		}
