@@ -67,10 +67,10 @@ func makeOrderBook(seq uint64, marketID string, orders []*Order, cachedOrders []
 		ob.orders[order.OrderID] = rateSell{order.Rate, order.sell()}
 
 		switch order.Side {
-		case msgjson.BuyOrderNum:
+		case BuySide:
 			ob.buys.Add(order)
 
-		case msgjson.SellOrderNum:
+		case SellSide:
 			ob.sells.Add(order)
 		}
 	}
@@ -105,8 +105,8 @@ func TestOrderBookSync(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.BuyOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.BuyOrderNum, 10, 2, 5),
+					makeOrder([32]byte{'b'}, BuySide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, BuySide, 10, 2, 5),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
@@ -165,7 +165,7 @@ func TestOrderBookSync(t *testing.T) {
 				3,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'c'}, msgjson.BuyOrderNum, 10, 1, 5),
+					makeOrder([32]byte{'c'}, BuySide, 10, 1, 5),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
@@ -192,10 +192,10 @@ func TestOrderBookSync(t *testing.T) {
 				4,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.BuyOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.BuyOrderNum, 5, 2, 5),
-					makeOrder([32]byte{'d'}, msgjson.SellOrderNum, 6, 3, 10),
-					makeOrder([32]byte{'e'}, msgjson.SellOrderNum, 4, 2, 12),
+					makeOrder([32]byte{'b'}, BuySide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, BuySide, 5, 2, 5),
+					makeOrder([32]byte{'d'}, SellSide, 6, 3, 10),
+					makeOrder([32]byte{'e'}, SellSide, 4, 2, 12),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
@@ -269,8 +269,8 @@ func TestOrderBookBook(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.BuyOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.BuyOrderNum, 10, 2, 5),
+					makeOrder([32]byte{'b'}, BuySide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, BuySide, 10, 2, 5),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
@@ -280,9 +280,9 @@ func TestOrderBookBook(t *testing.T) {
 				3,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.BuyOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.BuyOrderNum, 10, 2, 5),
-					makeOrder([32]byte{'d'}, msgjson.BuyOrderNum, 5, 3, 10),
+					makeOrder([32]byte{'b'}, BuySide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, BuySide, 10, 2, 5),
+					makeOrder([32]byte{'d'}, BuySide, 5, 3, 10),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
@@ -297,8 +297,8 @@ func TestOrderBookBook(t *testing.T) {
 		// 		2,
 		// 		"ob",
 		// 		[]*Order{
-		// 			makeOrder([32]byte{'b'}, msgjson.BuyOrderNum, 10, 1, 2),
-		// 			makeOrder([32]byte{'c'}, msgjson.BuyOrderNum, 10, 2, 5),
+		// 			makeOrder([32]byte{'b'}, BuySide, 10, 1, 2),
+		// 			makeOrder([32]byte{'c'}, BuySide, 10, 2, 5),
 		// 		},
 		// 		make([]*cachedOrderNote, 0),
 		// 		true,
@@ -308,8 +308,8 @@ func TestOrderBookBook(t *testing.T) {
 		// 		2,
 		// 		"ob",
 		// 		[]*Order{
-		// 			makeOrder([32]byte{'b'}, msgjson.BuyOrderNum, 10, 1, 2),
-		// 			makeOrder([32]byte{'c'}, msgjson.BuyOrderNum, 10, 2, 5),
+		// 			makeOrder([32]byte{'b'}, BuySide, 10, 1, 2),
+		// 			makeOrder([32]byte{'c'}, BuySide, 10, 2, 5),
 		// 		},
 		// 		make([]*cachedOrderNote, 0),
 		// 		true,
@@ -322,8 +322,8 @@ func TestOrderBookBook(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.BuyOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.BuyOrderNum, 10, 2, 5),
+					makeOrder([32]byte{'b'}, BuySide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, BuySide, 10, 2, 5),
 				},
 				make([]*cachedOrderNote, 0),
 				false,
@@ -333,8 +333,8 @@ func TestOrderBookBook(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.BuyOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.BuyOrderNum, 10, 2, 5),
+					makeOrder([32]byte{'b'}, BuySide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, BuySide, 10, 2, 5),
 				},
 				[]*cachedOrderNote{
 					makeCachedBookOrderNote(
@@ -350,8 +350,8 @@ func TestOrderBookBook(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
+					makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
@@ -368,8 +368,8 @@ func TestOrderBookBook(t *testing.T) {
 		// 		2,
 		// 		"ob",
 		// 		[]*Order{
-		// 			makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-		// 			makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
+		// 			makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+		// 			makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
 		// 		},
 		// 		make([]*cachedOrderNote, 0),
 		// 		true,
@@ -434,7 +434,7 @@ func TestOrderBookUpdateRemaining(t *testing.T) {
 		1,
 		mid,
 		[]*Order{
-			makeOrder(oid, msgjson.SellOrderNum, qty, 1, 2),
+			makeOrder(oid, SellSide, qty, 1, 2),
 		},
 		make([]*cachedOrderNote, 0),
 		true,
@@ -487,8 +487,8 @@ func TestOrderBookUnbook(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
+					makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
@@ -498,7 +498,7 @@ func TestOrderBookUnbook(t *testing.T) {
 				3,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
+					makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
@@ -513,8 +513,8 @@ func TestOrderBookUnbook(t *testing.T) {
 		// 		2,
 		// 		"ob",
 		// 		[]*Order{
-		// 			makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-		// 			makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
+		// 			makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+		// 			makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
 		// 		},
 		// 		make([]*cachedOrderNote, 0),
 		// 		true,
@@ -524,8 +524,8 @@ func TestOrderBookUnbook(t *testing.T) {
 		// 		2,
 		// 		"ob",
 		// 		[]*Order{
-		// 			makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-		// 			makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
+		// 			makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+		// 			makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
 		// 		},
 		// 		make([]*cachedOrderNote, 0),
 		// 		true,
@@ -538,8 +538,8 @@ func TestOrderBookUnbook(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
+					makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
 				},
 				make([]*cachedOrderNote, 0),
 				false,
@@ -549,8 +549,8 @@ func TestOrderBookUnbook(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
+					makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
 				},
 				[]*cachedOrderNote{
 					makeCachedUnbookOrderNote(
@@ -566,8 +566,8 @@ func TestOrderBookUnbook(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
+					makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
@@ -582,8 +582,8 @@ func TestOrderBookUnbook(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
+					makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
@@ -643,7 +643,7 @@ func TestOrderBookBestNOrders(t *testing.T) {
 		label     string
 		orderBook *OrderBook
 		n         int
-		side      uint8
+		side      Side
 		expected  []*Order
 		wantErr   bool
 	}{
@@ -653,20 +653,20 @@ func TestOrderBookBestNOrders(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.BuyOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.BuyOrderNum, 10, 2, 5),
-					makeOrder([32]byte{'d'}, msgjson.BuyOrderNum, 5, 3, 10),
-					makeOrder([32]byte{'e'}, msgjson.BuyOrderNum, 8, 4, 12),
+					makeOrder([32]byte{'b'}, BuySide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, BuySide, 10, 2, 5),
+					makeOrder([32]byte{'d'}, BuySide, 5, 3, 10),
+					makeOrder([32]byte{'e'}, BuySide, 8, 4, 12),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
 			),
 			n:    3,
-			side: msgjson.BuyOrderNum,
+			side: BuySide,
 			expected: []*Order{
-				makeOrder([32]byte{'e'}, msgjson.BuyOrderNum, 8, 4, 12),
-				makeOrder([32]byte{'d'}, msgjson.BuyOrderNum, 5, 3, 10),
-				makeOrder([32]byte{'c'}, msgjson.BuyOrderNum, 10, 2, 5),
+				makeOrder([32]byte{'e'}, BuySide, 8, 4, 12),
+				makeOrder([32]byte{'d'}, BuySide, 5, 3, 10),
+				makeOrder([32]byte{'c'}, BuySide, 10, 2, 5),
 			},
 			wantErr: false,
 		},
@@ -676,16 +676,16 @@ func TestOrderBookBestNOrders(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.BuyOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.BuyOrderNum, 10, 2, 5),
-					makeOrder([32]byte{'d'}, msgjson.BuyOrderNum, 5, 3, 10),
-					makeOrder([32]byte{'e'}, msgjson.BuyOrderNum, 8, 4, 12),
+					makeOrder([32]byte{'b'}, BuySide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, BuySide, 10, 2, 5),
+					makeOrder([32]byte{'d'}, BuySide, 5, 3, 10),
+					makeOrder([32]byte{'e'}, BuySide, 8, 4, 12),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
 			),
 			n:        3,
-			side:     msgjson.SellOrderNum,
+			side:     SellSide,
 			expected: []*Order{},
 			wantErr:  false,
 		},
@@ -695,21 +695,21 @@ func TestOrderBookBestNOrders(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
-					makeOrder([32]byte{'d'}, msgjson.SellOrderNum, 5, 3, 10),
-					makeOrder([32]byte{'e'}, msgjson.SellOrderNum, 8, 4, 12),
+					makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
+					makeOrder([32]byte{'d'}, SellSide, 5, 3, 10),
+					makeOrder([32]byte{'e'}, SellSide, 8, 4, 12),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
 			),
 			n:    5,
-			side: msgjson.SellOrderNum,
+			side: SellSide,
 			expected: []*Order{
-				makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-				makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
-				makeOrder([32]byte{'d'}, msgjson.SellOrderNum, 5, 3, 10),
-				makeOrder([32]byte{'e'}, msgjson.SellOrderNum, 8, 4, 12),
+				makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+				makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
+				makeOrder([32]byte{'d'}, SellSide, 5, 3, 10),
+				makeOrder([32]byte{'e'}, SellSide, 8, 4, 12),
 			},
 			wantErr: false,
 		},
@@ -719,16 +719,16 @@ func TestOrderBookBestNOrders(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
-					makeOrder([32]byte{'d'}, msgjson.SellOrderNum, 5, 3, 10),
-					makeOrder([32]byte{'e'}, msgjson.SellOrderNum, 8, 4, 12),
+					makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
+					makeOrder([32]byte{'d'}, SellSide, 5, 3, 10),
+					makeOrder([32]byte{'e'}, SellSide, 8, 4, 12),
 				},
 				make([]*cachedOrderNote, 0),
 				false,
 			),
 			n:        5,
-			side:     msgjson.SellOrderNum,
+			side:     SellSide,
 			expected: nil,
 			wantErr:  true,
 		},
@@ -738,20 +738,20 @@ func TestOrderBookBestNOrders(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
-					makeOrder([32]byte{'d'}, msgjson.SellOrderNum, 5, 3, 10),
-					makeOrder([32]byte{'e'}, msgjson.SellOrderNum, 8, 4, 12),
+					makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
+					makeOrder([32]byte{'d'}, SellSide, 5, 3, 10),
+					makeOrder([32]byte{'e'}, SellSide, 8, 4, 12),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
 			),
 			n:    3,
-			side: msgjson.SellOrderNum,
+			side: SellSide,
 			expected: []*Order{
-				makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-				makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
-				makeOrder([32]byte{'d'}, msgjson.SellOrderNum, 5, 3, 10),
+				makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+				makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
+				makeOrder([32]byte{'d'}, SellSide, 5, 3, 10),
 			},
 			wantErr: false,
 		},
@@ -799,7 +799,7 @@ func TestOrderBookBestFill(t *testing.T) {
 		label     string
 		orderBook *OrderBook
 		qty       uint64
-		side      uint8
+		side      Side
 		expected  []*Fill
 	}{
 		{
@@ -808,16 +808,16 @@ func TestOrderBookBestFill(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.BuyOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.BuyOrderNum, 10, 2, 5),
-					makeOrder([32]byte{'d'}, msgjson.BuyOrderNum, 5, 3, 10),
-					makeOrder([32]byte{'e'}, msgjson.BuyOrderNum, 8, 4, 12),
+					makeOrder([32]byte{'b'}, BuySide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, BuySide, 10, 2, 5),
+					makeOrder([32]byte{'d'}, BuySide, 5, 3, 10),
+					makeOrder([32]byte{'e'}, BuySide, 8, 4, 12),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
 			),
 			qty:  24,
-			side: msgjson.BuyOrderNum,
+			side: BuySide,
 			expected: []*Fill{
 				{
 					Rate:     4,
@@ -843,16 +843,16 @@ func TestOrderBookBestFill(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.SellOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.SellOrderNum, 10, 2, 5),
-					makeOrder([32]byte{'d'}, msgjson.SellOrderNum, 5, 3, 10),
-					makeOrder([32]byte{'e'}, msgjson.SellOrderNum, 8, 4, 12),
+					makeOrder([32]byte{'b'}, SellSide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, SellSide, 10, 2, 5),
+					makeOrder([32]byte{'d'}, SellSide, 5, 3, 10),
+					makeOrder([32]byte{'e'}, SellSide, 8, 4, 12),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
 			),
 			qty:      24,
-			side:     msgjson.BuyOrderNum,
+			side:     BuySide,
 			expected: []*Fill{},
 		},
 		{
@@ -861,14 +861,14 @@ func TestOrderBookBestFill(t *testing.T) {
 				2,
 				"ob",
 				[]*Order{
-					makeOrder([32]byte{'b'}, msgjson.BuyOrderNum, 10, 1, 2),
-					makeOrder([32]byte{'c'}, msgjson.BuyOrderNum, 10, 2, 5),
+					makeOrder([32]byte{'b'}, BuySide, 10, 1, 2),
+					makeOrder([32]byte{'c'}, BuySide, 10, 2, 5),
 				},
 				make([]*cachedOrderNote, 0),
 				true,
 			),
 			qty:  40,
-			side: msgjson.BuyOrderNum,
+			side: BuySide,
 			expected: []*Fill{
 				{
 					Rate:     2,
@@ -883,11 +883,11 @@ func TestOrderBookBestFill(t *testing.T) {
 	}
 
 	// bestFill returns the best fill for a quantity from the provided side.
-	bestFill := func(ob *OrderBook, qty uint64, side uint8) ([]*Fill, bool) {
+	bestFill := func(ob *OrderBook, qty uint64, side Side) ([]*Fill, bool) {
 		switch side {
-		case msgjson.BuyOrderNum:
+		case BuySide:
 			return ob.buys.BestFill(qty)
-		case msgjson.SellOrderNum:
+		case SellSide:
 			return ob.sells.BestFill(qty)
 		}
 		return nil, false

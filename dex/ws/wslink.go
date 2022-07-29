@@ -76,6 +76,9 @@ type WSLink struct {
 	wg sync.WaitGroup
 	// A master message handler.
 	handler func(*msgjson.Message) *msgjson.Error
+	// rawHandler overrides handler, and precludes decoding of the message
+	// into a msgjson.Message.
+	rawHandler func(msg []byte)
 	// pingPeriod is how often to ping the peer.
 	pingPeriod time.Duration
 }
@@ -95,6 +98,10 @@ func NewWSLink(addr string, conn Connection, pingPeriod time.Duration, handler f
 		pingPeriod: pingPeriod,
 		handler:    handler,
 	}
+}
+
+func (c *WSLink) UseRawHandler(h func(msg []byte)) {
+	c.rawHandler = h
 }
 
 // Send sends the passed Message to the websocket peer. The actual writing of
@@ -269,6 +276,12 @@ out:
 			c.log.Errorf("Websocket receive error from peer %s: %v (%T)", c.addr, err, err)
 			break out
 		}
+
+		if c.rawHandler != nil {
+			c.rawHandler(msgBytes)
+			continue
+		}
+
 		// Attempt to unmarshal the request. Only requests that successfully decode
 		// will be accepted by the server, though failure to decode does not force
 		// a disconnect.

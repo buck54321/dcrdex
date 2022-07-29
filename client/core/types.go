@@ -935,8 +935,9 @@ type BotOrder struct {
 }
 
 type BotReport struct {
-	ProgramID uint64        `json:"programID"`
-	Program   *MakerProgram `json:"program"`
-	Running   bool          `json:"running"`
-	Orders    []*BotOrder   `json:"orders"`
+	ProgramID uint64      `json:"programID"`
+	BotType   string      `json:"botType"`
+	Program   interface{} `json:"program"`
+	Running   bool        `json:"running"`
+	Orders    []*BotOrder `json:"orders"`
 }

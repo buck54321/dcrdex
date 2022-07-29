@@ -617,4 +617,6 @@ var bipIDs = map[uint32]string{
 	91927009: "kusd",
 	99999998: "fluid",
 	99999999: "qkc",
+	// Special codes
+	93637357: "usd",
 }

@@ -10,18 +10,14 @@ import (
 	"fmt"
 	"math"
 	"net/url"
-	"sort"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
-	"decred.org/dcrdex/client/asset"
+	"decred.org/dcrdex/client/core/libxc"
 	"decred.org/dcrdex/client/db"
-	"decred.org/dcrdex/client/orderbook"
 	"decred.org/dcrdex/dex"
 	"decred.org/dcrdex/dex/calc"
-	"decred.org/dcrdex/dex/encrypt"
 	"decred.org/dcrdex/dex/order"
 )
 
@@ -29,6 +25,7 @@ const (
 	// MakerBotV0 is the bot specifier associated with makerBot. The bot
 	// specifier is used to determine how to decode stored program data.
 	MakerBotV0 = "MakerV0"
+	ArberV0    = "ArberV0"
 
 	ErrNoMarkets           = dex.ErrorKind("no markets")
 	defaultOracleWeighting = 0.2
@@ -58,14 +55,7 @@ const (
 
 // MakerProgram is the program for a makerBot.
 type MakerProgram struct {
-	Host    string `json:"host"`
-	BaseID  uint32 `json:"baseID"`
-	QuoteID uint32 `json:"quoteID"`
-
-	// Lots is the number of lots to allocate to each side of the market. This
-	// is an ideal allotment, but at any given time, a side could have up to
-	// 2 * Lots on order.
-	Lots uint64 `json:"lots"`
+	BaseBotConfig
 
 	// // MaxFundedLots is the maximum number of lots (per-side) that can be
 	// // either on order or in active matches up until redemption. The default
@@ -112,7 +102,7 @@ func validateProgram(pgm *MakerProgram) error {
 	if dex.BipIDSymbol(pgm.QuoteID) == "" {
 		return fmt.Errorf("quote asset %d unknown", pgm.QuoteID)
 	}
-	if pgm.Lots == 0 {
+	if pgm.BookLots == 0 {
 		return errors.New("cannot run with lots = 0")
 	}
 	if pgm.OracleBias < -0.05 || pgm.OracleBias > 0.05 {
@@ -185,27 +175,7 @@ func (m *makerAsset) storeBalance(bal *WalletBalance) {
 //      one side, allow the difference in lots to be added to the opposite side.
 //   6. Place orders, cancels first, then buys and sells.
 type makerBot struct {
-	*Core
-	pgmID uint64
-	base  *makerAsset
-	quote *makerAsset
-	// TODO: enable updating of market, or just grab it live when needed.
-	market *Market
-	log    dex.Logger
-	book   *orderbook.OrderBook
-
-	conventionalRateToAtomic float64
-
-	running uint32
-	wg      sync.WaitGroup
-	die     context.CancelFunc
-
-	rebalanceRunning uint32
-
-	programV atomic.Value // *MakerProgram
-
-	ordMtx sync.RWMutex
-	ords   map[order.OrderID]*Order
+	*baseMarketBot
 
 	oracleRunning uint32
 }
@@ -265,14 +235,16 @@ func createMakerBot(ctx context.Context, c *Core, pgm *MakerProgram) (*makerBot,
 
 	bconv, qconv := base.UnitInfo.Conventional.ConversionFactor, quote.UnitInfo.Conventional.ConversionFactor
 	m := &makerBot{
-		Core:                     c,
-		base:                     base,
-		quote:                    quote,
-		market:                   mkt,
-		conventionalRateToAtomic: float64(qconv) / float64(bconv),
-		// oracle:    oracle,
-		log:  c.log.SubLogger(fmt.Sprintf("BOT.%s", marketName(pgm.BaseID, pgm.QuoteID))),
-		ords: make(map[order.OrderID]*Order),
+		baseMarketBot: &baseMarketBot{
+			Core:                     c,
+			base:                     base,
+			quote:                    quote,
+			market:                   mkt,
+			conventionalRateToAtomic: float64(qconv) / float64(bconv),
+			// oracle:    oracle,
+			log:  c.log.SubLogger(fmt.Sprintf("BOT.%s", marketName(pgm.BaseID, pgm.QuoteID))),
+			ords: make(map[order.OrderID]*Order),
+		},
 	}
 	m.programV.Store(pgm)
 
@@ -301,9 +273,9 @@ func createMakerBot(ctx context.Context, c *Core, pgm *MakerProgram) (*makerBot,
 		maxSellLots = maxSell.Swap.Lots
 	}
 
-	if maxBuyLots+maxSellLots < pgm.Lots*2 {
+	if maxBuyLots+maxSellLots < pgm.BookLots*2 {
 		return nil, fmt.Errorf("cannot create bot with %d lots. 2 x %d = %d lots total balance required to start, "+
-			"and only %d %s lots and %d %s lots = %d total lots are available", pgm.Lots, pgm.Lots, pgm.Lots*2,
+			"and only %d %s lots and %d %s lots = %d total lots are available", pgm.BookLots, pgm.BookLots, pgm.BookLots*2,
 			maxBuyLots, unbip(pgm.QuoteID), maxSellLots, unbip(pgm.BaseID), maxSellLots+maxBuyLots)
 	}
 
@@ -334,20 +306,25 @@ func recreateMakerBot(ctx context.Context, c *Core, pgmID uint64, pgm *MakerProg
 	return m, nil
 }
 
-func (m *makerBot) program() *MakerProgram {
-	return m.programV.Load().(*MakerProgram)
+func (m *makerBot) run(ctx context.Context) {
+	pgm := m.makerProgram()
+
+	if pgm.OracleWeighting != nil {
+		m.startOracleSync(ctx)
+	}
+
+	m.baseMarketBot.run(ctx, &baseBotNoteHandlers{
+		book: func(u *BookUpdate) {
+			m.handleBookNote(u)
+		},
+		core: func(n Notification) {
+			m.handleNote(ctx, n)
+		},
+	})
 }
 
-func (m *makerBot) liveOrderIDs() []order.OrderID {
-	m.ordMtx.RLock()
-	oids := make([]order.OrderID, 0, len(m.ords))
-	for oid, ord := range m.ords {
-		if ord.Status <= order.OrderStatusBooked {
-			oids = append(oids, oid)
-		}
-	}
-	m.ordMtx.RUnlock()
-	return oids
+func (m *makerBot) makerProgram() *MakerProgram {
+	return m.programV.Load().(*MakerProgram)
 }
 
 func (m *makerBot) retire() {
@@ -376,111 +353,7 @@ func (m *makerBot) stop() {
 	// orders placed in the same epoch, they might miss and need to be replaced.
 }
 
-func (m *makerBot) run(ctx context.Context) {
-	if !atomic.CompareAndSwapUint32(&m.running, 0, 1) {
-		m.log.Errorf("run called while makerBot already running")
-		return
-	}
-	defer atomic.StoreUint32(&m.running, 0)
-
-	ctx, m.die = context.WithCancel(ctx)
-	defer m.die()
-
-	pgm := m.program()
-
-	book, bookFeed, err := m.syncBook(pgm.Host, pgm.BaseID, pgm.QuoteID)
-	if err != nil {
-		m.log.Errorf("Error establishing book feed: %v", err)
-		return
-	}
-	m.book = book
-
-	if pgm.OracleWeighting != nil {
-		m.startOracleSync(ctx)
-	}
-
-	m.wg.Add(1)
-	go func() {
-		defer m.wg.Done()
-		defer bookFeed.Close()
-		for {
-			select {
-			case n := <-bookFeed.Next():
-				m.handleBookNote(n)
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	cid, notes := m.notificationFeed()
-
-	m.wg.Add(1)
-	go func() {
-		defer m.wg.Done()
-		defer func() { m.notify(newBotNote(TopicBotStopped, "", "", db.Data, m.report())) }()
-		defer atomic.StoreUint32(&m.running, 0)
-		defer m.returnFeed(cid)
-		for {
-			select {
-			case n := <-notes:
-				m.handleNote(ctx, n)
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	m.notify(newBotNote(TopicBotStarted, "", "", db.Data, m.report()))
-
-	m.wg.Wait()
-}
-
-func (m *makerBot) botOrders() []*BotOrder {
-	m.ordMtx.RLock()
-	defer m.ordMtx.RUnlock()
-	ords := make([]*BotOrder, 0, len(m.ords))
-	for _, ord := range m.ords {
-		ords = append(ords, &BotOrder{
-			Host:     ord.Host,
-			MarketID: ord.MarketID,
-			OrderID:  ord.ID,
-			Status:   ord.Status,
-		})
-	}
-	return ords
-}
-
-func (m *makerBot) report() *BotReport {
-	return &BotReport{
-		ProgramID: m.pgmID,
-		Program:   m.program(),
-		Running:   atomic.LoadUint32(&m.running) == 1,
-		Orders:    m.botOrders(),
-	}
-}
-
-func (m *makerBot) dbRecord() (*db.BotProgram, error) {
-	pgm := m.program()
-	pgmB, err := json.Marshal(pgm)
-	if err != nil {
-		return nil, err
-	}
-	return &db.BotProgram{
-		Type:    MakerBotV0,
-		Program: pgmB,
-	}, nil
-}
-
-func (m *makerBot) saveProgram() (uint64, error) {
-	dbRecord, err := m.dbRecord()
-	if err != nil {
-		return 0, err
-	}
-	return m.db.SaveBotProgram(dbRecord)
-}
-
-func (m *makerBot) updateProgram(pgm *MakerProgram) error {
+func (m *makerBot) updateMakerProgram(pgm *MakerProgram) error {
 	dbRecord, err := m.dbRecord()
 	if err != nil {
 		return err
@@ -493,7 +366,6 @@ func (m *makerBot) updateProgram(pgm *MakerProgram) error {
 		m.startOracleSync(m.ctx) // no-op if sync is already running
 	}
 
-	m.programV.Store(pgm)
 	m.notify(newBotNote(TopicBotUpdated, "", "", db.Data, m.report()))
 	return nil
 }
@@ -569,7 +441,7 @@ func (m *makerBot) syncOracle(ctx context.Context) {
 
 // The basisPrice will be rounded to an integer multiple of the rate step.
 func (m *makerBot) basisPrice() uint64 {
-	pgm := m.program()
+	pgm := m.makerProgram()
 
 	// Error is almost certainly an empty book. Just ignore it and roll with
 	// the zero.
@@ -791,7 +663,7 @@ func (m *makerBot) rebalance(ctx context.Context, newEpoch uint64) {
 	}
 	defer atomic.StoreUint32(&m.rebalanceRunning, 0)
 
-	newBuyLots, newSellLots, buyPrice, sellPrice := rebalance(ctx, m, m.market.RateStep, m.program(), m.log, newEpoch)
+	newBuyLots, newSellLots, buyPrice, sellPrice := rebalance(ctx, m, m.market.RateStep, m.makerProgram(), m.log, newEpoch)
 
 	// Place buy orders.
 	if newBuyLots > 0 {
@@ -926,7 +798,7 @@ func rebalance(ctx context.Context, m rebalancer, rateStep uint64, pgm *MakerPro
 		return
 	}
 
-	newBuyLots, newSellLots = int(pgm.Lots), int(pgm.Lots)
+	newBuyLots, newSellLots = int(pgm.BookLots), int(pgm.BookLots)
 	keptBuys := processSide(buys, buyPrice, false)
 	keptSells := processSide(sells, sellPrice, true)
 	newBuyLots -= keptBuys
@@ -995,165 +867,6 @@ func rebalance(ctx context.Context, m rebalancer, rateStep uint64, pgm *MakerPro
 	return
 }
 
-// placeOrder places a single order on the market.
-func (m *makerBot) placeOrder(lots, rate uint64, sell bool) *Order {
-	pgm := m.program()
-	ord, err := m.Trade(nil, &TradeForm{
-		Host:    pgm.Host,
-		IsLimit: true,
-		Sell:    sell,
-		Base:    pgm.BaseID,
-		Quote:   pgm.QuoteID,
-		Qty:     lots * m.market.LotSize,
-		Rate:    rate,
-		Program: m.pgmID,
-	})
-	if err != nil {
-		m.log.Errorf("Error placing rebalancing order: %v", err)
-		return nil
-	}
-	return ord
-}
-
-// sortedOrder is a subset of an *Order used internally for sorting.
-type sortedOrder struct {
-	*Order
-	id   order.OrderID
-	rate uint64
-	lots uint64
-}
-
-// sortedOrders returns lists of buy and sell orders, with buys sorted
-// high to low by rate, and sells low to high.
-func (m *makerBot) sortedOrders() (buys, sells []*sortedOrder) {
-	makeSortedOrder := func(o *Order) *sortedOrder {
-		var oid order.OrderID
-		copy(oid[:], o.ID)
-		return &sortedOrder{
-			Order: o,
-			id:    oid,
-			rate:  o.Rate,
-			lots:  (o.Qty - o.Filled) / m.market.LotSize,
-		}
-	}
-
-	buys, sells = make([]*sortedOrder, 0), make([]*sortedOrder, 0)
-	m.ordMtx.RLock()
-	for _, ord := range m.ords {
-		if ord.Sell {
-			sells = append(sells, makeSortedOrder(ord))
-		} else {
-			buys = append(buys, makeSortedOrder(ord))
-		}
-	}
-	m.ordMtx.RUnlock()
-
-	sort.Slice(buys, func(i, j int) bool { return buys[i].rate > buys[j].rate })
-	sort.Slice(sells, func(i, j int) bool { return sells[i].rate < sells[j].rate })
-
-	return buys, sells
-}
-
-// feeEstimates calculates the swap and redeem fees on an order. If the wallet's
-// PreSwap/PreRedeem method cannot provide a value (because no balance, likely),
-// and the Wallet implements BotWallet, then the estimate from
-// SingleLotSwapFees/SingleLotRedeemFees will be used.
-func (m *makerBot) feeEstimates(form *TradeForm) (swapFees, redeemFees uint64, err error) {
-	dc, connected, err := m.dex(m.program().Host)
-	if err != nil {
-		return 0, 0, err
-	}
-	if !connected {
-		return 0, 0, errors.New("dex not connected")
-	}
-
-	baseWallet, found := m.wallet(m.market.BaseID)
-	if !found {
-		return 0, 0, fmt.Errorf("no base wallet found")
-	}
-
-	quoteWallet, found := m.wallet(m.market.QuoteID)
-	if !found {
-		return 0, 0, fmt.Errorf("no quote wallet found")
-	}
-
-	fromWallet, toWallet := quoteWallet, baseWallet
-	if form.Sell {
-		fromWallet, toWallet = baseWallet, quoteWallet
-	}
-
-	swapFeeSuggestion := m.feeSuggestion(dc, fromWallet.AssetID)
-	if swapFeeSuggestion == 0 {
-		return 0, 0, fmt.Errorf("failed to get swap fee suggestion for %s at %s", unbip(fromWallet.AssetID), form.Host)
-	}
-
-	redeemFeeSuggestion := m.feeSuggestionAny(toWallet.AssetID)
-	if redeemFeeSuggestion == 0 {
-		return 0, 0, fmt.Errorf("failed to get redeem fee suggestion for %s at %s", unbip(toWallet.AssetID), form.Host)
-	}
-
-	lotSize := m.market.LotSize
-	lots := form.Qty / lotSize
-	rate := form.Rate
-
-	swapLotSize := m.market.LotSize
-	if !form.Sell {
-		swapLotSize = calc.BaseToQuote(rate, m.market.LotSize)
-	}
-
-	xcInfo := dc.exchangeInfo()
-	fromAsset := xcInfo.Assets[fromWallet.AssetID]
-	toAsset := xcInfo.Assets[toWallet.AssetID]
-
-	preSwapForm := &asset.PreSwapForm{
-		LotSize:         swapLotSize,
-		Lots:            lots,
-		AssetConfig:     fromAsset,
-		RedeemConfig:    toAsset,
-		Immediate:       (form.IsLimit && form.TifNow),
-		FeeSuggestion:   swapFeeSuggestion,
-		SelectedOptions: form.Options,
-	}
-
-	swapEstimate, err := fromWallet.PreSwap(preSwapForm)
-	if err == nil {
-		swapFees = swapEstimate.Estimate.RealisticWorstCase
-	} else {
-		// Maybe they offer a single-lot estimate.
-		if bw, is := fromWallet.Wallet.(asset.BotWallet); is {
-			var err2 error
-			swapFees, err2 = bw.SingleLotSwapFees(preSwapForm)
-			if err2 != nil {
-				return 0, 0, fmt.Errorf("error getting swap estimate (%v) and single-lot estimate (%v)", err, err2)
-			}
-		} else {
-			return 0, 0, fmt.Errorf("error getting swap estimate: %w", err)
-		}
-	}
-
-	preRedeemForm := &asset.PreRedeemForm{
-		Lots:            lots,
-		FeeSuggestion:   redeemFeeSuggestion,
-		SelectedOptions: form.Options,
-		AssetConfig:     toAsset,
-	}
-	redeemEstimate, err := toWallet.PreRedeem(preRedeemForm)
-	if err == nil {
-		redeemFees = redeemEstimate.Estimate.RealisticWorstCase
-	} else {
-		if bw, is := fromWallet.Wallet.(asset.BotWallet); is {
-			var err2 error
-			redeemFees, err2 = bw.SingleLotRedeemFees(preRedeemForm)
-			if err2 != nil {
-				return 0, 0, fmt.Errorf("error getting redemption estimate (%v) and single-lot estimate (%v)", err, err2)
-			}
-		} else {
-			return 0, 0, fmt.Errorf("error getting redemption estimate: %v", err)
-		}
-	}
-	return
-}
-
 // breakEvenHalfSpread is the minimum spread that should be maintained to
 // theoretically break even on a single-lot round-trip order pair. The returned
 // spread half-width will be rounded up to an integer multiple of the rate step.
@@ -1161,11 +874,11 @@ func (m *makerBot) breakEvenHalfSpread(basisPrice uint64) (uint64, error) {
 	pgm := m.program()
 	lotSize := m.market.LotSize
 	form := &TradeForm{
-		Host:    pgm.Host,
+		Host:    pgm.host(),
 		IsLimit: true,
 		Sell:    true,
-		Base:    pgm.BaseID,
-		Quote:   pgm.QuoteID,
+		Base:    pgm.baseID(),
+		Quote:   pgm.quoteID(),
 		Qty:     lotSize,
 		Rate:    basisPrice,
 		TifNow:  false,
@@ -1248,190 +961,6 @@ func (m *makerBot) spread(ctx context.Context, addr string, baseSymbol, quoteSym
 	return sell, buy
 }
 
-// prepareBotWallets unlocks the wallets that marketBot uses.
-func (c *Core) prepareBotWallets(crypter encrypt.Crypter, baseID, quoteID uint32) error {
-	baseWallet, found := c.wallet(baseID)
-	if !found {
-		return fmt.Errorf("no base %s wallet", unbip(baseID))
-	}
-
-	if !baseWallet.unlocked() {
-		if err := c.connectAndUnlock(crypter, baseWallet); err != nil {
-			return fmt.Errorf("failed to unlock base %s wallet: %v", unbip(baseID), err)
-		}
-	}
-
-	quoteWallet, found := c.wallet(quoteID)
-	if !found {
-		return fmt.Errorf("no quote %s wallet", unbip(quoteID))
-	}
-
-	if !quoteWallet.unlocked() {
-		if err := c.connectAndUnlock(crypter, quoteWallet); err != nil {
-			return fmt.Errorf("failed to unlock quote %s wallet: %v", unbip(quoteID), err)
-		}
-	}
-
-	return nil
-}
-
-// CreateBot creates a market-maker bot.
-func (c *Core) CreateBot(pw []byte, botType string, pgm *MakerProgram) (uint64, error) {
-	if botType != MakerBotV0 {
-		return 0, fmt.Errorf("unknown bot type %q", botType)
-	}
-
-	crypter, err := c.encryptionKey(pw)
-	if err != nil {
-		return 0, codedError(passwordErr, err)
-	}
-
-	if err := c.prepareBotWallets(crypter, pgm.BaseID, pgm.QuoteID); err != nil {
-		return 0, err
-	}
-
-	bot, err := newMakerBot(c.ctx, c, pgm)
-	if err != nil {
-		return 0, err
-	}
-	c.mm.Lock()
-	c.mm.bots[bot.pgmID] = bot
-	c.mm.Unlock()
-
-	c.wg.Add(1)
-	go func() {
-		bot.run(c.ctx)
-		c.wg.Done()
-	}()
-	return bot.pgmID, nil
-}
-
-// StartBot starts an existing market-maker bot.
-func (c *Core) StartBot(pw []byte, pgmID uint64) error {
-	crypter, err := c.encryptionKey(pw)
-	if err != nil {
-		return codedError(passwordErr, err)
-	}
-
-	c.mm.RLock()
-	bot := c.mm.bots[pgmID]
-	c.mm.RUnlock()
-	if bot == nil {
-		return fmt.Errorf("no bot with program ID %d", pgmID)
-	}
-
-	if atomic.LoadUint32(&bot.running) == 1 {
-		c.log.Warnf("Ignoring attempt to start an alread-running bot for %s", bot.market.Name)
-		return nil
-	}
-
-	if err := c.prepareBotWallets(crypter, bot.base.ID, bot.quote.ID); err != nil {
-		return err
-	}
-
-	c.wg.Add(1)
-	go func() {
-		bot.run(c.ctx)
-		c.wg.Done()
-	}()
-	return nil
-}
-
-// StopBot stops a running market-maker bot. Stopping the bot cancels all
-// existing orders.
-func (c *Core) StopBot(pgmID uint64) error {
-	c.mm.RLock()
-	bot := c.mm.bots[pgmID]
-	c.mm.RUnlock()
-	if bot == nil {
-		return fmt.Errorf("no bot with program ID %d", pgmID)
-	}
-	bot.stop()
-	return nil
-}
-
-// UpdateBotProgram updates the program of an existing market-maker bot.
-func (c *Core) UpdateBotProgram(pgmID uint64, pgm *MakerProgram) error {
-	c.mm.RLock()
-	bot := c.mm.bots[pgmID]
-	c.mm.RUnlock()
-	if bot == nil {
-		return fmt.Errorf("no bot with program ID %d", pgmID)
-	}
-	return bot.updateProgram(pgm)
-}
-
-// RetireBot stops a bot and deletes its program from the database.
-func (c *Core) RetireBot(pgmID uint64) error {
-	c.mm.RLock()
-	defer c.mm.RUnlock()
-	bot := c.mm.bots[pgmID]
-	if bot == nil {
-		return fmt.Errorf("no bot with program ID %d", pgmID)
-	}
-	bot.retire()
-	delete(c.mm.bots, pgmID)
-	return nil
-}
-
-// loadBotPrograms is used as part of the startup routine run during Login.
-// Loads all existing programs from the database and matches bots with
-// existing orders.
-func (c *Core) loadBotPrograms() error {
-	botPrograms, err := c.db.ActiveBotPrograms()
-	if err != nil {
-		return err
-	}
-	if len(botPrograms) == 0 {
-		return nil
-	}
-	botTrades := make(map[uint64][]*Order)
-	for _, dc := range c.dexConnections() {
-		for _, t := range dc.trackedTrades() {
-			if t.metaData.ProgramID > 0 {
-				botTrades[t.metaData.ProgramID] = append(botTrades[t.metaData.ProgramID], t.coreOrder())
-			}
-		}
-	}
-	c.mm.Lock()
-	defer c.mm.Unlock()
-	for pgmID, botPgm := range botPrograms {
-		if c.mm.bots[pgmID] != nil {
-			continue
-		}
-		var makerPgm *MakerProgram
-		if err := json.Unmarshal(botPgm.Program, &makerPgm); err != nil {
-			c.log.Errorf("Error decoding maker program: %v", err)
-			continue
-		}
-		bot, err := recreateMakerBot(c.ctx, c, pgmID, makerPgm)
-		if err != nil {
-			c.log.Errorf("Error recreating maker bot: %v", err)
-			continue
-		}
-		for _, ord := range botTrades[pgmID] {
-			var oid order.OrderID
-			copy(oid[:], ord.ID)
-			bot.ords[oid] = ord
-		}
-		c.mm.bots[pgmID] = bot
-	}
-	return nil
-}
-
-// bots returns a list of BotReport for all existing bots.
-func (c *Core) bots() []*BotReport {
-	c.mm.RLock()
-	defer c.mm.RUnlock()
-	bots := make([]*BotReport, 0, len(c.mm.bots))
-	for _, bot := range c.mm.bots {
-		bots = append(bots, bot.report())
-	}
-	// Sort them newest first.
-	sort.Slice(bots, func(i, j int) bool { return bots[i].ProgramID > bots[j].ProgramID })
-	return bots
-}
-
 // Spreader is a function that can generate market spread data for a known
 // exchange.
 type Spreader func(ctx context.Context, baseSymbol, quoteSymbol string) (sell, buy float64, err error)
@@ -1445,7 +974,7 @@ var spreaders = map[string]Spreader{
 }
 
 func fetchBinanceSpread(ctx context.Context, baseSymbol, quoteSymbol string) (sell, buy float64, err error) {
-	slug := fmt.Sprintf("%s%s", strings.ToUpper(baseSymbol), strings.ToUpper(quoteSymbol))
+	slug := libxc.BinanceSlug(baseSymbol, quoteSymbol)
 	url := fmt.Sprintf("https://api.binance.com/api/v3/ticker/bookTicker?symbol=%s", slug)
 
 	var resp struct {

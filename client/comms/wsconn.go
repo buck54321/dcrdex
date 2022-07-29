@@ -63,6 +63,7 @@ type WsConn interface {
 	NextID() uint64
 	IsDown() bool
 	Send(msg *msgjson.Message) error
+	SendRaw(b []byte) error
 	Request(msg *msgjson.Message, respHandler func(*msgjson.Message)) error
 	RequestWithTimeout(msg *msgjson.Message, respHandler func(*msgjson.Message), expireTime time.Duration, expire func()) error
 	Connect(ctx context.Context) (*sync.WaitGroup, error)
@@ -104,6 +105,12 @@ type WsCfg struct {
 
 	// NetDialContext specifies an optional dialer context to use.
 	NetDialContext func(context.Context, string, string) (net.Conn, error)
+
+	// RawHandler overrides the msgjson parsing and forwards all messages to
+	// the provided function.
+	RawHandler func([]byte)
+
+	ConnectHeaders http.Header
 }
 
 // wsConn represents a client websocket connection.
@@ -195,7 +202,8 @@ func (conn *wsConn) connect(ctx context.Context) error {
 	} else {
 		dialer.Proxy = http.ProxyFromEnvironment
 	}
-	ws, _, err := dialer.DialContext(ctx, conn.cfg.URL, nil)
+
+	ws, _, err := dialer.DialContext(ctx, conn.cfg.URL, conn.cfg.ConnectHeaders)
 	if err != nil {
 		var e x509.UnknownAuthorityError
 		if errors.As(err, &e) {
@@ -251,7 +259,11 @@ func (conn *wsConn) connect(ctx context.Context) error {
 	conn.wg.Add(1)
 	go func() {
 		defer conn.wg.Done()
-		conn.read(ctx)
+		if conn.cfg.RawHandler != nil {
+			conn.readRaw(ctx)
+		} else {
+			conn.read(ctx)
+		}
 	}()
 
 	return nil
@@ -266,14 +278,72 @@ func (conn *wsConn) close() {
 	conn.ws.Close()
 }
 
-// read fetches and parses incoming messages for processing. This should be
-// run as a goroutine. Increment the wg before calling read.
-func (conn *wsConn) read(ctx context.Context) {
+func (conn *wsConn) handleReadError(err error) {
 	reconnect := func() {
 		conn.setConnectionStatus(Disconnected)
 		conn.reconnectCh <- struct{}{}
 	}
 
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		conn.log.Errorf("Read timeout on connection to %s.", conn.cfg.URL)
+		reconnect()
+		return
+	}
+	// TODO: Now that wsConn goroutines have contexts that are canceled
+	// on shutdown, we do not have to infer the source and severity of
+	// the error; just reconnect in ALL other cases, and remove the
+	// following legacy checks.
+
+	// Expected close errors (1000 and 1001) ... but if the server
+	// closes we still want to reconnect. (???)
+	if websocket.IsCloseError(err, websocket.CloseGoingAway,
+		websocket.CloseNormalClosure) ||
+		strings.Contains(err.Error(), "websocket: close sent") {
+		reconnect()
+		return
+	}
+
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "read" {
+		if strings.Contains(opErr.Err.Error(),
+			"use of closed network connection") {
+			conn.log.Errorf("read quitting: %v", err)
+			reconnect()
+			return
+		}
+	}
+
+	// Log all other errors and trigger a reconnection.
+	conn.log.Errorf("read error (%v), attempting reconnection", err)
+	reconnect()
+	return
+}
+
+func (conn *wsConn) readRaw(ctx context.Context) {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		// Lock since conn.ws may be set by connect.
+		conn.wsMtx.Lock()
+		ws := conn.ws
+		conn.wsMtx.Unlock()
+
+		// Block until a message is received or an error occurs.
+		_, msgBytes, err := ws.ReadMessage()
+		if err != nil {
+			conn.handleReadError(err)
+			return
+		}
+		conn.cfg.RawHandler(msgBytes)
+	}
+}
+
+// read fetches and parses incoming messages for processing. This should be
+// run as a goroutine. Increment the wg before calling read.
+func (conn *wsConn) read(ctx context.Context) {
 	for {
 		msg := new(msgjson.Message)
 
@@ -290,14 +360,6 @@ func (conn *wsConn) read(ctx context.Context) {
 			return
 		}
 		if err != nil {
-			// Read timeout should flag the connection as down asap.
-			var netErr net.Error
-			if errors.As(err, &netErr) && netErr.Timeout() {
-				conn.log.Errorf("Read timeout on connection to %s.", conn.cfg.URL)
-				reconnect()
-				return
-			}
-
 			var mErr *json.UnmarshalTypeError
 			if errors.As(err, &mErr) {
 				// JSON decode errors are not fatal, log and proceed.
@@ -305,34 +367,7 @@ func (conn *wsConn) read(ctx context.Context) {
 				continue
 			}
 
-			// TODO: Now that wsConn goroutines have contexts that are canceled
-			// on shutdown, we do not have to infer the source and severity of
-			// the error; just reconnect in ALL other cases, and remove the
-			// following legacy checks.
-
-			// Expected close errors (1000 and 1001) ... but if the server
-			// closes we still want to reconnect. (???)
-			if websocket.IsCloseError(err, websocket.CloseGoingAway,
-				websocket.CloseNormalClosure) ||
-				strings.Contains(err.Error(), "websocket: close sent") {
-				reconnect()
-				return
-			}
-
-			var opErr *net.OpError
-			if errors.As(err, &opErr) && opErr.Op == "read" {
-				if strings.Contains(opErr.Err.Error(),
-					"use of closed network connection") {
-					conn.log.Errorf("read quitting: %v", err)
-					reconnect()
-					return
-				}
-			}
-
-			// Log all other errors and trigger a reconnection.
-			conn.log.Errorf("read error (%v), attempting reconnection", err)
-			reconnect()
-			// Successful reconnect via connect() will start read() again.
+			conn.handleReadError(err)
 			return
 		}
 
@@ -459,12 +494,6 @@ func (conn *wsConn) Stop() {
 	conn.cancel()
 }
 
-func (conn *wsConn) SendRaw(b []byte) error {
-	conn.wsMtx.Lock()
-	defer conn.wsMtx.Unlock()
-	return conn.ws.WriteMessage(websocket.TextMessage, b)
-}
-
 // Send pushes outgoing messages over the websocket connection. Sending of the
 // message is synchronous, so a nil error guarantees that the message was
 // successfully sent. A non-nil error may indicate that the connection is known
@@ -483,9 +512,13 @@ func (conn *wsConn) Send(msg *msgjson.Message) error {
 		return err
 	}
 
+	return conn.SendRaw(b)
+}
+
+func (conn *wsConn) SendRaw(b []byte) error {
 	conn.wsMtx.Lock()
 	defer conn.wsMtx.Unlock()
-	err = conn.ws.SetWriteDeadline(time.Now().Add(writeWait))
+	err := conn.ws.SetWriteDeadline(time.Now().Add(writeWait))
 	if err != nil {
 		conn.log.Errorf("Send: failed to set write deadline: %v", err)
 		return err

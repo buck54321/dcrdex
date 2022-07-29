@@ -472,7 +472,8 @@ export interface MakerProgram {
   host: string
   baseID: number
   quoteID: number
-  lots: number
+  bookLots: number
+  settleLots: number
   oracleWeighting: number
   oracleBias: number
   driftTolerance: number

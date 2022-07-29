@@ -117,7 +117,7 @@ func TestRebalance(t *testing.T) {
 	}
 	newProgram := func(lots uint64) *MakerProgram {
 		return &MakerProgram{
-			Lots:             lots,
+			BaseBotConfig:    BaseBotConfig{BookLots: lots},
 			DriftTolerance:   driftTolerance,
 			SpreadMultiplier: spreadMultiplier,
 		}

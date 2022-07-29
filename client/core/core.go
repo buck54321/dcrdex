@@ -26,6 +26,7 @@ import (
 
 	"decred.org/dcrdex/client/asset"
 	"decred.org/dcrdex/client/comms"
+	"decred.org/dcrdex/client/core/libxc"
 	"decred.org/dcrdex/client/db"
 	"decred.org/dcrdex/client/db/bolt"
 	"decred.org/dcrdex/client/orderbook"
@@ -1067,6 +1068,14 @@ type blockWaiter struct {
 	action  func(error)
 }
 
+type CEX struct {
+	libxc.CEX
+	sync.RWMutex
+	listeners map[string]map[chan interface{}]struct{}
+	cancel    context.CancelFunc
+	conn      *dex.ConnectionMaster
+}
+
 // Config is the configuration for the Core.
 type Config struct {
 	// DBPath is a filepath to use for the client database. If the database does
@@ -1150,6 +1159,14 @@ type Core struct {
 			prices map[string]*stampedPrice
 		}
 	}
+
+	cex struct {
+		sync.RWMutex
+		binance CEX
+		bots    map[uint64]*cexBot
+	}
+
+	botInv *inventory
 }
 
 // New is the constructor for a new Core.
@@ -1245,9 +1262,13 @@ func New(cfg *Config) (*Core, error) {
 		seedGenerationTime: seedGenerationTime,
 
 		fiatRateSources: make(map[string]*commonRateSource),
+		botInv: &inventory{
+			reservations: make(map[*invReservation]struct{}),
+		},
 	}
 	c.mm.bots = make(map[uint64]*makerBot)
 	c.mm.cache.prices = make(map[string]*stampedPrice)
+	c.cex.bots = make(map[uint64]*cexBot)
 
 	// Populate the initial user data. User won't include any DEX info yet, as
 	// those are retrieved when Run is called and the core connects to the DEXes.

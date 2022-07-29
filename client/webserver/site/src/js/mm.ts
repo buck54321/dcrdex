@@ -381,7 +381,7 @@ export default class MarketMakerPage extends BasePage {
     this.editProgram = report
     page.createBox.classList.add('edit')
     page.programsBox.classList.add('edit')
-    page.lotsInput.value = String(pgm.lots)
+    page.lotsInput.value = String(pgm.bookLots)
     createOpts.oracleWeighting = pgm.oracleWeighting
     this.weightOpt.setValue(pgm.oracleWeighting)
     createOpts.oracleBias = pgm.oracleBias
@@ -537,13 +537,13 @@ export default class MarketMakerPage extends BasePage {
   async createBot (appPW: string): Promise<void> {
     const { page, currentMarket } = this
     Doc.hide(page.createErr)
-    const lots = parseInt(page.lotsInput.value ?? '0')
-    if (lots === 0) return
+    const bookLots = parseInt(page.lotsInput.value ?? '0')
+    if (bookLots === 0) return
     const makerProgram = Object.assign({
       host: currentMarket.host,
       baseID: currentMarket.baseid,
       quoteID: currentMarket.quoteid
-    }, this.createOpts, { lots })
+    }, this.createOpts, { bookLots })
 
     const req = {
       botType: 'MakerV0',

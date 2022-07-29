@@ -585,7 +585,7 @@ func (b *bookie) translateBookSide(ins []*orderbook.Order) (outs []*MiniOrder) {
 			QtyAtomic: o.Quantity,
 			Rate:      calc.ConventionalRate(o.Rate, b.baseUnits, b.quoteUnits),
 			MsgRate:   o.Rate,
-			Sell:      o.Side == msgjson.SellOrderNum,
+			Sell:      o.Side == orderbook.SellSide,
 			Token:     token(o.OrderID[:]),
 			Epoch:     o.Epoch,
 		})

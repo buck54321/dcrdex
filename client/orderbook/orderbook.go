@@ -16,10 +16,17 @@ import (
 
 const ErrEmptyOrderbook = dex.ErrorKind("cannot calculate mid-gap from empty order book")
 
+type Side int8
+
+const (
+	SellSide Side = 0
+	BuySide  Side = 1
+)
+
 // Order represents an ask or bid.
 type Order struct {
 	OrderID  order.OrderID
-	Side     uint8
+	Side     Side
 	Quantity uint64
 	Rate     uint64
 	Time     uint64
@@ -28,7 +35,7 @@ type Order struct {
 }
 
 func (o *Order) sell() bool {
-	return o.Side == msgjson.SellOrderNum
+	return o.Side == SellSide
 }
 
 // RemoteOrderBook defines the functions a client tracked order book
@@ -249,7 +256,7 @@ func (ob *OrderBook) Reset(snapshot *msgjson.OrderBook) error {
 			copy(oid[:], o.OrderID)
 			order := &Order{
 				OrderID:  oid,
-				Side:     o.Side,
+				Side:     convertMsgSide(o.Side),
 				Quantity: o.Quantity,
 				Rate:     o.Rate,
 				Time:     o.Time,
@@ -312,7 +319,7 @@ func (ob *OrderBook) book(note *msgjson.BookOrderNote, cached bool) error {
 
 	order := &Order{
 		OrderID:  oid,
-		Side:     note.Side,
+		Side:     convertMsgSide(note.Side),
 		Quantity: note.Quantity,
 		Rate:     note.Rate,
 		Time:     note.Time,
@@ -324,10 +331,10 @@ func (ob *OrderBook) book(note *msgjson.BookOrderNote, cached bool) error {
 
 	// Add the order to its associated books side.
 	switch order.Side {
-	case msgjson.BuyOrderNum:
+	case BuySide:
 		ob.buys.Add(order)
 
-	case msgjson.SellOrderNum:
+	case SellSide:
 		ob.sells.Add(order)
 
 	default:
@@ -441,7 +448,7 @@ func (ob *OrderBook) Unbook(note *msgjson.UnbookOrderNote) error {
 
 // BestNOrders returns the best n orders from the provided side.
 // NOTE: This is UNUSED, and test coverage is a near dup of bookside_test.go.
-func (ob *OrderBook) BestNOrders(n int, side uint8) ([]*Order, bool, error) {
+func (ob *OrderBook) BestNOrders(n int, side Side) ([]*Order, bool, error) {
 	if !ob.isSynced() {
 		return nil, false, fmt.Errorf("order book is unsynced")
 	}
@@ -449,10 +456,10 @@ func (ob *OrderBook) BestNOrders(n int, side uint8) ([]*Order, bool, error) {
 	var orders []*Order
 	var filled bool
 	switch side {
-	case msgjson.BuyOrderNum:
+	case BuySide:
 		orders, filled = ob.buys.BestNOrders(n)
 
-	case msgjson.SellOrderNum:
+	case SellSide:
 		orders, filled = ob.sells.BestNOrders(n)
 
 	default:
@@ -605,4 +612,12 @@ func (ob *OrderBook) BestFill(sell bool, qty uint64) ([]*Fill, bool) {
 // The qty given will be in units of quote asset.
 func (ob *OrderBook) BestFillMarketBuy(qty, lotSize uint64) ([]*Fill, bool) {
 	return ob.sells.bestFill(qty, true, lotSize)
+}
+
+func convertMsgSide(msgSide uint8) Side {
+	side := BuySide
+	if msgSide == msgjson.SellOrderNum {
+		side = SellSide
+	}
+	return side
 }

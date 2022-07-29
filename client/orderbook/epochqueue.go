@@ -16,7 +16,7 @@ import (
 
 // epochOrder represents a compact EpochOrderNote.
 type epochOrder struct {
-	Side       uint8
+	Side       Side
 	Quantity   uint64
 	Rate       uint64
 	Commitment order.Commitment
@@ -62,7 +62,7 @@ func (eq *EpochQueue) Enqueue(note *msgjson.EpochOrderNote) error {
 		Commitment: commitment,
 		Quantity:   note.Quantity,
 		Rate:       note.Rate,
-		Side:       note.Side,
+		Side:       convertMsgSide(note.Side),
 		epoch:      note.Epoch,
 	}
 

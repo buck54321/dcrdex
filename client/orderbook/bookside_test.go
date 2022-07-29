@@ -18,7 +18,7 @@ func makeBookSide(groups map[uint64][]*Order, rateIndex *rateIndex, orderPref or
 	}
 }
 
-func makeOrder(id order.OrderID, side uint8, quantity uint64, rate uint64, time uint64) *Order {
+func makeOrder(id order.OrderID, side Side, quantity uint64, rate uint64, time uint64) *Order {
 	return &Order{
 		OrderID:  id,
 		Side:     side,
