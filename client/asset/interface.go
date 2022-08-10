@@ -126,6 +126,9 @@ const (
 	ErrConnectionDown   = dex.ErrorKind("wallet not connected")
 	ErrNotImplemented   = dex.ErrorKind("not implemented")
 	ErrUnsupported      = dex.ErrorKind("unsupported")
+	// ErrSwapRefunded is called from ConfirmRedemption when the swap has been
+	// refunded before the user could redeem.
+	ErrSwapRefunded = dex.ErrorKind("swap refunded")
 
 	// InternalNodeLoggerName is the name for a logger that is used to fine
 	// tune log levels for only loggers using this name.
@@ -379,6 +382,10 @@ type Wallet interface {
 	// EstimateRegistrationTxFee returns an estimate for the tx fee needed to
 	// pay the registration fee using the provided feeRate.
 	EstimateRegistrationTxFee(feeRate uint64) uint64
+	// ConfirmRedemption confirms that a redemption tx has been confirmed.
+	// The Wallet can return a non-zero fees if the fees are to be updated.
+	// If fees are zero, the caller will not update the currently stored value.
+	ConfirmRedemption(ctx context.Context, coinID dex.Bytes, redemption *Redemption) (confirmed bool, fees uint64, err error)
 }
 
 // Rescanner is a wallet implementation with rescan functionality.

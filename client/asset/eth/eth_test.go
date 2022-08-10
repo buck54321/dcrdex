@@ -16,10 +16,12 @@ import (
 	"math/rand"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"decred.org/dcrdex/client/asset"
+	"decred.org/dcrdex/client/asset/kvdb"
 	"decred.org/dcrdex/dex"
 	"decred.org/dcrdex/dex/encode"
 	dexeth "decred.org/dcrdex/dex/networks/eth"
@@ -137,11 +139,15 @@ func (n *testNode) pendingTransactions() ([]*types.Transaction, error) {
 	return n.pendingTxs, nil
 }
 
+var tNonce int64
+
 func (n *testNode) txOpts(ctx context.Context, val, maxGas uint64, maxFeeRate *big.Int) (*bind.TransactOpts, error) {
 	if maxFeeRate == nil {
 		maxFeeRate = n.maxFeeRate
 	}
-	return newTxOpts(ctx, n.addr, val, maxGas, maxFeeRate, dexeth.GweiToWei(2)), nil
+	txOpts := newTxOpts(ctx, n.addr, val, maxGas, maxFeeRate, dexeth.GweiToWei(2))
+	txOpts.Nonce = big.NewInt(atomic.AddInt64(&tNonce, 1))
+	return txOpts, nil
 }
 
 func (n *testNode) currentFees(ctx context.Context) (baseFees, tipCap *big.Int, err error) {
@@ -205,8 +211,20 @@ func tTx(gasFeeCap, gasTipCap, value uint64, to *common.Address, data []byte) *t
 	})
 }
 
+func (n *testNode) getTransaction(ctx context.Context, txHash common.Hash) (*types.Transaction, int64, error) {
+	return nil, 0, nil
+}
+
 func (n *testNode) transactionConfirmations(context.Context, common.Hash) (uint32, error) {
 	return 0, nil
+}
+
+func (n *testNode) transactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
+	return nil, nil
+}
+
+func (n *testNode) blockHeader(ctx context.Context, blkHash common.Hash) (*types.Header, error) {
+	return nil, nil
 }
 
 type tContractor struct {
@@ -381,16 +399,16 @@ func TestCheckForNewBlocks(t *testing.T) {
 		w := &ETHWallet{
 			assetWallet: &assetWallet{
 				baseWallet: &baseWallet{
-					node: node,
-					addr: node.address(),
-					ctx:  ctx,
-					log:  tLogger,
+					node:       node,
+					addr:       node.address(),
+					ctx:        ctx,
+					log:        tLogger,
+					currentTip: header0,
 				},
 				log:       tLogger.SubLogger("ETH"),
 				tipChange: tipChange,
 				assetID:   BipID,
 			},
-			currentTip: header0,
 		}
 		w.wallets = map[uint32]*assetWallet{BipID: w.assetWallet}
 		w.checkForNewBlocks(tipChange)
@@ -549,6 +567,8 @@ func tassetWallet(assetID uint32) (asset.Wallet, *assetWallet, *testNode, contex
 	aw.wallets = map[uint32]*assetWallet{
 		BipID: aw,
 	}
+	aw.txMonitor.db = kvdb.NewMemoryDB()
+	aw.txMonitor.txs = make(map[common.Hash]*monitoredTx)
 
 	var w asset.Wallet
 	if assetID == BipID {

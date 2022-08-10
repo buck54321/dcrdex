@@ -710,6 +710,10 @@ func (w *TXCWallet) Connect(ctx context.Context) (*sync.WaitGroup, error) {
 	return &wg, w.connectErr
 }
 
+func (w *TXCWallet) ConfirmRedemption(ctx context.Context, coinID dex.Bytes, redemption *asset.Redemption) (confirmed bool, fees uint64, err error) {
+	return true, 0, nil
+}
+
 func (w *TXCWallet) Balance() (*asset.Balance, error) {
 	if w.balErr != nil {
 		return nil, w.balErr

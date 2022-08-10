@@ -826,6 +826,10 @@ func (btc *ExchangeWalletSPV) Move(backupDir string) error {
 	return nil
 }
 
+func (w *baseWallet) ConfirmRedemption(ctx context.Context, coinID dex.Bytes, redemption *asset.Redemption) (confirmed bool, fees uint64, err error) {
+	return true, 0, nil
+}
+
 // Rescan satisfies the asset.Rescanner interface, and issues a rescan wallet
 // command if the backend is an SPV wallet.
 func (btc *ExchangeWalletSPV) Rescan(_ context.Context) error {

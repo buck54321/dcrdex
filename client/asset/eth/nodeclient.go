@@ -134,6 +134,10 @@ func (n *nodeClient) bestHeader(ctx context.Context) (*types.Header, error) {
 	return n.leth.ApiBackend.HeaderByNumber(ctx, rpc.LatestBlockNumber)
 }
 
+func (n *nodeClient) blockHeader(ctx context.Context, blkHash common.Hash) (*types.Header, error) {
+	return n.leth.ApiBackend.HeaderByHash(ctx, blkHash)
+}
+
 func (n *nodeClient) stateAt(ctx context.Context, bn rpc.BlockNumber) (*state.StateDB, error) {
 	state, _, err := n.leth.ApiBackend.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(bn))
 	if err != nil {
@@ -353,29 +357,41 @@ func (n *nodeClient) contractBackend() bind.ContractBackend {
 
 // transactionConfirmations gets the number of confirmations for the specified
 // transaction.
-func (n *nodeClient) transactionConfirmations(ctx context.Context, txHash common.Hash) (uint32, error) {
+func (n *nodeClient) getTransaction(ctx context.Context, txHash common.Hash) (*types.Transaction, int64, error) {
 	// We'll check the local tx pool first, since from what I can tell, a light
 	// client always requests tx data from the network for anything else.
 	if tx := n.leth.ApiBackend.GetPoolTransaction(txHash); tx != nil {
-		return 0, nil
-	}
-	hdr, err := n.bestHeader(ctx)
-	if err != nil {
-		return 0, err
+		return tx, -1, nil
 	}
 	tx, _, blockHeight, _, err := n.leth.ApiBackend.GetTransaction(ctx, txHash)
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 	if tx != nil {
-		return uint32(hdr.Number.Uint64() - blockHeight + 1), nil
+		return tx, int64(blockHeight), nil
 	}
 	// TODO: There may be a race between when the tx is removed from our local
 	// tx pool, and when our peers are ready to supply the info. I saw a
 	// CoinNotFoundError in TestAccount/testSendTransaction, but haven't
 	// reproduced.
 	n.log.Warnf("transactionConfirmations: cannot find %v", txHash)
-	return 0, asset.CoinNotFoundError
+	return nil, 0, asset.CoinNotFoundError
+}
+
+// transactionConfirmations gets the number of confirmations for the specified
+// transaction.
+func (n *nodeClient) transactionConfirmations(ctx context.Context, txHash common.Hash) (uint32, error) {
+	_, blockHeight, err := n.getTransaction(ctx, txHash)
+	if err != nil || blockHeight < 0 {
+		return 0, err
+	}
+
+	hdr, err := n.bestHeader(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	return uint32(hdr.Number.Int64() - blockHeight + 1), nil
 }
 
 // sendSignedTransaction injects a signed transaction into the pending pool for execution.

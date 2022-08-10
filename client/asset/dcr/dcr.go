@@ -837,6 +837,10 @@ func (dcr *ExchangeWallet) OwnsDepositAddress(address string) (bool, error) {
 	return dcr.wallet.AccountOwnsAddress(dcr.ctx, addr, dcr.depositAccount())
 }
 
+func (dcr *ExchangeWallet) ConfirmRedemption(ctx context.Context, coinID dex.Bytes, redemption *asset.Redemption) (confirmed bool, fees uint64, err error) {
+	return true, 0, nil
+}
+
 // Balance should return the total available funds in the wallet. Note that
 // after calling Fund, the amount returned by Balance may change by more than
 // the value funded. Part of the asset.Wallet interface. TODO: Since this
