@@ -398,6 +398,7 @@ export interface XYRange {
 export interface OrderOption extends ConfigOption {
   boolean?: BooleanConfig
   xyRange?: XYRange
+  showByDefault?: boolean
 }
 
 export interface SwapEstimate {
