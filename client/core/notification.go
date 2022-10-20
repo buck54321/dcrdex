@@ -226,7 +226,8 @@ func newSendNote(topic Topic, subject, details string, severity db.Severity) *Se
 // OrderNote is a notification about an order or a match.
 type OrderNote struct {
 	db.Notification
-	Order *Order `json:"order"`
+	Order       *Order `json:"order"`
+	TemporaryID uint64 `json:"temporaryID"`
 }
 
 const (
@@ -269,12 +270,18 @@ const (
 	TopicFailedCancel         Topic = "FailedCancel"
 	TopicOrderLoaded          Topic = "OrderLoaded"
 	TopicOrderRetired         Topic = "OrderRetired"
+	TopicAsyncSubmissionFail  Topic = "AsyncSubmissionFail"
 )
 
 func newOrderNote(topic Topic, subject, details string, severity db.Severity, corder *Order) *OrderNote {
+	return newOrderNoteWithTempID(topic, subject, details, severity, corder, 0)
+}
+
+func newOrderNoteWithTempID(topic Topic, subject, details string, severity db.Severity, corder *Order, tmpID uint64) *OrderNote {
 	return &OrderNote{
 		Notification: db.NewNotification(NoteTypeOrder, topic, subject, details, severity),
 		Order:        corder,
+		TemporaryID:  tmpID,
 	}
 }
 

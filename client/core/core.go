@@ -4851,56 +4851,72 @@ func (c *Core) PreOrder(form *TradeForm) (*OrderEstimate, error) {
 	}, nil
 }
 
-// Trade is used to place a market or limit order.
 func (c *Core) Trade(pw []byte, form *TradeForm) (*Order, error) {
+	resultChan, _, err := c.trade(pw, form)
+	if err != nil {
+		return nil, err
+	}
+	submissionResult := <-resultChan
+	if submissionResult.err != nil {
+		return nil, submissionResult.err
+	}
+
+	return submissionResult.ord, nil
+}
+
+func (c *Core) TradeAsync(pw []byte, form *TradeForm) (uint64, error) {
+	_, tmpID, err := c.trade(pw, form)
+	return tmpID, err
+}
+
+// Trade is used to place a market or limit order.
+func (c *Core) trade(pw []byte, form *TradeForm) (chan *orderSubmissionResult, uint64, error) {
 	// Check the user password.
 	crypter, err := c.encryptionKey(pw)
 	if err != nil {
-		return nil, fmt.Errorf("Trade password error: %w", err)
+		return nil, 0, fmt.Errorf("Trade password error: %w", err)
 	}
 	defer crypter.Close()
 	dc, err := c.connectedDEX(form.Host)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if dc.acct.suspended() {
-		return nil, newError(suspendedAcctErr, "may not trade while account is suspended")
+		return nil, 0, newError(suspendedAcctErr, "may not trade while account is suspended")
 	}
 
-	corder, updatedAssets, err := c.prepareTrackedTrade(dc, form, crypter)
-	if err != nil {
-		return nil, err
-	}
-
-	for assetID := range updatedAssets {
-		c.updateAssetBalance(assetID)
-	}
-
-	return corder, nil
+	return c.prepareTrackedTrade(dc, form, crypter)
 }
 
+type orderSubmissionResult struct {
+	ord *Order
+	err error
+}
+
+var temporaryOrderIDCounter uint64
+
 // Send an order, process result, prepare and store the trackedTrade.
-func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter encrypt.Crypter) (*Order, assetMap, error) {
+func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter encrypt.Crypter) (chan *orderSubmissionResult, uint64, error) {
 	mktID := marketName(form.Base, form.Quote)
 	mktConf := dc.marketConfig(mktID)
 	if mktConf == nil {
-		return nil, nil, newError(marketErr, "order placed for unknown market %q", mktID)
+		return nil, 0, newError(marketErr, "order placed for unknown market %q", mktID)
 	}
 
 	// Proceed with the order if there is no trade suspension
 	// scheduled for the market.
 	if !dc.running(mktID) {
-		return nil, nil, newError(marketErr, "%s market trading is suspended", mktID)
+		return nil, 0, newError(marketErr, "%s market trading is suspended", mktID)
 	}
 
 	rate, qty := form.Rate, form.Qty
 	if form.IsLimit && rate == 0 {
-		return nil, nil, newError(orderParamsErr, "zero-rate order not allowed")
+		return nil, 0, newError(orderParamsErr, "zero-rate order not allowed")
 	}
 
 	wallets, err := c.walletSet(dc, form.Base, form.Quote, form.Sell)
 	if err != nil {
-		return nil, nil, err
+		return nil, 0, err
 	}
 	fromWallet, toWallet := wallets.fromWallet, wallets.toWallet
 
@@ -4931,18 +4947,18 @@ func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter e
 
 	err = prepareWallet(fromWallet)
 	if err != nil {
-		return nil, nil, err
+		return nil, 0, err
 	}
 
 	err = prepareWallet(toWallet)
 	if err != nil {
-		return nil, nil, err
+		return nil, 0, err
 	}
 
 	// Get an address for the swap contract.
 	redeemAddr, err := toWallet.RedemptionAddress()
 	if err != nil {
-		return nil, nil, codedError(walletErr, fmt.Errorf("%s RedemptionAddress error: %w", wallets.toAsset.Symbol, err))
+		return nil, 0, codedError(walletErr, fmt.Errorf("%s RedemptionAddress error: %w", wallets.toAsset.Symbol, err))
 	}
 
 	// Fund the order and prepare the coins.
@@ -4982,16 +4998,16 @@ func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter e
 							"qty = %d %s, mid-gap = %d, base-qty = %d %s, lot size = %d",
 						qty, wallets.quoteAsset.Symbol, midGap, baseQty,
 						wallets.baseAsset.Symbol, lotSize)
-					return nil, nil, err
+					return nil, 0, err
 				}
 			} else if isAccountRedemption {
-				return nil, nil, newError(orderParamsErr, "cannot estimate redemption count")
+				return nil, 0, newError(orderParamsErr, "cannot estimate redemption count")
 			}
 		}
 	}
 
 	if lots == 0 {
-		return nil, nil, newError(orderParamsErr, "order quantity < 1 lot. qty = %d %s, rate = %d, lot size = %d",
+		return nil, 0, newError(orderParamsErr, "order quantity < 1 lot. qty = %d %s, rate = %d, lot size = %d",
 			qty, wallets.baseAsset.Symbol, rate, lotSize)
 	}
 
@@ -5005,7 +5021,7 @@ func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter e
 		Options:       form.Options,
 	})
 	if err != nil {
-		return nil, nil, codedError(walletErr, fmt.Errorf("FundOrder error for %s, funding quantity %d (%d lots): %w",
+		return nil, 0, codedError(walletErr, fmt.Errorf("FundOrder error for %s, funding quantity %d (%d lots): %w",
 			wallets.fromAsset.Symbol, fundQty, lots, err))
 	}
 
@@ -5028,16 +5044,16 @@ func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter e
 
 	// The coins selected for this order will need to be unlocked
 	// if the order does not get to the server successfully.
-	var success bool
-	defer func() {
-		if success {
-			return
-		}
+	errCloser := dex.NewErrorCloser()
+	defer errCloser.Done(c.log)
+
+	errCloser.Add(func() error {
 		err := fromWallet.ReturnCoins(coins)
 		if err != nil {
 			c.log.Warnf("Unable to return %s funding coins: %v", unbip(fromWallet.AssetID), err)
 		}
-	}()
+		return err
+	})
 
 	// Construct the order.
 	preImg := newPreimage()
@@ -5080,12 +5096,12 @@ func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter e
 	}
 	err = order.ValidateOrder(ord, order.OrderStatusEpoch, lotSize)
 	if err != nil {
-		return nil, nil, fmt.Errorf("ValidateOrder error: %w", err)
+		return nil, 0, fmt.Errorf("ValidateOrder error: %w", err)
 	}
 
 	msgCoins, err := messageCoins(wallets.fromWallet, coins, redeemScripts)
 	if err != nil {
-		return nil, nil, fmt.Errorf("wallet %v failed to sign coins: %w", wallets.fromAsset.ID, err)
+		return nil, 0, fmt.Errorf("wallet %v failed to sign coins: %w", wallets.fromAsset.ID, err)
 	}
 
 	// Everything is ready. Send the order.
@@ -5097,24 +5113,23 @@ func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter e
 	if isAccountRedemption {
 		pubKeys, sigs, err := toWallet.SignMessage(nil, msgOrder.Serialize())
 		if err != nil {
-			return nil, nil, codedError(signatureErr, fmt.Errorf("SignMessage error: %w", err))
+			return nil, 0, codedError(signatureErr, fmt.Errorf("SignMessage error: %w", err))
 		}
 		if len(pubKeys) == 0 || len(sigs) == 0 {
-			return nil, nil, newError(signatureErr, "wrong number of pubkeys or signatures, %d & %d", len(pubKeys), len(sigs))
+			return nil, 0, newError(signatureErr, "wrong number of pubkeys or signatures, %d & %d", len(pubKeys), len(sigs))
 		}
 		redemptionReserves, err = accountRedeemer.ReserveNRedemptions(redemptionRefundLots, wallets.toAsset)
 		if err != nil {
-			return nil, nil, codedError(walletErr, fmt.Errorf("ReserveNRedemptions error: %w", err))
+			return nil, 0, codedError(walletErr, fmt.Errorf("ReserveNRedemptions error: %w", err))
 		}
 		msgTrade.RedeemSig = &msgjson.RedeemSig{
 			PubKey: pubKeys[0],
 			Sig:    sigs[0],
 		}
-		defer func() {
-			if !success {
-				accountRedeemer.UnlockRedemptionReserves(redemptionReserves)
-			}
-		}()
+		errCloser.Add(func() error {
+			accountRedeemer.UnlockRedemptionReserves(redemptionReserves)
+			return nil
+		})
 	}
 
 	// If the from asset is an AccountLocker, we need to lock up refund funds.
@@ -5122,13 +5137,12 @@ func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter e
 	if isAccountRefund {
 		refundReserves, err = accountRefunder.ReserveNRefunds(redemptionRefundLots, wallets.fromAsset)
 		if err != nil {
-			return nil, nil, codedError(walletErr, fmt.Errorf("ReserveNRefunds error: %w", err))
+			return nil, 0, codedError(walletErr, fmt.Errorf("ReserveNRefunds error: %w", err))
 		}
-		defer func() {
-			if !success {
-				accountRefunder.UnlockRefundReserves(refundReserves)
-			}
-		}()
+		errCloser.Add(func() error {
+			accountRefunder.UnlockRefundReserves(refundReserves)
+			return nil
+		})
 	}
 
 	// A non-nil changeID indicates that this is an account based coin. The
@@ -5136,7 +5150,7 @@ func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter e
 	// be signed with that address's private key.
 	if changeID != nil {
 		if _, msgTrade.Coins[0].Sigs, err = fromWallet.SignMessage(nil, msgOrder.Serialize()); err != nil {
-			return nil, nil, fmt.Errorf("wallet %v failed to sign for redeem: %w", wallets.fromAsset.ID, err)
+			return nil, 0, fmt.Errorf("wallet %v failed to sign for redeem: %w", wallets.fromAsset.ID, err)
 		}
 	}
 
@@ -5146,106 +5160,123 @@ func (c *Core) prepareTrackedTrade(dc *dexConnection, form *TradeForm, crypter e
 	c.sentCommits[prefix.Commit] = commitSig
 	c.sentCommitsMtx.Unlock()
 
-	// Send and get the result.
-	result := new(msgjson.OrderResult)
-	err = dc.signAndRequest(msgOrder, route, result, fundingTxWait+DefaultResponseTimeout)
-	if err != nil {
-		// At this point there is a possibility that the server got the request
-		// and created the trade order, but we lost the connection before
-		// receiving the response with the trade's order ID. Any preimage
-		// request will be unrecognized. This order is ABANDONED.
-		return nil, nil, fmt.Errorf("new order request with DEX server %v market %v failed: %w", dc.acct.host, mktID, err)
-	}
+	subRes := make(chan *orderSubmissionResult)
 
-	// If we encounter an error, perform some basic logging.
-	logAbandon := func(err interface{}) {
-		c.log.Errorf("Abandoning order. preimage: %x, server time: %d: %v",
-			preImg[:], result.ServerTime, err)
-	}
+	asyncErrCloser := errCloser.Copy()
+	tmpID := atomic.AddUint64(&temporaryOrderIDCounter, 1)
+	go func() {
+		// Send and get the result.
+		defer asyncErrCloser.Done(c.log)
 
-	err = validateOrderResponse(dc, result, ord, msgOrder) // stamps the order, giving it a valid ID
-	if err != nil {
-		logAbandon(fmt.Sprintf("order response validation failure: %v", err))
-		return nil, nil, fmt.Errorf("validateOrderResponse error: %w", err)
-	}
+		asyncErrCloser.Add(func() error {
+			c.notify(newOrderNoteWithTempID(TopicAsyncSubmissionFail, "", "", db.Data, nil, tmpID))
+			return nil
+		})
 
-	// Store the order.
-	dbOrder := &db.MetaOrder{
-		MetaData: &db.OrderMetaData{
-			Status:           order.OrderStatusEpoch,
-			Host:             dc.acct.host,
-			MaxFeeRate:       wallets.fromAsset.MaxFeeRate,
-			RedeemMaxFeeRate: wallets.toAsset.MaxFeeRate,
-			Proof: db.OrderProof{
-				DEXSig:   result.Sig,
-				Preimage: preImg[:],
+		result := new(msgjson.OrderResult)
+		err = dc.signAndRequest(msgOrder, route, result, fundingTxWait+DefaultResponseTimeout)
+		if err != nil {
+			// At this point there is a possibility that the server got the request
+			// and created the trade order, but we lost the connection before
+			// receiving the response with the trade's order ID. Any preimage
+			// request will be unrecognized. This order is ABANDONED.
+			subRes <- &orderSubmissionResult{err: fmt.Errorf("new order request with DEX server %v market %v failed: %w", dc.acct.host, mktID, err)}
+			return
+		}
+
+		// If we encounter an error, perform some basic logging.
+		logAbandon := func(err interface{}) {
+			c.log.Errorf("Abandoning order. preimage: %x, server time: %d: %v",
+				preImg[:], result.ServerTime, err)
+		}
+
+		err = validateOrderResponse(dc, result, ord, msgOrder) // stamps the order, giving it a valid ID
+		if err != nil {
+			logAbandon(fmt.Sprintf("order response validation failure: %v", err))
+			subRes <- &orderSubmissionResult{err: fmt.Errorf("validateOrderResponse error: %w", err)}
+			return
+		}
+
+		// Store the order.
+		dbOrder := &db.MetaOrder{
+			MetaData: &db.OrderMetaData{
+				Status:           order.OrderStatusEpoch,
+				Host:             dc.acct.host,
+				MaxFeeRate:       wallets.fromAsset.MaxFeeRate,
+				RedeemMaxFeeRate: wallets.toAsset.MaxFeeRate,
+				Proof: db.OrderProof{
+					DEXSig:   result.Sig,
+					Preimage: preImg[:],
+				},
+				FromVersion:        wallets.fromAsset.Version,
+				ToVersion:          wallets.toAsset.Version,
+				Options:            form.Options,
+				RedemptionReserves: redemptionReserves,
+				ChangeCoin:         changeID,
 			},
-			FromVersion:        wallets.fromAsset.Version,
-			ToVersion:          wallets.toAsset.Version,
-			Options:            form.Options,
-			RedemptionReserves: redemptionReserves,
-			ChangeCoin:         changeID,
-		},
-		Order: ord,
-	}
-	err = c.db.UpdateOrder(dbOrder)
-	if err != nil {
-		logAbandon(fmt.Sprintf("failed to store order in database: %v", err))
-		return nil, nil, fmt.Errorf("Order abandoned due to database error: %w", err)
-	}
-
-	// Prepare and store the tracker and get the core.Order to return.
-	tracker := newTrackedTrade(dbOrder, preImg, dc, dc.marketEpochDuration(mktID), c.lockTimeTaker, c.lockTimeMaker,
-		c.db, c.latencyQ, wallets, coins, c.notify, c.formatDetails, form.Options, redemptionReserves, refundReserves)
-
-	tracker.redemptionLocked = tracker.redemptionReserves
-	tracker.refundLocked = tracker.refundReserves
-
-	if recoveryCoin != nil {
-		tracker.change = recoveryCoin
-		tracker.coinsLocked = false
-		tracker.changeLocked = true
-	}
-
-	dc.tradeMtx.Lock()
-	dc.trades[tracker.ID()] = tracker
-	dc.tradeMtx.Unlock()
-
-	// Now that the trades map is updated, sync with the preimage request.
-	c.syncOrderPlaced(ord.ID())
-
-	// Send a low-priority notification.
-	corder := tracker.coreOrder()
-	if !form.IsLimit && !form.Sell {
-		ui := wallets.quoteWallet.Info().UnitInfo
-		subject, details := c.formatDetails(TopicYoloPlaced,
-			ui.ConventionalString(corder.Qty), ui.Conventional.Unit, tracker.token())
-		c.notify(newOrderNote(TopicYoloPlaced, subject, details, db.Poke, corder))
-	} else {
-		rateString := "market"
-		if form.IsLimit {
-			rateString = wallets.trimmedConventionalRateString(corder.Rate)
+			Order: ord,
 		}
-		ui := wallets.baseWallet.Info().UnitInfo
-		topic := TopicBuyOrderPlaced
-		if corder.Sell {
-			topic = TopicSellOrderPlaced
+		err = c.db.UpdateOrder(dbOrder)
+		if err != nil {
+			logAbandon(fmt.Sprintf("failed to store order in database: %v", err))
+			subRes <- &orderSubmissionResult{err: fmt.Errorf("Order abandoned due to database error: %w", err)}
+			return
 		}
-		subject, details := c.formatDetails(topic, ui.ConventionalString(corder.Qty), ui.Conventional.Unit, rateString, tracker.token())
-		c.notify(newOrderNote(topic, subject, details, db.Poke, corder))
-	}
 
-	updated := assetMap{fromWallet.AssetID: struct{}{}}
-	if isAccountRefund && fromWallet.parent != nil {
-		updated[fromWallet.parent.AssetID] = struct{}{}
-	}
-	if isAccountRedemption && toWallet.parent != nil {
-		updated[toWallet.parent.AssetID] = struct{}{}
-	}
+		// Prepare and store the tracker and get the core.Order to return.
+		tracker := newTrackedTrade(dbOrder, preImg, dc, dc.marketEpochDuration(mktID), c.lockTimeTaker, c.lockTimeMaker,
+			c.db, c.latencyQ, wallets, coins, c.notify, c.formatDetails, form.Options, redemptionReserves, refundReserves)
 
-	success = true
+		tracker.redemptionLocked = tracker.redemptionReserves
+		tracker.refundLocked = tracker.refundReserves
 
-	return corder, updated, nil
+		if recoveryCoin != nil {
+			tracker.change = recoveryCoin
+			tracker.coinsLocked = false
+			tracker.changeLocked = true
+		}
+
+		dc.tradeMtx.Lock()
+		dc.trades[tracker.ID()] = tracker
+		dc.tradeMtx.Unlock()
+
+		// Now that the trades map is updated, sync with the preimage request.
+		c.syncOrderPlaced(ord.ID())
+
+		// Send a low-priority notification.
+		corder := tracker.coreOrder()
+		if !form.IsLimit && !form.Sell {
+			ui := wallets.quoteWallet.Info().UnitInfo
+			subject, details := c.formatDetails(TopicYoloPlaced,
+				ui.ConventionalString(corder.Qty), ui.Conventional.Unit, tracker.token())
+			c.notify(newOrderNote(TopicYoloPlaced, subject, details, db.Poke, corder))
+		} else {
+			rateString := "market"
+			if form.IsLimit {
+				rateString = wallets.trimmedConventionalRateString(corder.Rate)
+			}
+			ui := wallets.baseWallet.Info().UnitInfo
+			topic := TopicBuyOrderPlaced
+			if corder.Sell {
+				topic = TopicSellOrderPlaced
+			}
+			subject, details := c.formatDetails(topic, ui.ConventionalString(corder.Qty), ui.Conventional.Unit, rateString, tracker.token())
+			c.notify(newOrderNoteWithTempID(topic, subject, details, db.Poke, corder, tmpID))
+		}
+
+		if isAccountRefund && fromWallet.parent != nil {
+			c.updateAssetBalance(fromWallet.parent.AssetID)
+		}
+		if isAccountRedemption && toWallet.parent != nil {
+			c.updateAssetBalance(toWallet.parent.AssetID)
+		}
+
+		asyncErrCloser.Success()
+		subRes <- &orderSubmissionResult{ord: corder}
+	}()
+
+	errCloser.Success()
+	return subRes, tmpID, nil
 }
 
 // walletSet is a pair of wallets with asset configurations identified in useful
