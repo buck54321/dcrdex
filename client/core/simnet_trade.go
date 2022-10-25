@@ -410,9 +410,7 @@ func (s *simulationTest) setup(cl1, cl2 *SimClient) (err error) {
 		return fmt.Errorf("error starting clients: %w", err)
 	}
 	s.client1.replaceConns()
-	s.client1.fakeConns.open()
 	s.client2.replaceConns()
-	s.client2.fakeConns.open()
 	return nil
 }
 
@@ -470,54 +468,34 @@ func testMakerGhostingAfterTakerRedeem(s *simulationTest) error {
 	var qty, rate uint64 = 1 * s.lotSize, 250 * s.rateStep
 	s.client1.isSeller, s.client2.isSeller = true, false
 
-	c1FakeConns, c2FakeConns := s.client1.fakeConns, s.client2.fakeConns
-	c1FakeConns.close()
-	defer c1FakeConns.open()
-	c2FakeConns.close()
-	defer c2FakeConns.open()
+	var bits uint8
 	anErr := errors.New("intentional error from test")
-	done := make(chan struct{})
-	wait := make(chan struct{})
-	go func() {
+	preFilter := func(route string) error {
 		// Prevent the first redeemer, who must be maker, from sending
 		// redeem info to the server.
-		var bits uint8
-		for {
-			select {
-			case <-done:
-				close(wait)
-				return
-			case route := <-c1FakeConns.routeCh:
-				if route == msgjson.RedeemRoute {
-					if bits == 0 {
-						bits |= 0x1
-					}
-					if bits&0x1 != 0 {
-						c1FakeConns.errCh <- anErr
-						continue
-					}
-				}
-				c1FakeConns.errCh <- nil
-			case route := <-c2FakeConns.routeCh:
-				if route == msgjson.RedeemRoute {
-					if bits == 0 {
-						bits |= 0x01
-					}
-					if bits&0x01 != 0 {
-						c2FakeConns.errCh <- anErr
-						continue
-					}
-				}
-				c2FakeConns.errCh <- nil
+		if route == msgjson.RedeemRoute {
+			if bits == 0 {
+				bits |= 0x1
+			}
+			if bits&0x1 != 0 {
+				return anErr
 			}
 		}
+		return nil
+	}
+
+	s.client1.filteredConn.requestFilter.Store(preFilter)
+	s.client2.filteredConn.requestFilter.Store(preFilter)
+
+	defer func() {
+		s.client1.filteredConn.requestFilter.Store(func(string) error { return nil })
+		s.client2.filteredConn.requestFilter.Store(func(string) error { return nil })
 	}()
+
 	// TODO: Currently taker redeemer will not have its redeem confirmed
 	// when match is server revoked. That should be changed and this
 	// changed to order.MatchConfirmed.
 	err := s.simpleTradeTest(qty, rate, order.MatchComplete)
-	close(done)
-	<-wait
 	return err
 }
 
@@ -808,7 +786,6 @@ func testOrderStatusReconciliation(s *simulationTest) error {
 	time.Sleep(disconnectPeriod)
 
 	s.client2.log.Infof("Reconnecting DEX to trigger order status reconciliation")
-	s.client2.fakeConns.open()
 	// Use core.initialize to restore client 2 orders from db, and login
 	// to trigger dex authentication.
 	// TODO: cannot do this anymore with built-in wallets
@@ -868,88 +845,30 @@ func testOrderStatusReconciliation(s *simulationTest) error {
 var _ comms.WsConn = (*tConn)(nil)
 
 type tConn struct {
-	routeCh      chan string
-	errCh        chan error
-	on           uint32
-	closeAndWait func()
-
-	realConn comms.WsConn
+	comms.WsConn
+	requestFilter atomic.Value // func(route string) error
 }
 
-func (tc *tConn) NextID() uint64 {
-	return tc.realConn.NextID()
-}
-func (tc *tConn) IsDown() bool {
-	return tc.realConn.IsDown()
-}
-func (tc *tConn) Send(msg *msgjson.Message) error {
-	return tc.realConn.Send(msg)
-}
 func (tc *tConn) Request(msg *msgjson.Message, respHandler func(*msgjson.Message)) error {
-	tc.routeCh <- msg.Route
-	err := <-tc.errCh
-	if err != nil {
-		return err
-	}
-	return tc.realConn.Request(msg, respHandler)
+	return tc.RequestWithTimeout(msg, respHandler, time.Minute, func() {})
 }
 func (tc *tConn) RequestWithTimeout(msg *msgjson.Message, respHandler func(*msgjson.Message), expireTime time.Duration, expire func()) error {
-	tc.routeCh <- msg.Route
-	err := <-tc.errCh
-	if err != nil {
-		return err
-	}
-	return tc.realConn.RequestWithTimeout(msg, respHandler, expireTime, expire)
-}
-func (tc *tConn) Connect(ctx context.Context) (*sync.WaitGroup, error) {
-	return tc.realConn.Connect(ctx)
-}
-func (tc *tConn) MessageSource() <-chan *msgjson.Message {
-	return tc.realConn.MessageSource()
-}
-
-func (tc *tConn) open() {
-	// Not concurrent safe with close.
-	if !atomic.CompareAndSwapUint32(&tc.on, 0, 1) {
-		return
-	}
-	done := make(chan struct{})
-	wait := make(chan struct{})
-	go func() {
-		for {
-			select {
-			case <-done:
-				close(wait)
-				return
-			case <-tc.routeCh:
-				tc.errCh <- nil
-			}
+	if fi := tc.requestFilter.Load(); fi != nil {
+		if err := fi.(func(string) error)(msg.Route); err != nil {
+			return err
 		}
-	}()
-	tc.closeAndWait = func() {
-		close(done)
-		<-wait
 	}
-}
-
-func (tc *tConn) close() {
-	if !atomic.CompareAndSwapUint32(&tc.on, 1, 0) {
-		return
-	}
-	tc.closeAndWait()
+	return tc.WsConn.RequestWithTimeout(msg, respHandler, expireTime, expire)
 }
 
 func (sc *simulationClient) replaceConns() {
 	// Put the real comms in a fake comms we can induce request failures
 	// with.
 	sc.core.connMtx.Lock()
-	realConns := sc.core.conns[dexHost].WsConn
-	sc.fakeConns = &tConn{
-		realConn: realConns,
-		routeCh:  make(chan string),
-		errCh:    make(chan error),
+	sc.filteredConn = &tConn{
+		WsConn: sc.core.conns[dexHost].WsConn,
 	}
-	sc.core.conns[dexHost].WsConn = sc.fakeConns
+	sc.core.conns[dexHost].WsConn = sc.filteredConn
 	sc.core.connMtx.Unlock()
 }
 
@@ -960,61 +879,38 @@ func testResendPendingRequests(s *simulationTest) error {
 	var qty, rate uint64 = 1 * s.lotSize, 250 * s.rateStep
 	s.client1.isSeller, s.client2.isSeller = true, false
 
-	c1FakeConns, c2FakeConns := s.client1.fakeConns, s.client2.fakeConns
-	c1FakeConns.close()
-	defer c1FakeConns.open()
-	c2FakeConns.close()
-	defer c2FakeConns.open()
+	var bits uint8
 	anErr := errors.New("intentional error from test")
-	done := make(chan struct{})
-	wait := make(chan struct{})
-	go func() {
+	preFilter := func(route string) error {
 		// Fail every first try of init and redeem. Second try will be
 		// passed on to the real comms.
-		var bits uint8
-		for {
-			select {
-			case <-done:
-				close(wait)
-				return
-			case route := <-c1FakeConns.routeCh:
-				if route == msgjson.InitRoute {
-					if bits&0x1 == 0 {
-						c1FakeConns.errCh <- anErr
-						bits |= 0x1
-						continue
-					}
-				}
-				if route == msgjson.RedeemRoute {
-					if bits&0x01 == 0 {
-						c1FakeConns.errCh <- anErr
-						bits |= 0x01
-						continue
-					}
-				}
-				c1FakeConns.errCh <- nil
-			case route := <-c2FakeConns.routeCh:
-				if route == msgjson.InitRoute {
-					if bits&0x001 == 0 {
-						c2FakeConns.errCh <- anErr
-						bits |= 0x001
-						continue
-					}
-				}
-				if route == msgjson.RedeemRoute {
-					if bits&0x0001 == 0 {
-						c2FakeConns.errCh <- anErr
-						bits |= 0x0001
-						continue
-					}
-				}
-				c2FakeConns.errCh <- nil
+		if route == msgjson.InitRoute {
+			if bits == 0 {
+				bits |= 0x1
+			}
+			if bits&0x1 == 0 {
+				return anErr
 			}
 		}
+		if route == msgjson.RedeemRoute {
+			if bits == 0 {
+				bits |= 0x1
+			}
+			if bits&0x01 == 0 {
+				return anErr
+			}
+		}
+		return nil
+	}
+	s.client1.filteredConn.requestFilter.Store(preFilter)
+	s.client2.filteredConn.requestFilter.Store(preFilter)
+
+	defer func() {
+		s.client1.filteredConn.requestFilter.Store(func(string) error { return nil })
+		s.client2.filteredConn.requestFilter.Store(func(string) error { return nil })
 	}()
+
 	err := s.simpleTradeTest(qty, rate, order.MatchConfirmed)
-	close(done)
-	<-wait
 	return err
 }
 
@@ -1816,7 +1712,7 @@ type simulationClient struct {
 	// change validation. Set to nil to NOT perform balance checks.
 	expectBalanceDiffs map[uint32]int64
 	lastOrder          []byte
-	fakeConns          *tConn
+	filteredConn       *tConn
 }
 
 var clientCounter uint32
