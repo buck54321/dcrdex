@@ -271,6 +271,7 @@ func testDexConnection(ctx context.Context, crypter *tCrypter) (*dexConnection, 
 		connectionStatus:  uint32(comms.Connected),
 		reportingConnects: 1,
 		spots:             make(map[string]*msgjson.Spot),
+		inFlightOrds:      make(map[uint64]*InFlightOrder),
 	}, conn, acct
 }
 
@@ -6226,7 +6227,7 @@ func Test_marketTrades(t *testing.T) {
 
 	dc.trades[inactiveTracker.ID()] = inactiveTracker
 
-	trades := dc.marketTrades(mktID)
+	trades, _ := dc.marketTrades(mktID)
 	if len(trades) != 1 {
 		t.Fatalf("Expected only one trade from marketTrades, found %v", len(trades))
 	}

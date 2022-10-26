@@ -312,7 +312,7 @@ type Order struct {
 	QuoteSymbol       string            `json:"quoteSymbol"`
 	MarketID          string            `json:"market"`
 	Type              order.OrderType   `json:"type"`
-	ID                dex.Bytes         `json:"id"`
+	ID                dex.Bytes         `json:"id"`    // Can be zero if part of an InFlightOrder
 	Stamp             uint64            `json:"stamp"` // Server's time stamp
 	SubmitTime        uint64            `json:"submitTime"`
 	Sig               dex.Bytes         `json:"sig"`
@@ -333,6 +333,13 @@ type Order struct {
 	TargetOrderID     dex.Bytes         `json:"targetOrderID"` // cancel only
 }
 
+// InFlightOrder is an Order that is not stamped yet, but has a temporary ID
+// to match once order submission is complete.
+type InFlightOrder struct {
+	*Order
+	TemporaryID uint64 `json:"tempid"`
+}
+
 // FeeBreakdown is categorized fee information.
 type FeeBreakdown struct {
 	Swap       uint64 `json:"swap"`
@@ -344,6 +351,12 @@ type FeeBreakdown struct {
 func coreOrderFromTrade(ord order.Order, metaData *db.OrderMetaData) *Order {
 	prefix, trade := ord.Prefix(), ord.Trade()
 	baseID, quoteID := ord.Base(), ord.Quote()
+
+	// For in-flight orders, we'll set the order ID as a zero-hash.
+	var oid order.OrderID
+	if ord.Time() > 0 {
+		oid = ord.ID()
+	}
 
 	var rate uint64
 	var tif order.TimeInForce
@@ -360,7 +373,7 @@ func coreOrderFromTrade(ord order.Order, metaData *db.OrderMetaData) *Order {
 			QuoteSymbol:   unbip(quoteID),
 			MarketID:      marketName(baseID, quoteID),
 			Type:          prefix.OrderType,
-			ID:            ord.ID().Bytes(),
+			ID:            oid.Bytes(),
 			Stamp:         uint64(prefix.ServerTime.UnixMilli()),
 			SubmitTime:    uint64(prefix.ClientTime.UnixMilli()),
 			Sig:           metaData.Proof.DEXSig,
@@ -402,7 +415,7 @@ func coreOrderFromTrade(ord order.Order, metaData *db.OrderMetaData) *Order {
 		QuoteSymbol: unbip(quoteID),
 		MarketID:    marketName(baseID, quoteID),
 		Type:        prefix.OrderType,
-		ID:          ord.ID().Bytes(),
+		ID:          oid.Bytes(),
 		Stamp:       uint64(prefix.ServerTime.UnixMilli()),
 		SubmitTime:  uint64(prefix.ClientTime.UnixMilli()),
 		Sig:         metaData.Proof.DEXSig,
@@ -427,18 +440,22 @@ func coreOrderFromTrade(ord order.Order, metaData *db.OrderMetaData) *Order {
 
 // Market is market info.
 type Market struct {
-	Name            string        `json:"name"`
-	BaseID          uint32        `json:"baseid"`
-	BaseSymbol      string        `json:"basesymbol"`
-	QuoteID         uint32        `json:"quoteid"`
-	QuoteSymbol     string        `json:"quotesymbol"`
-	LotSize         uint64        `json:"lotsize"`
-	RateStep        uint64        `json:"ratestep"`
-	EpochLen        uint64        `json:"epochlen"`
-	StartEpoch      uint64        `json:"startepoch"`
-	MarketBuyBuffer float64       `json:"buybuffer"`
-	Orders          []*Order      `json:"orders"`
-	SpotPrice       *msgjson.Spot `json:"spot"`
+	Name            string   `json:"name"`
+	BaseID          uint32   `json:"baseid"`
+	BaseSymbol      string   `json:"basesymbol"`
+	QuoteID         uint32   `json:"quoteid"`
+	QuoteSymbol     string   `json:"quotesymbol"`
+	LotSize         uint64   `json:"lotsize"`
+	RateStep        uint64   `json:"ratestep"`
+	EpochLen        uint64   `json:"epochlen"`
+	StartEpoch      uint64   `json:"startepoch"`
+	MarketBuyBuffer float64  `json:"buybuffer"`
+	Orders          []*Order `json:"orders"`
+	// InFlightOrders are Orders with zeroed IDs for the embedded Order, but
+	// with a TemporaryID to match with a notification once asynchronous order
+	// submission is complete.
+	InFlightOrders []*InFlightOrder `json:"inflight"`
+	SpotPrice      *msgjson.Spot    `json:"spot"`
 }
 
 // BaseContractLocked is the amount of base asset locked in un-redeemed

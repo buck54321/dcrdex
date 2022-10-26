@@ -53,6 +53,13 @@ func NewErrorCloser() *ErrorCloser {
 	}
 }
 
+// Copy creates a shallow copy of the ErrorCloser.
+func (e *ErrorCloser) Copy() *ErrorCloser {
+	return &ErrorCloser{
+		closers: e.closers,
+	}
+}
+
 // Add adds a new function to the queue. If Success is not called before Done,
 // the Add'ed functions will be run in the reverse order that they were added.
 func (e *ErrorCloser) Add(closer func() error) {
