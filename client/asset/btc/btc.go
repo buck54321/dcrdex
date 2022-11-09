@@ -336,6 +336,9 @@ type BTCCloneCFG struct {
 	// FeeEstimator provides a way to get fees given an RawRequest-enabled
 	// client and a confirmation target.
 	FeeEstimator func(RawRequester, uint64) (uint64, error)
+	// ExternalFeeEstimator should be supplied if the clone provides the
+	// apifeefallback ConfigOpt.
+	ExternalFeeEstimator func(context.Context, dex.Network) (uint64, error)
 	// OmitAddressType causes the address type (bech32, legacy) to be omitted
 	// from calls to getnewaddress.
 	OmitAddressType bool
@@ -764,6 +767,7 @@ type baseWallet struct {
 	segwit            bool
 	signNonSegwit     TxInSigner
 	estimateFee       func(RawRequester, uint64) (uint64, error) // TODO: resolve the awkwardness of an RPC-oriented func in a generic framework
+	fetchExternalFee  func(context.Context, dex.Network) (uint64, error)
 	decodeAddr        dexbtc.AddressDecoder
 	deserializeTx     func([]byte) (*wire.MsgTx, error)
 	serializeTx       func(*wire.MsgTx) ([]byte, error)
@@ -980,6 +984,8 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, net dex.Network) (ass
 		DefaultFallbackFee:  defaultFee,
 		DefaultFeeRateLimit: defaultFeeRateLimit,
 		Segwit:              true,
+		// Add our fee rate fetcher.
+		ExternalFeeEstimator: externalFeeEstimator,
 	}
 
 	switch cfg.Type {
@@ -1128,6 +1134,7 @@ func newUnconnectedWallet(cfg *BTCCloneCFG, walletCfg *WalletConfig) (*baseWalle
 		segwit:              cfg.Segwit,
 		signNonSegwit:       nonSegwitSigner,
 		estimateFee:         cfg.FeeEstimator,
+		fetchExternalFee:    cfg.ExternalFeeEstimator,
 		decodeAddr:          addrDecoder,
 		stringAddr:          addrStringer,
 		walletInfo:          cfg.WalletInfo,
@@ -1429,8 +1436,12 @@ func (btc *baseWallet) feeRate(_ RawRequester, confTarget uint64) (uint64, error
 		if !btc.apiFeeFallback() {
 			return 0, err
 		}
+		if btc.fetchExternalFee == nil {
+			btc.log.Debug("API fallback allowed but no fetcher provided for %s", btc.symbol)
+			return 0, err
+		}
 		btc.log.Debug("Retrieving fee rate from external API: ", externalApiUrl)
-		estimatedFee, err := externalFeeEstimator(btc.ctx, btc.Network)
+		estimatedFee, err := btc.fetchExternalFee(btc.ctx, btc.Network)
 		if err != nil {
 			btc.log.Errorf("Failed to get fee rate from external API: %v", err)
 			return 0, err

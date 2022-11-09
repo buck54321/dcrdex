@@ -4,9 +4,14 @@
 package doge
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
+	"time"
 
 	"decred.org/dcrdex/client/asset"
 	"decred.org/dcrdex/client/asset/btc"
@@ -184,8 +189,51 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) 
 			}
 			return uint64(math.Round(feeRate * 1e5)), nil
 		},
+		ExternalFeeEstimator: func(ctx context.Context, net dex.Network) (uint64, error) {
+			var url string
+			if net == dex.Testnet {
+				url = "https://api.bitcore.io/api/DOGE/testnet/fee/1"
+			} else {
+				url = "https://api.bitcore.io/api/DOGE/mainnet/fee/1"
+			}
+			ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+			defer cancel()
+			r, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+			if err != nil {
+				return 0, err
+			}
+			httpResponse, err := http.DefaultClient.Do(r)
+			if err != nil {
+				return 0, err
+			}
+			var resp map[string]float64
+			reader := io.LimitReader(httpResponse.Body, 1<<20)
+			err = json.NewDecoder(reader).Decode(&resp)
+			if err != nil {
+				return 0, err
+			}
+			httpResponse.Body.Close()
+
+			dogePerKb, ok := resp["feerate"]
+			if !ok {
+				return 0, errors.New("no fee rate found")
+			}
+			// estimatefee is f#$%ed
+			// https://github.com/decred/dcrdex/pull/1558#discussion_r850061882
+			if dogePerKb <= 0 || dogePerKb > dexdoge.DefaultFeeRateLimit/1e5 {
+				return dexdoge.DefaultFee, nil
+			}
+			feeRate := toSatoshi(dogePerKb)
+			return feeRate, nil
+		},
 		BlockDeserializer: dexdoge.DeserializeBlock,
 	}
 
 	return btc.BTCCloneWallet(cloneCFG)
+}
+
+var conventionalConversionFactor = float64(dexbtc.UnitInfo.Conventional.ConversionFactor)
+
+func toSatoshi(v float64) uint64 {
+	return uint64(math.Round(v * conventionalConversionFactor))
 }
