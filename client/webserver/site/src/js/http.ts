@@ -9,14 +9,15 @@ export async function requestJSON (method: string, addr: string, reqBody?: any):
       // credentials: "same-origin",
       body: reqBody
     })
-    if (response.status !== 200) { throw response }
+    if (response.status !== 200) { throw Error(await response.text()) }
     const obj = await response.json()
     obj.requestSuccessful = true
     return obj
-  } catch (response) {
-    response.requestSuccessful = false
-    response.msg = await response.text()
-    return response
+  } catch (err) {
+    return {
+      requestSuccessful: false,
+      msg: err.toString()
+    }
   }
 }
 

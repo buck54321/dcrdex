@@ -54,3 +54,13 @@ div.settings-exchange {
   font-size: 15;
   margin-left: 0.5rem;
 }
+
+#activeDot {
+  color: $buycolor_light;
+}
+
+body.dark {
+  #activeDot {
+    color: $buycolor_dark;
+  }
+}

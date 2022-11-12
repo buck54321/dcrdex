@@ -1,0 +1,58 @@
+html {
+  height: 100%;
+}
+
+body {
+  background-color: #1d201f;
+  color: #d2d2d2;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+button {
+  padding: 5px 10px;
+  font-size: 16px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #154b5c;
+  color: #d2d2d2;
+  border: 1px solid #767676;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #1d6981;
+}
+
+hr {
+  border-top: 1px solid #d2d2d2;
+  margin: 20px 0;
+}
+
+.begger-box {
+  border: 1px solid #d2d2d2;
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+  flex-direction: column;
+}
+
+.beg-msg {
+  font-size: 25px;
+  font-weight: lighter;
+  font-family: Georgia, 'Times New Roman', Times, serif;
+}
+
+.d-hide {
+  display: none;
+}
+
+#errMsg {
+  color: rgb(255, 75, 75);
+  margin: 10px 0;
+}
+

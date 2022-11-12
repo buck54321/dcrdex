@@ -75,34 +75,35 @@ func defaultHostByNetwork(network dex.Network) string {
 
 // Config is the configuration for the DEX client application.
 type Config struct {
-	AppData      string `long:"appdata" description:"Path to application directory."`
-	Config       string `long:"config" description:"Path to an INI configuration file."`
-	SiteDir      string `long:"sitedir" description:"Path to the 'site' directory with packaged web files. Unspecifed = default is good in most cases."`
-	DBPath       string `long:"db" description:"Database filepath. Database will be created if it does not exist."`
-	RPCOn        bool   `long:"rpc" description:"turn on the rpc server"`
-	RPCAddr      string `long:"rpcaddr" description:"RPC server listen address"`
-	RPCUser      string `long:"rpcuser" description:"RPC server user name"`
-	RPCPass      string `long:"rpcpass" description:"RPC server password"`
-	RPCCert      string `long:"rpccert" description:"RPC server certificate file location"`
-	RPCKey       string `long:"rpckey" description:"RPC server key file location"`
-	WebAddr      string `long:"webaddr" description:"HTTP server address"`
-	Language     string `long:"lang" description:"BCP 47 tag for preferred language, e.g. en-GB, fr, zh-CN"`
-	NoWeb        bool   `long:"noweb" description:"disable the web server."`
-	Testnet      bool   `long:"testnet" description:"use testnet"`
-	Simnet       bool   `long:"simnet" description:"use simnet"`
-	ReloadHTML   bool   `long:"reload-html" description:"(DEPRECATED) Reload the webserver's page template from disk with every request. Prevents use of any embedded UI files. For development purposes. This is deprecated. Use --no-embed-site instead."`
-	NoEmbedSite  bool   `long:"no-embed-site" description:"Use on-disk UI files instead of embedded resources. This also reloads the html template with every request. For development purposes."`
-	DebugLevel   string `long:"log" description:"Logging level {trace, debug, info, warn, error, critical}"`
-	LocalLogs    bool   `long:"loglocal" description:"Use local time zone time stamps in log entries."`
-	CPUProfile   string `long:"cpuprofile" description:"File for CPU profiling."`
-	HTTPProfile  bool   `long:"httpprof" description:"Start HTTP profiler on /pprof."`
-	ShowVer      bool   `short:"V" long:"version" description:"Display version information and exit"`
-	TorProxy     string `long:"torproxy" description:"Connect via TOR (eg. 127.0.0.1:9050)."`
-	TorIsolation bool   `long:"torisolation" description:"Enable TOR circuit isolation."`
-	Onion        string `long:"onion" description:"Proxy for .onion addresses, if torproxy not set (eg. 127.0.0.1:9050)."`
-	Net          dex.Network
-	CertHosts    []string
-	Experimental bool `long:"experimental" description:"Enable experimental features"`
+	AppData         string `long:"appdata" description:"Path to application directory."`
+	Config          string `long:"config" description:"Path to an INI configuration file."`
+	SiteDir         string `long:"sitedir" description:"Path to the 'site' directory with packaged web files. Unspecifed = default is good in most cases."`
+	DBPath          string `long:"db" description:"Database filepath. Database will be created if it does not exist."`
+	RPCOn           bool   `long:"rpc" description:"turn on the rpc server"`
+	RPCAddr         string `long:"rpcaddr" description:"RPC server listen address"`
+	RPCUser         string `long:"rpcuser" description:"RPC server user name"`
+	RPCPass         string `long:"rpcpass" description:"RPC server password"`
+	RPCCert         string `long:"rpccert" description:"RPC server certificate file location"`
+	RPCKey          string `long:"rpckey" description:"RPC server key file location"`
+	WebAddr         string `long:"webaddr" description:"HTTP server address"`
+	Language        string `long:"lang" description:"BCP 47 tag for preferred language, e.g. en-GB, fr, zh-CN"`
+	NoWeb           bool   `long:"noweb" description:"disable the web server."`
+	Testnet         bool   `long:"testnet" description:"use testnet"`
+	Simnet          bool   `long:"simnet" description:"use simnet"`
+	ReloadHTML      bool   `long:"reload-html" description:"(DEPRECATED) Reload the webserver's page template from disk with every request. Prevents use of any embedded UI files. For development purposes. This is deprecated. Use --no-embed-site instead."`
+	NoEmbedSite     bool   `long:"no-embed-site" description:"Use on-disk UI files instead of embedded resources. This also reloads the html template with every request. For development purposes."`
+	DebugLevel      string `long:"log" description:"Logging level {trace, debug, info, warn, error, critical}"`
+	LocalLogs       bool   `long:"loglocal" description:"Use local time zone time stamps in log entries."`
+	CPUProfile      string `long:"cpuprofile" description:"File for CPU profiling."`
+	HTTPProfile     bool   `long:"httpprof" description:"Start HTTP profiler on /pprof."`
+	ShowVer         bool   `short:"V" long:"version" description:"Display version information and exit"`
+	TorProxy        string `long:"torproxy" description:"Connect via TOR (eg. 127.0.0.1:9050)."`
+	TorIsolation    bool   `long:"torisolation" description:"Enable TOR circuit isolation."`
+	Onion           string `long:"onion" description:"Proxy for .onion addresses, if torproxy not set (eg. 127.0.0.1:9050)."`
+	Net             dex.Network
+	CertHosts       []string
+	Experimental    bool `long:"experimental" description:"Enable experimental features"`
+	AllowExtensions bool `long:"allow-extensions" description:"Allow connections from browser extensions"`
 }
 
 var defaultConfig = Config{

@@ -1,9 +1,5 @@
 declare global {
   interface Window {
-    log: (...args: any) => void
-    enableLogger: (loggerID: string, enable: boolean) => void
-    recordLogger: (loggerID: string, enable: boolean) => void
-    dumpLogger: (loggerID: string) => void
     localeDiscrepancies: () => void
   }
 }
@@ -349,11 +345,6 @@ export interface APIResponse {
   err?: string
 }
 
-export interface LogMessage {
-  time: string
-  msg: string
-}
-
 export interface NoteElement extends HTMLElement {
   note: CoreNote
 }
@@ -556,6 +547,21 @@ export interface WalletPeer {
   addr: string
   source: PeerSource
   connected: boolean
+}
+
+export interface PageClass {
+  new (main: HTMLElement, data?: any): Page;
+}
+
+export interface Page {
+  unload (): void
+  notify (n: CoreNote): void
+}
+
+export interface InitStatus {
+  initialized: boolean
+  authed: boolean
+  net: number
 }
 
 export interface Application {

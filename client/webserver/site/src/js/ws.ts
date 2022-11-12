@@ -47,6 +47,7 @@ class MessageSocket {
   handlers: Record<string, NoteReceiver[]>
   queue: [string, any][]
   maxQlength: number
+  userClosed: boolean
   reloader: () => void // appears unused
 
   constructor () {
@@ -87,10 +88,12 @@ class MessageSocket {
     window.log('ws', 'close, reason:', reason, this.handlers)
     this.handlers = {}
     if (this.connection) this.connection.close()
+    this.userClosed = true
   }
 
   connect (uri: string, reloader: () => void) {
     this.uri = uri
+    this.userClosed = false
     this.reloader = reloader
     let retrys = 0
     const go = () => {
@@ -114,6 +117,9 @@ class MessageSocket {
         clearTimeout(timeout)
         conn = this.connection = null
         forward('close', null, this.handlers)
+        if (this.userClosed) {
+          return
+        }
         retrys++
         // 1.2, 1.6, 2.0, 2.4, 3.1, 3.8, 4.8, 6.0, 7.5, 9.3, ...
         const delay = Math.min(Math.pow(1.25, retrys), 10)

@@ -43,32 +43,6 @@ th {
   border-style: none;
 }
 
-// Hide number arrows.
-// Chrome, Safari, Edge, Opera
-input::-webkit-outer-spin-button,
-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-// Remove red background for firefox on empty number input fields.
-input:invalid {
-  box-shadow: none;
-}
-
-.overflow-y-auto {
-  overflow-y: auto;
-}
-
-.overflow-y-hidden {
-  overflow-y: hidden;
-}
-
-.overflow-x-hidden,
-.stylish-overflow.overflow-x-hidden {
-  overflow-x: hidden;
-}
-
 header.maintop {
   width: 100%;
   height: 70px;
@@ -188,55 +162,6 @@ input[type=number] {
   display: flex;
   justify-content: center;
   align-items: center;
-}
-
-@mixin fill-abs {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  right: 0;
-}
-
-.fill-abs {
-  @include fill-abs;
-}
-
-@mixin stylish-overflow {
-  overflow: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #7774 #7771;
-
-  /* Works on Chrome/Edge/Safari */
-  &::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: #7771;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background-color: #7774;
-    border-radius: 4px;
-  }
-}
-
-.stylish-overflow {
-  @include stylish-overflow;
-}
-
-.stylish-overflow.hoveronly:not(:hover) {
-  scrollbar-color: transparent transparent;
-
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background-color: transparent;
-    border-radius: 4px;
-  }
 }
 
 .max-h-100 {
@@ -380,10 +305,6 @@ div.popup-notes {
 
 .mw-425 {
   max-width: 425px;
-}
-
-.d-hide {
-  display: none !important;
 }
 
 .buycolor {

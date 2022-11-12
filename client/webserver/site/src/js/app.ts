@@ -14,6 +14,7 @@ import { getJSON, postJSON, Errors } from './http'
 import * as ntfn from './notifications'
 import ws from './ws'
 import * as intl from './locales'
+import { LogManager } from './logmgr'
 import {
   User,
   SupportedAsset,
@@ -34,13 +35,14 @@ import {
   UnitInfo,
   WalletDefinition,
   WalletBalance,
-  LogMessage,
   NoteElement,
   BalanceResponse,
   APIResponse,
   RateNote,
   BotReport,
-  InFlightOrder
+  InFlightOrder,
+  PageClass,
+  Page
 } from './registry'
 
 const idel = Doc.idel // = element by id
@@ -48,17 +50,7 @@ const bind = Doc.bind
 const unbind = Doc.unbind
 
 const notificationRoute = 'notify'
-const loggersKey = 'loggers'
-const recordersKey = 'recorders'
 const noteCacheSize = 100
-
-interface Page {
-  unload (): void
-}
-
-interface PageClass {
-  new (main: HTMLElement, data: any): Page;
-}
 
 interface CoreNotePlus extends CoreNote {
   el: HTMLElement // Added in app
@@ -85,8 +77,6 @@ export default class Application {
   seedGenTime: number
   commitHash: string
   showPopups: boolean
-  loggers: Record<string, boolean>
-  recorders: Record<string, LogMessage[]>
   main: HTMLElement
   header: HTMLElement
   headerSpace: HTMLElement
@@ -111,44 +101,7 @@ export default class Application {
     this.showPopups = State.getCookie('popups') === '1'
     console.log('Decred DEX Client App, Build', this.commitHash.substring(0, 7))
 
-    // Loggers can be enabled by setting a truthy value to the loggerID using
-    // enableLogger. Settings are stored across sessions. See docstring for the
-    // log method for more info.
-    this.loggers = State.fetch(loggersKey) || {}
-    window.enableLogger = (loggerID, state) => {
-      if (state) this.loggers[loggerID] = true
-      else delete this.loggers[loggerID]
-      State.store(loggersKey, this.loggers)
-      return `${loggerID} logger ${state ? 'enabled' : 'disabled'}`
-    }
-    // Enable logging from anywhere.
-    window.log = (loggerID, ...a) => { this.log(loggerID, ...a) }
-
-    // Recorders can record log messages, and then save them to file on request.
-    const recorderKeys = State.fetch(recordersKey) || []
-    this.recorders = {}
-    for (const loggerID of recorderKeys) {
-      console.log('recording', loggerID)
-      this.recorders[loggerID] = []
-    }
-    window.recordLogger = (loggerID, on) => {
-      if (on) this.recorders[loggerID] = []
-      else delete this.recorders[loggerID]
-      State.store(recordersKey, Object.keys(this.recorders))
-      return `${loggerID} recorder ${on ? 'enabled' : 'disabled'}`
-    }
-    window.dumpLogger = loggerID => {
-      const record = this.recorders[loggerID]
-      if (!record) return `no recorder for logger ${loggerID}`
-      const a = document.createElement('a')
-      a.href = `data:application/octet-stream;base64,${window.btoa(JSON.stringify(record, null, 4))}`
-      a.download = `${loggerID}.json`
-      document.body.appendChild(a)
-      a.click()
-      setTimeout(() => {
-        document.body.removeChild(a)
-      }, 0)
-    }
+    LogManager.run()
 
     // use user current locale set by backend
     intl.setLocale()
@@ -517,7 +470,7 @@ export default class Application {
    * display.
    */
   setNotes (notes: CoreNote[]) {
-    this.log('notes', 'setNotes', notes)
+    window.log('notes', 'setNotes', notes)
     this.notes = []
     Doc.empty(this.page.noteList)
     for (let i = 0; i < notes.length; i++) {
@@ -647,7 +600,7 @@ export default class Application {
    */
   notify (note: CoreNote) {
     // Handle type-specific updates.
-    this.log('notes', 'notify', note)
+    window.log('notes', 'notify', note)
     this.updateUser(note)
     // Inform the page.
     for (const feeder of this.noteReceivers) {
@@ -695,28 +648,10 @@ export default class Application {
     this.noteReceivers.push(receivers)
   }
 
-  /*
-   * log prints to the console if a logger has been enabled. Loggers are created
-   * implicitly by passing a loggerID to log. i.e. you don't create a logger,
-   * you just log to it. Loggers are enabled by invoking a global function,
-   * enableLogger(loggerID, onOffBoolean), from the browser's js console. Your
-   * choices are stored across sessions. Some common and useful loggers are
-   * listed below, but this list is not meant to be comprehensive.
-   *
-   * LoggerID   Description
-   * --------   -----------
-   * notes      Notifications of all levels.
-   * book       Order book feed.
-   * ws.........Websocket connection status changes.
-   */
+  // TODO: Just use window.log everywhere. Only doing it this way to keep the
+  // diff simpler for now.
   log (loggerID: string, ...msg: any) {
-    if (this.loggers[loggerID]) console.log(`${nowString()}[${loggerID}]:`, ...msg)
-    if (this.recorders[loggerID]) {
-      this.recorders[loggerID].push({
-        time: nowString(),
-        msg: msg
-      })
-    }
+    LogManager.log(loggerID, ...msg)
   }
 
   prependPokeElement (cn: CoreNote) {
@@ -971,16 +906,6 @@ const severityClassMap: Record<number, string> = {
 /* handlerFromPath parses the handler name from the path. */
 function handlerFromPath (path: string): string {
   return path.replace(/^\//, '').split('/')[0].split('?')[0].split('#')[0]
-}
-
-/* nowString creates a string formatted like HH:MM:SS.xxx */
-function nowString (): string {
-  const stamp = new Date()
-  const h = stamp.getHours().toString().padStart(2, '0')
-  const m = stamp.getMinutes().toString().padStart(2, '0')
-  const s = stamp.getSeconds().toString().padStart(2, '0')
-  const ms = stamp.getMilliseconds().toString().padStart(3, '0')
-  return `${h}:${m}:${s}.${ms}`
 }
 
 function setSeverityClass (el: HTMLElement, severity: number) {

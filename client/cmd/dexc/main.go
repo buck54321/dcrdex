@@ -189,14 +189,15 @@ func runCore() error {
 
 	if !cfg.NoWeb {
 		webSrv, err := webserver.New(&webserver.Config{
-			Core:          clientCore,
-			Addr:          cfg.WebAddr,
-			CustomSiteDir: cfg.SiteDir,
-			Logger:        logMaker.Logger("WEB"),
-			NoEmbed:       cfg.NoEmbedSite,
-			HttpProf:      cfg.HTTPProfile,
-			Language:      cfg.Language,
-			Experimental:  cfg.Experimental,
+			Core:            clientCore,
+			Addr:            cfg.WebAddr,
+			CustomSiteDir:   cfg.SiteDir,
+			Logger:          logMaker.Logger("WEB"),
+			NoEmbed:         cfg.NoEmbedSite,
+			HttpProf:        cfg.HTTPProfile,
+			Language:        cfg.Language,
+			Experimental:    cfg.Experimental,
+			AllowExtensions: cfg.AllowExtensions,
 		})
 		if err != nil {
 			return fmt.Errorf("failed creating web server: %w", err)

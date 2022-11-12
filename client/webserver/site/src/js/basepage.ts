@@ -3,4 +3,8 @@ export default class BasePage {
   unload () {
     // should be implemented by inheriting class.
   }
+
+  notify (/* n: CoreNote */) {
+    // shoudl be implemented by inheriting class
+  }
 }

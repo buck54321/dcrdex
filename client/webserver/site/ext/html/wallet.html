@@ -1,0 +1,120 @@
+<div id=wallet class="fill-abs d-flex flex-column align-items-stretch stylish-overflow">
+  <div id=walletHeader class="d-flex align-items-center justify-content-between p-2">
+    <div id=back class="p-1 hoverbg pointer">
+      <span class="fs22 ico-arrowback"></span>
+    </div>
+    <div id=walletSettings class="p-1 hoverbg pointer flex-center">
+      <span class="ico-settings fs16"></span>
+      <span class="fs15 ms-1"><span id=assetSettingsName></span> wallet settings</span>
+    </div>
+  </div>
+
+  <div class="flex-center flex-grow-1 flex-column p-2 mt-2">
+    <div class="flex-center">
+      <img id=logo>
+      <span id=name class="light-font ms-2"></span>
+    </div>
+    <div class="mt-2">
+      <span id=assetBalance class="fs18"></span>
+      <span id=unit class="fs16"></span>
+    </div>
+
+    <div id=fiatRow class="mt-2">
+      <span class="fs18">~</span>
+      <span id=fiatBalance class="fs16"></span>
+      <span class="fs14">USD</span>
+    </div>
+  </div>
+
+  <div id=tabs class="d-flex justify-content-start align-items-stretch fs14">
+    <div id=sendTab class="py-1 px-2 brdr-top brdr-right hoverbg pointer selected"><span class="ico-send me-2"></span>Send</div>
+    <div id=balancesTab class="py-1 px-2 brdr-top brdr-right hoverbg pointer"><span class="ico-barchart me-2"></span>Balances</div>
+  </div>
+
+  <div id=balanceBreakdown class="brdr-top d-hide">
+    <table class="w-100 fs14">
+      <tbody id=balanceRows>
+        <tr id=balanceTemplate>
+          <td data-tmpl=label></td>
+          <td class="text-end">
+            <span data-tmpl=fiatBalance></span>
+            <span class="fs12">USD</span>
+          </td>
+          <td class="text-end">
+            <span class=fs14 data-tmpl=balance></span>
+            <span class="fs12" data-tmpl=unit></span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div id=sendPane class="d-flex flex-column align-items-stretch p-3 brdr-top">
+    <div class="fs14">Address</div>
+    <input id=sendAddr type=text>
+    <span class="fs14 mt-2">Amount</span>
+    <div class="d-flex align-items-stretch justify-content-between">
+      <input id=sendAmt type=text>
+      <div class="flex-grow-1 text-end">
+        <button id=sendBttn><span class="ico-send me-2"></span>Send</button>
+      </div>
+    </div>
+  </div>
+
+  <div id=sendConfirm>
+    <div class="form-closer hoverbg"><span class="ico-cross"></span></div>
+    <div class="py-1 text-center position-relative header fs22 sans-light">
+    [[[confirm]]]
+     <img id=vSendLogo class="micro-icon mx-1">
+    [[[transfer]]]
+    </div>
+    <div class="grey fs18 text-center m-2">[[[sending]]]</div>
+    <div class="text-center">
+      <span id=approxSign class="d-hide">&cong;</span>
+      <span id=vSendDestinationAmt class="fs22 font-weight-bold"></span>
+      <span id=vSendSymbol></span>
+    </div>
+    <div class="text-center">[[[to]]]</div>
+    <div id=vSendAddr class="text-center font-weight-bold"></div>
+    <hr class="dashed mt-2">
+    <div id=vSendEstimates class="d-hide">
+      <div class="d-flex align-items-center justify-content-between">[[[estimated_fee]]]: 
+       <span id=vSendFee></span>
+      </div>
+      <span class="d-flex d-hide justify-content-end grey fs14">
+       ~<span id=vSendFeeFiat class="mx-1"></span>USD
+      </span>
+      <hr class="dashed mt-2">
+      <div class="d-flex align-items-center justify-content-between">[[[estimated_total_spend]]]: 
+       <span id=vTotalSend></span>
+      </div>
+      <span class="d-flex d-hide justify-content-end grey fs14">
+       ~<span id=vTotalSendFiat class="mx-1"></span>USD
+      </span>
+      <div class="d-flex align-items-center justify-content-between">[[[estimated_balance]]]: 
+       <span id=balanceAfterSend></span>
+      </div>
+      <span class="d-flex d-hide justify-content-end grey fs14">
+       ~<span id=balanceAfterSendFiat class="mx-1"></span>USD
+      </span>
+    </div>
+    <div id=txFeeNotAvailable class="d-hide" data-tooltip="Fee unavailable">[[[txfee_not_available]]]
+      <span class="ico-info errcolor"></span>
+    </div>
+    <hr class="dashed my-4">
+     <div class="fs16 px-4 text-center">[[[Authorize the transfer with your app password.]]]</div>
+      <div class="input-group mt-2">
+        <label for="vSendPw" class="form-label m-2">[[[Password]]]: </label>
+        <input id=vSendPw type="password" class="form-control select" autocomplete="off">
+      </div>
+    <div class="d-flex justify-content-between align-items-stretch flex-wrap mt-3">
+      <div class="col-12 p-0">
+        <button id=vCancelSend type="button" class="w-75 mt-1 justify-content-center fs15 bg2 ">[[[cancel]]]</button>
+      </div>
+      <div class="col-12 p-0 text-end">
+        <button id=vSend type="button" class="w-75 mt-1 justify-content-center fs15 bg2 selected">[[[confirm]]]</button>
+      </div>
+    </div>
+    <div class="fs15 pt-3 text-center errcolor text-break" id=vSendErr></div>
+  </div>
+</div>

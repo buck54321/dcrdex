@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" href="/dist/dexc.css">
+  </head>
+  <body>
+
+    <div id=connectionPane class="fill-abs flex-center flex-column d-hide p-3">
+      <div class="mx-4 fs18">Cannot connect to DEX Wallet</div>
+      <div class="mx-4 fs18 my-2 fs16">Is your client running?</div>
+      <div>
+        <div class="text-left fs16 mt-4">Which network are you on?</div>
+        <div class="d-flex align-items-stretch justify-content-between mb-4 mt-1">
+          <button id=mainnetDefault class="flex-center flex-column fs14">
+            <span>Mainnet</span>
+            <span class="fs12">127.0.0.1:5758</span>
+          </button>
+          <button id=testnetDefault class="flex-center flex-column mx-3">
+            <span>Testnet</span>
+            <span class="fs12">127.0.0.2:5758</span>
+          </button>
+          <button id=simnetDefault class="flex-center flex-column">
+            <span>Simnet</span>
+            <span class="fs12">127.0.0.3:5758</span>
+          </button>
+        </div>
+      </div>
+      <div class="d-flex flex-column align-items-stretch">
+        <div class="text-left fs16 my-1">Or, enter a custom address</div>
+        <div>
+          <input id=customAddr placeholder="custom address">
+          <button id=customAddrSubmit class="fs14">
+            <span class="ico-send fs12"></span>
+            Submit
+          </button>
+        </div>
+        <div id=errMsg class="errcolor fs14 my-2"></div>
+      </div>
+    </div>
+
+    <script src="/dist/dexc.js"></script>
+  </body>
+</html>

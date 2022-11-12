@@ -5,9 +5,13 @@
   "private": true,
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "watch": "webpack --watch --config webpack/dev.js",
+    "watch": "webpack --watch --config webpack/dexc-dev.js",
+    "watch-ext": "webpack --watch --config webpack/ext-dev.js",
+    "watch-appconnector": "webpack --watch --config webpack/appconnector-dev.js",
     "analyze": "webpack --config webpack/analyze.js",
-    "build": "npm exec tsc && webpack --config webpack/prod.js --progress --color",
+    "build": "npm exec tsc && webpack --config webpack/dexc-prod.js --progress --color",
+    "build-ext": "npm exec tsc && webpack --config webpack/ext-prod.js --progress --color",
+    "build-appconnector": "npm exec tsc && webpack --config webpack/appconnector-prod.js --progress --color",
     "lint": "npm exec tsc && npm exec -- eslint src --ext .js --ext .ts",
     "check-types": "npm exec tsc"
   },
@@ -20,6 +24,7 @@
     "@babel/preset-env": "^7.18.10",
     "@babel/preset-typescript": "^7.18.6",
     "@babel/runtime": "^7.18.9",
+    "@types/chrome": "^0.0.35",
     "@typescript-eslint/eslint-plugin": "^5.35.1",
     "@typescript-eslint/parser": "^5.35.1",
     "babel-loader": "^8.2.5",

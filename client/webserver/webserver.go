@@ -16,6 +16,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -31,8 +32,10 @@ import (
 	"decred.org/dcrdex/dex"
 	"decred.org/dcrdex/dex/encode"
 	"decred.org/dcrdex/dex/encrypt"
+	"decred.org/dcrdex/dex/ws"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"golang.org/x/text/language"
 )
 
@@ -178,6 +181,9 @@ type Config struct {
 	NoEmbed      bool
 	HttpProf     bool
 	Experimental bool
+	// AllowExtensions must be set to true if we should allow connections from
+	// chrome extensions.
+	AllowExtensions bool
 }
 
 // WebServer is a single-client http and websocket server enabling a browser
@@ -269,6 +275,37 @@ func New(cfg *Config) (*WebServer, error) {
 		authTokens:      make(map[string]bool),
 		cachedPasswords: make(map[string]*cachedPassword),
 		experimental:    cfg.Experimental,
+	}
+
+	if cfg.AllowExtensions {
+		ws.AllowExtensions()
+		mux.Use(cors.Handler(cors.Options{
+			// Requests from any background script will come from 127.0.0.1,
+			// which is considered cross-site if we're not on mainnet.
+			AllowOriginFunc: func(r *http.Request, origin string) bool {
+				u, err := url.Parse(origin)
+				if err != nil {
+					log.Errorf("cors URL check for %q failed: %v", origin, err)
+					return false
+				}
+				host, _, err := net.SplitHostPort(u.Host)
+				if err != nil {
+					log.Errorf("Failed splitting host/port from %q: %v", u.Host, err)
+					return false
+				}
+				ip := net.ParseIP(host)
+				if ip == nil {
+					log.Errorf("cors nil IP parse from %q", origin)
+					return false
+				}
+				return ip.IsLoopback()
+			},
+			// AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			// AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+			// ExposedHeaders:   []string{"Link"},
+			// AllowCredentials: false,
+			// MaxAge:           300, // Maximum value not ignored by any of major browsers
+		}))
 	}
 
 	lang := cfg.Language

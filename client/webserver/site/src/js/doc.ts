@@ -398,6 +398,13 @@ export default class Doc {
     return result || '0 s'
   }
 
+  static formatCompact (v: number, prec?: number): string {
+    if (v < 1e5) return Doc.formatFiveSigFigs(v, prec)
+    if (v < 1e6) return Doc.formatThreeSigFigs(v / 1e3) + 'k'
+    if (v < 1e9) return Doc.formatThreeSigFigs(v / 1e6) + 'M'
+    return Doc.formatThreeSigFigs(v / 1e9) + 'B'
+  }
+
   /*
    * disableMouseWheel can be used to disable the mouse wheel for any
    * input. It is very easy to unknowingly scroll up on a number input

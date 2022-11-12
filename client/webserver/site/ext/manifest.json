@@ -1,0 +1,52 @@
+{
+    "name": "Decred DEX Client",
+    "description": "Browser Multi-wallet Extension",
+    "version": "0.6.0",
+    "manifest_version": 3,
+    "permissions": [
+      "storage",
+      "activeTab",
+      "scripting",
+      "tabs"
+    ],
+    "host_permissions": [
+      "http://*/",
+      "https://*/",
+      "http://localhost/*"
+    ],
+    "action": {
+      "default_popup": "popup.html",
+      "default_icon": {
+        "32": "/img/dcrdex_32.png",
+        "64": "/img/dcrdex_64.png",
+        "128": "/img/dcrdex_128.png"
+      }
+    },
+    "icons": {
+      "32": "/img/dcrdex_32.png",
+      "64": "/img/dcrdex_64.png",
+      "128": "/img/dcrdex_128.png"
+    },
+    "externally_connectable": {
+      "ids": ["*"]
+    },
+    "background": {
+      "service_worker": "background.js"
+    },
+    "web_accessible_resources": [
+      {
+        "resources": [
+          "/font/*.woff",
+          "/font/*.woff2",
+          "/font/*.ttf",
+          "/images/*.png",
+          "popup.html",
+          "/dist/dexc.css",
+          "/dist/dexc.js",
+          "/cdist/appconnector.css",
+          "/cdist/appconnector.js"
+        ],
+        "matches": ["<all_urls>"]
+      }    
+    ]
+  }

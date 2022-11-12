@@ -1,0 +1,233 @@
+@import "./application.scss";
+@import "./typography.scss";
+@import "./icons.scss";
+
+body {
+  width: 425px;
+  height: 425px;
+  background-color: $dark_body_bg;
+  position: relative;
+  color: $font-color-dark;
+  border: 1px solid white;
+}
+
+button {
+  color: $font-color-dark;
+  background-color: transparent;
+  border: 1px solid #7777;
+  margin: 1px;
+  outline: none;
+}
+
+button:hover,
+.hoverbg:hover {
+  background-color: #7775;
+}
+
+select,
+select:focus,
+input:not([type=checkbox]),
+input:focus:not([type=checkbox]) {
+  background-color: black;
+  border: none;
+  color: $font-color-dark;
+}
+
+.flex-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.errcolor {
+  color: #e61c00;
+}
+
+.grey {
+  color: #666;
+}
+
+.pointer {
+  cursor: pointer;
+}
+
+.brdr-bottom {
+  border-bottom: 1px solid $dark_border_color;
+}
+
+.brdr-top {
+  border-top: 1px solid $dark_border_color;
+}
+
+.brdr-right {
+  border-right: 1px solid $dark_border_color;
+}
+
+.brdr-left {
+  border-left: 1px solid $dark_border_color;
+}
+
+#login {
+  input#pw {
+    width: 50%;
+  }
+}
+
+#header {
+  border-bottom: 1px solid $dark_border_color;
+  padding: 5px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  #dexcLogo {
+    @extend .hoverbg;
+
+    width: 35px;
+    height: 35px;
+    padding: 5px;
+    cursor: pointer;
+  }
+}
+
+#landing {
+  #content {
+    & > div {
+      position: absolute;
+      width: 50%;
+      height: 50%;
+      cursor: pointer;
+      opacity: 0.9;
+
+      .ico-barchart {
+        color: #00a1ff;
+      }
+
+      .ico-qrcode {
+        color: #0dc107;
+      }
+
+      .ico-locked,
+      .ico-unlocked {
+        color: #cd6814;
+      }
+
+      .ico-textfile {
+        color: #9a10cc;
+      }
+    }
+
+    & > div:first-child {
+      top: 0;
+      left: 0;
+    }
+
+    & > div:nth-child(2) {
+      top: 0;
+      right: 0;
+    }
+
+    & > div:nth-child(3) {
+      bottom: 0;
+      left: 0;
+
+      & .ico-locked {
+        display: none;
+      }
+
+      &:hover .ico-locked {
+        display: inline;
+      }
+
+      & .ico-unlocked {
+        display: inline;
+      }
+
+      &:hover .ico-unlocked {
+        display: none;
+      }
+    }
+
+    & > div:last-child {
+      bottom: 0;
+      right: 0;
+    }
+
+    & > div:first-child,
+    & > div:nth-child(2) {
+      border-bottom: 1px solid $dark_border_color;
+    }
+
+    & > div:first-child,
+    & > div:nth-child(3) {
+      border-right: 1px solid $dark_border_color;
+    }
+
+    & > div:hover > div {
+      scale: 1.1;
+      opacity: 1;
+    }
+  }
+}
+
+#wallets {
+  .logo {
+    width: 50px;
+    height: 50px;
+  }
+
+  .asset {
+    @extend .hoverbg;
+
+    cursor: pointer;
+    border: 1px solid $dark_border_color;
+    border-radius: 5px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+}
+
+#wallet {
+  .w-90 {
+    width: 90%;
+  }
+
+  #logo {
+    width: 35px;
+    height: 35px;
+  }
+
+  #name {
+    font-size: 35px;
+  }
+
+  #walletHeader {
+    border-bottom: 1px solid $dark_border_color;
+  }
+
+  #balanceBreakdown {
+    min-width: 100px;
+
+    table tr {
+      @extend .brdr-bottom;
+
+      td {
+        padding: 5px 10px;
+      }
+    }
+  }
+
+  #tabs > div.selected {
+    background-color: #46803c55;
+  }
+
+  #sendConfirm {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 100%;
+    width: 100%;
+    transition: left 1s;
+  }
+}

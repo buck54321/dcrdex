@@ -710,11 +710,15 @@ func (s *WebServer) apiInit(w http.ResponseWriter, r *http.Request) {
 // apiIsInitialized is the handler for the '/isinitialized' request.
 func (s *WebServer) apiIsInitialized(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, &struct {
-		OK          bool `json:"ok"`
-		Initialized bool `json:"initialized"`
+		OK          bool        `json:"ok"`
+		Initialized bool        `json:"initialized"`
+		Authed      bool        `json:"authed"`
+		Net         dex.Network `json:"net"`
 	}{
 		OK:          true,
 		Initialized: s.core.IsInitialized(),
+		Authed:      s.isAuthed(r),
+		Net:         s.core.Network(),
 	}, s.indent)
 }
 

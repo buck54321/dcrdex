@@ -9,11 +9,6 @@ const PIPI = 2 * Math.PI
 const plusChar = String.fromCharCode(59914)
 const minusChar = String.fromCharCode(59915)
 
-interface Point {
-  x: number
-  y: number
-}
-
 interface MinMax {
   min: number
   max: number
@@ -29,7 +24,7 @@ interface LabelSet {
   lbls: Label[]
 }
 
-interface Translator {
+export interface Translator {
     x: (x: number) => number
     y: (y: number) => number
     unx: (x: number) => number
@@ -175,10 +170,10 @@ export class Chart {
     bind(this.canvas, 'mousemove', (e: MouseEvent) => {
       // this.rect will be set in resize().
       if (!this.rect) return
-      this.mousePos = {
-        x: e.clientX - this.rect.left,
-        y: e.clientY - this.rect.y
-      }
+      this.mousePos = new Point(
+        e.clientX - this.rect.left,
+        e.clientY - this.rect.y
+      )
       this.draw()
     })
     bind(this.canvas, 'mouseleave', () => {
@@ -1154,7 +1149,7 @@ export class Wave extends Chart {
  * Extents holds a min and max in both the x and y directions, and provides
  * getters for related data.
  */
-class Extents {
+export class Extents {
   x: MinMax
   y: MinMax
 
@@ -1194,7 +1189,7 @@ class Extents {
  * Region applies an Extents to the canvas, providing utilities for coordinate
  * transformations and restricting drawing to a specified region of the canvas.
  */
-class Region {
+export class Region {
   context: CanvasRenderingContext2D
   extents: Extents
 
@@ -1308,6 +1303,24 @@ class Region {
 
     drawFunc(this.context, tools)
     ctx.restore()
+  }
+}
+
+export class Point {
+  x: number
+  y: number
+
+  constructor (x: number, y: number) {
+    this.x = x
+    this.y = y
+  }
+
+  addXY (x: number, y: number) {
+    return new Point(this.x + x, this.y + y)
+  }
+
+  addPt (pt: Point) {
+    return this.addXY(pt.x, pt.y)
   }
 }
 

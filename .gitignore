@@ -20,6 +20,7 @@ server/cmd/dcrdex/dcrdex
 server/cmd/usermatches/usermatches
 markets.json
 dist/
+cdist/
 node_modules/
 client/cmd/dexc/dexc
 client/cmd/dexcctl/dexcctl

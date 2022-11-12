@@ -102,7 +102,16 @@ export default class WalletsPage extends BasePage {
     Doc.cleanTemplates(
       page.iconSelectTmpl, page.balanceDetailRow, page.recentOrderTmpl
     )
-    const firstAsset = this.sortAssetButtons()
+
+    let firstAssetID = this.sortAssetButtons()
+
+    const urlParams = new URLSearchParams(new URL(window.location.href).search)
+    const urlID = urlParams.get('asset_id')
+    if (urlID) {
+      const assetID = parseInt(urlID)
+      if (app().assets[assetID]) firstAssetID = assetID
+    }
+
     Doc.bind(page.createWallet, 'click', () => this.showNewWallet(this.selectedAssetID))
     Doc.bind(page.connectBttn, 'click', () => this.doConnect(this.selectedAssetID))
     Doc.bind(page.send, 'click', () => this.showSendForm(this.selectedAssetID))
@@ -217,7 +226,7 @@ export default class WalletsPage extends BasePage {
       createwallet: (note: WalletCreationNote) => { this.handleCreateWalletNote(note) }
     })
 
-    this.setSelectedAsset(firstAsset.id)
+    this.setSelectedAsset(firstAssetID)
   }
 
   closePopups () {
@@ -558,7 +567,7 @@ export default class WalletsPage extends BasePage {
     await defaultsLoaded
   }
 
-  sortAssetButtons (): SupportedAsset {
+  sortAssetButtons (): number {
     const page = this.page
     this.assetButtons = {}
     Doc.empty(page.assetSelect)
@@ -577,7 +586,7 @@ export default class WalletsPage extends BasePage {
       Doc.bind(bttn, 'click', () => this.setSelectedAsset(a.id))
     }
     page.assetSelect.classList.remove('invisible')
-    return sortedAssets[0]
+    return sortedAssets[0].id
   }
 
   updateAssetButton (assetID: number) {

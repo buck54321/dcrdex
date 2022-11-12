@@ -4,6 +4,7 @@ import State from './state'
 import { postJSON } from './http'
 import * as forms from './forms'
 import * as intl from './locales'
+import { PipeToBackground } from './ext/docpipe'
 import {
   app,
   Exchange,
@@ -28,6 +29,7 @@ export default class SettingsPage extends BasePage {
   pwCache: PasswordCache
   defaultTLSText: string
   keyup: (e: KeyboardEvent) => void
+  extensionPipe?: PipeToBackground
 
   constructor (body: HTMLElement) {
     super()
@@ -157,6 +159,17 @@ export default class SettingsPage extends BasePage {
     page.forms.querySelectorAll('.form-closer').forEach(el => {
       Doc.bind(el, 'click', () => { closePopups() })
     })
+
+    this.start()
+  }
+
+  async start () {
+    const pipe = new PipeToBackground()
+    const extensionStatus = await pipe.request('status')
+    if (!extensionStatus) return
+    this.extensionPipe = pipe
+    Doc.show(this.page.extensionVisible)
+    Doc.bind(this.page.showExtension, 'click', () => { pipe.request('openwindow', 'Dex Client') })
   }
 
   // Retrieve an estimate for the tx fee needed to pay the registration fee.

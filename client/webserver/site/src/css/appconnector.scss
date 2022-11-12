@@ -1,0 +1,63 @@
+$eerie-black: #1d201f;
+$platinum: #e5e7e6;
+
+div.dexc-ext-floatbox {
+  position: fixed;
+  width: 427px;
+  height: 447px;
+  border: none;
+  top: 10px;
+  right: 25px;
+  z-index: 10000;
+
+  div.dexc-ext-header {
+    height: 20px;
+    width: 425px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: stretch;
+    justify-content: flex-end;
+    background-color: $eerie-black;
+    border-width: 1px;
+    border-color: $platinum;
+    border-style: solid solid none;
+    cursor: move;
+
+    & > .dexc-ext-closer {
+      color: $platinum;
+      font-size: 12px;
+      padding: 0 5px;
+      border-left: 1px solid $platinum;
+      font-family: sans-serif;
+      font-weight: bold;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+
+      &:hover {
+        background-color: black;
+      }
+    }
+
+    & > .dexc-ext-drag-bar {
+      flex-grow: 1;
+    }
+  }
+
+  .dexc-ext-drag-overlay {
+    display: none;
+    position: absolute;
+    top: 20px;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+  }
+
+  iframe.dexc-ext-iframe {
+    width: 100%;
+    height: 427px;
+    border: none;
+  }
+}

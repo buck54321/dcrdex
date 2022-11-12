@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -34,9 +35,58 @@ const (
 	ErrHandshake = dex.ErrorKind("handshake error")
 )
 
+var allowExtensions uint32
+
+// AllowExtensions can be called to allow websocket connections from chrome
+// extensions.
+func AllowExtensions() {
+	atomic.StoreUint32(&allowExtensions, 1)
+}
+
 // websocket.Upgrader is the preferred method of upgrading a request to a
 // websocket connection.
-var upgrader = websocket.Upgrader{}
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		// Based on checkSameOrigin in gorilla/websocket/server.go, but with
+		// introspection for chrome extensions.
+		origins := r.Header["Origin"]
+		if len(origins) == 0 {
+			return true
+		}
+		rawOrigin := origins[0]
+
+		// If this is a chrome extension, swap out for the RemoteAddr.
+		if strings.HasPrefix(rawOrigin, "chrome-extension://") {
+			if atomic.LoadUint32(&allowExtensions) == 0 {
+				return false
+			}
+			if r.RemoteAddr == "" {
+				return false
+			}
+			rawOrigin = "http://" + r.RemoteAddr
+		}
+		u, err := url.Parse(rawOrigin)
+		if err != nil {
+			return false
+		}
+		origin := u.Host
+
+		// The is how websocket determines same origin, but websocket uses a
+		// more rigorous comparison, equalASCIIFold.
+		if origin == r.Host {
+			return true
+		}
+
+		// Allow any loopback address.
+		host, _, err := net.SplitHostPort(origin)
+		if err != nil || host == "" {
+			return false
+		}
+
+		ip := net.ParseIP(host)
+		return ip != nil && ip.IsLoopback()
+	},
+}
 
 // Connection represents a websocket connection to a remote peer. In practice,
 // it is satisfied by *websocket.Conn. For testing, a stub can be used.
