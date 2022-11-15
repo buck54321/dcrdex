@@ -13,6 +13,7 @@ import (
 	"errors"
 	"math/big"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -910,6 +911,78 @@ func TestValidateSignature(t *testing.T) {
 
 	for _, test := range tests {
 		err := eth.ValidateSignature(test.addr, test.pkBytes, test.msg, test.sigBytes)
+		if test.wantErr {
+			if err == nil {
+				t.Fatalf("expected error for test %q", test.name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("unexpected error for test %q: %v", test.name, err)
+		}
+	}
+}
+
+func TestLoadConfig(t *testing.T) {
+	tDir := t.TempDir()
+	tFilePath := filepath.Join(tDir, "geth.conf")
+	tests := []struct {
+		name, cfgPath, cfg string
+		net                dex.Network
+		wantErr            bool
+	}{{
+		name: "ok deprecated ipc",
+		net:  dex.Simnet,
+	}, {
+		name:    "ok file ipc",
+		cfgPath: tFilePath,
+		cfg:     "addr=asdf.ipc",
+		net:     dex.Simnet,
+	}, {
+		name:    "ok file ws",
+		cfgPath: tFilePath,
+		cfg:     "addr=ws://1234\njwt=asdf",
+		net:     dex.Simnet,
+	}, {
+		name:    "can't use on mainnet",
+		net:     dex.Mainnet,
+		wantErr: true,
+	}, {
+		name:    "unknown net",
+		net:     dex.Network(100),
+		wantErr: true,
+	}, {
+		name:    "no file",
+		net:     dex.Simnet,
+		cfgPath: filepath.Join(tDir, "asdf.conf"),
+		wantErr: true,
+	}, {
+		name:    "malformed config = -> :",
+		cfgPath: tFilePath,
+		cfg:     "addr:ws://1234\njwt=asdf",
+		net:     dex.Simnet,
+		wantErr: true,
+	}, {
+		name:    "no addr",
+		cfgPath: tFilePath,
+		cfg:     "jwt=abcd",
+		net:     dex.Simnet,
+		wantErr: true,
+	}, {
+		name:    "not ipc but no jwt",
+		cfgPath: tFilePath,
+		cfg:     "addr=ws://1234",
+		net:     dex.Simnet,
+		wantErr: true,
+	}}
+	for _, test := range tests {
+		if test.cfg != "" {
+			err := os.WriteFile(test.cfgPath, []byte(test.cfg), 0666)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		_, err := loadConfig(test.cfgPath, test.net, tLogger)
 		if test.wantErr {
 			if err == nil {
 				t.Fatalf("expected error for test %q", test.name)
