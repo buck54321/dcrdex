@@ -29,11 +29,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"math/big"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -137,6 +139,7 @@ var (
 	testnetParticipantWalletSeed string
 	usdcID, _                    = dex.BipSymbolID("usdc.eth")
 	testTokenID                  uint32
+	masterToken                  *dexeth.Token
 )
 
 func newContract(stamp uint64, secretHash [32]byte, val uint64) *asset.Contract {
@@ -372,7 +375,8 @@ func runSimnet(m *testing.M) (int, error) {
 	tokenGases = &dexeth.Tokens[testTokenID].NetTokens[dex.Simnet].SwapContracts[0].Gas
 
 	// ETH swap contract.
-	token := dexeth.Tokens[testTokenID].NetTokens[dex.Simnet]
+	masterToken = dexeth.Tokens[testTokenID]
+	token := masterToken.NetTokens[dex.Simnet]
 	fmt.Printf("ETH swap contract address is %v\n", dexeth.ContractAddresses[0][dex.Simnet])
 	fmt.Printf("Token swap contract addr is %v\n", token.SwapContracts[0].Address)
 	fmt.Printf("Test token contract addr is %v\n", token.Address)
@@ -489,7 +493,8 @@ func runSimnet(m *testing.M) (int, error) {
 
 func runTestnet(m *testing.M) (int, error) {
 	testTokenID = usdcID
-	tokenGases = &dexeth.Tokens[testTokenID].NetTokens[dex.Testnet].SwapContracts[0].Gas
+	masterToken = dexeth.Tokens[testTokenID]
+	tokenGases = &masterToken.NetTokens[dex.Testnet].SwapContracts[0].Gas
 	if testnetWalletSeed == "" || testnetParticipantWalletSeed == "" {
 		return 1, errors.New("testnet seeds not set")
 	}
@@ -876,7 +881,15 @@ func testTokenBalance(t *testing.T) {
 	if bal == nil {
 		t.Fatalf("empty balance")
 	}
-	spew.Dump(bal)
+
+	fmt.Println("### Balance:", simnetAddr, stringifyTokenBalance(simnetTokenContractor, bal))
+}
+
+func stringifyTokenBalance(ci tokenContractor, evmBal *big.Int) string {
+	atomicBal := masterToken.EVMToAtomic(evmBal)
+	ui, _ := asset.UnitInfo(testTokenID)
+	prec := math.Round(math.Log10(float64(ui.Conventional.ConversionFactor)))
+	return strconv.FormatFloat(float64(atomicBal)/prec, 'f', int(prec), 64)
 }
 
 // testAddressesHaveFundsFn returns a function that tests that addresses used
