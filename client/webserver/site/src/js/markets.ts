@@ -342,6 +342,9 @@ export default class MarketsPage extends BasePage {
     // Order detail view.
     Doc.bind(page.vFeeDetails, 'click', () => this.showForm(page.vDetailPane))
     Doc.bind(page.closeDetailPane, 'click', () => this.showVerifyForm())
+    Doc.bind(page.vPass, 'keyup', (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === 'NumpadEnter') page.vSubmit.click()
+    })
     // // Bind active orders list's header sort events.
     page.recentMatchesTable.querySelectorAll('[data-ordercol]')
       .forEach((th: HTMLElement) => bind(
