@@ -102,12 +102,28 @@ var (
 	}
 	RPCOpts = []*asset.ConfigOption{
 		{
-			Key:                   providersKey,
-			RepeatableDisplayName: []string{"Provider", "JWT secret"},
-			RepeatableDescription: []string{"Specify one or more providers. For infrastructure " +
-				"providers, use an https address. Only url-based authentication " +
-				"is supported. For a local node, use the filepath to an IPC file.",
-				"Specify a jwt secret if communication with a geth full node over ws."},
+			Key:         providersKey,
+			DisplayName: "Providers",
+			// RepeatableDisplayName: []string{"Provider", "JWT secret"},
+			// RepeatableDescription: []string{"Specify one or more providers. For infrastructure " +
+			// 	"providers, use an https address. Only url-based authentication " +
+			// 	"is supported. For a local node, use the filepath to an IPC file.",
+			// 	"Specify a jwt secret if communication with a geth full node over ws."},
+			RepeatableSubform: []*asset.ConfigOption{
+				{
+					Key:         "provider",
+					DisplayName: "RPC provider address",
+					Description: "Specify one or more providers. For infrastructure " +
+						"providers, use an https address. Only url-based authentication " +
+						"is supported. For a local node, use the filepath to an IPC file.",
+					ShowByDefault: true,
+				},
+				{
+					Key:         "jwtSecret",
+					DisplayName: "JWT secret",
+					Description: "Specify a jwt secret if communication with a geth full node over ws.",
+				},
+			},
 			Required: true,
 		},
 	}
