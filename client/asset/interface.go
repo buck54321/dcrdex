@@ -473,11 +473,16 @@ type Broadcaster interface {
 type Bonder interface {
 	Broadcaster
 
+	// ReserveBondFunds reserves funds for creation of future bonds. It may
+	// create a transaction to pre-size the reserved funds. MakeBondTx will
+	// create transactions funded by these reserves.
+	// ReserveBondFunds(amt uint64) error
+
 	// MakeBondTx authors a DEX time-locked fidelity bond transaction for the
 	// provided amount, lock time, and dex account ID. An explicit private key
 	// type is used to guarantee it's not bytes from something else like a
 	// public key.
-	MakeBondTx(ver uint16, amt uint64, lockTime time.Time, privKey *secp256k1.PrivateKey, acctID []byte) (*Bond, error)
+	MakeBondTx(ver uint16, amt, feeRate uint64, lockTime time.Time, privKey *secp256k1.PrivateKey, acctID []byte) (*Bond, error)
 	// RefundBond will refund the bond given the full bond output details and
 	// private key to spend it.
 	RefundBond(ctx context.Context, ver uint16, coinID, script []byte, amt uint64, privKey *secp256k1.PrivateKey) ([]byte, error)
