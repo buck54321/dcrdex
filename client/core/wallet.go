@@ -236,6 +236,11 @@ func (w *xcWallet) unitInfo() dex.UnitInfo {
 	return w.Info().UnitInfo
 }
 
+func (w *xcWallet) amtString(amt uint64) string {
+	ui := w.unitInfo()
+	return fmt.Sprintf("%s %s", ui.ConventionalString(amt), ui.Conventional.Unit)
+}
+
 // state returns the current WalletState.
 func (w *xcWallet) state() *WalletState {
 	var peerCount uint32
