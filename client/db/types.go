@@ -180,7 +180,7 @@ type AccountInfo struct {
 	LegacyEncKey []byte
 
 	Bonds        []*Bond
-	TargetTier   uint64 // zero means no bond maintenance (allows negative)
+	TargetTier   uint64 // zero means no bond maintenance (allows actual tier to drop negative)
 	MaxBondedAmt uint64
 	BondAsset    uint32 // the asset to use when auto-posting bonds
 

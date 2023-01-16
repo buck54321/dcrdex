@@ -2713,10 +2713,10 @@ func (dc *dexConnection) hasActiveBond(assetID uint32) bool {
 func (c *Core) isActiveBondAsset(assetID uint32, includeLive bool) bool {
 	for _, dc := range c.dexConnections() {
 		bondAsset, targetTier, _ := dc.bondOpts()
-		if bondAsset != assetID {
-			continue
+		if bondAsset == assetID && targetTier > 0 {
+			return true
 		}
-		if targetTier > 0 || (includeLive && dc.hasActiveBond(assetID)) {
+		if includeLive && dc.hasActiveBond(assetID) {
 			return true
 		}
 	}
