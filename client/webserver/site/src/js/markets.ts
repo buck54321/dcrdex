@@ -605,8 +605,11 @@ export default class MarketsPage extends BasePage {
    * supported
    */
   assetsAreSupported () {
-    const [b, q] = [this.market.base, this.market.quote]
-    return b && q
+    const [base, quote] = [this.market.base, this.market.quote]
+    if (!base || !quote) return false
+    const { baseCfg: b, quoteCfg: q } = this.market
+    // check if versions are supported
+    return base.info?.versions.includes(b.version) && quote.info?.versions.includes(q.version)
   }
 
   /*
