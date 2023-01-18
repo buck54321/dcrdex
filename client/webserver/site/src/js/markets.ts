@@ -607,9 +607,24 @@ export default class MarketsPage extends BasePage {
   assetsAreSupported () {
     const [base, quote] = [this.market.base, this.market.quote]
     if (!base || !quote) return false
-    const { baseCfg: b, quoteCfg: q } = this.market
-    // check if versions are supported
-    return base.info?.versions.includes(b.version) && quote.info?.versions.includes(q.version)
+    const { baseCfg, quoteCfg } = this.market
+    // check if versions are supported. If asset is a token, we check if its
+    // parent supports the version.
+    if (base.token && quote.token) {
+      const bParent = app().assets[base.token.parentID]
+      const qParent = app().assets[quote.token.parentID]
+      return qParent.info?.versions.includes(quoteCfg.version) && bParent.info?.versions.includes(baseCfg.version)
+    }
+    if (base.token) {
+      const bParent = app().assets[base.token.parentID]
+      return quote.info?.versions.includes(quoteCfg.version) && bParent.info?.versions.includes(baseCfg.version)
+    }
+    if (quote.token) {
+      const qParent = app().assets[quote.token.parentID]
+      return base.info?.versions.includes(baseCfg.version) && qParent.info?.versions.includes(quoteCfg.version)
+    }
+    // if none them are token, just check if own asset is supported.
+    return base.info?.versions.includes(baseCfg.version) && quote.info?.versions.includes(quoteCfg.version)
   }
 
   /*
