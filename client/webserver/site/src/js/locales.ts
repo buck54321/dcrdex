@@ -112,7 +112,7 @@ export const enUS: Locale = {
   [ID_BUY]: 'Buy',
   [ID_SELL]: 'Sell',
   [ID_NOT_SUPPORTED]: '{{ asset }} is not supported',
-  [ID_VERSION_NOT_SUPPORTED]: 'version: {{ version }} of {{ asset }} is not supported',
+  [ID_VERSION_NOT_SUPPORTED]: '{{ asset }} (v{{version}}) is not supported',
   [ID_CONNECTION_FAILED]: 'Connection to dex server failed. You can close dexc and try again later or wait for it to reconnect.',
   [ID_ORDER_PREVIEW]: 'Total: {{ total }} {{ asset }}',
   [ID_CALCULATING]: 'calculating...',
