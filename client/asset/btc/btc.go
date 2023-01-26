@@ -847,6 +847,7 @@ type intermediaryWallet struct {
 // method to implement asset.Rescanner.
 type ExchangeWalletSPV struct {
 	*intermediaryWallet
+	*authAddOn
 
 	spvNode *spvWallet
 }
@@ -854,6 +855,7 @@ type ExchangeWalletSPV struct {
 // ExchangeWalletFullNode implements Wallet and adds the FeeRate method.
 type ExchangeWalletFullNode struct {
 	*intermediaryWallet
+	*authAddOn
 }
 
 // ExchangeWalletAccelerator implements the Accelerator interface on an
@@ -862,13 +864,15 @@ type ExchangeWalletAccelerator struct {
 	*ExchangeWalletFullNode
 }
 
+type ExhangeWalletNoAuth struct {
+	*intermediaryWallet
+}
+
 // Check that wallets satisfy their supported interfaces.
-var _ asset.Wallet = (*intermediaryWallet)(nil)
 var _ asset.Accelerator = (*ExchangeWalletAccelerator)(nil)
 var _ asset.Accelerator = (*ExchangeWalletSPV)(nil)
 var _ asset.Withdrawer = (*baseWallet)(nil)
 var _ asset.Rescanner = (*ExchangeWalletSPV)(nil)
-var _ asset.FeeRater = (*ExchangeWalletFullNode)(nil)
 var _ asset.LogFiler = (*ExchangeWalletSPV)(nil)
 var _ asset.Recoverer = (*ExchangeWalletSPV)(nil)
 var _ asset.PeerManager = (*ExchangeWalletSPV)(nil)
@@ -1056,17 +1060,31 @@ func BTCCloneWallet(cfg *BTCCloneCFG) (*ExchangeWalletFullNode, error) {
 		return nil, err
 	}
 
-	btc, err := newRPCWallet(client, cfg, clientCfg)
+	iw, err := newRPCWallet(client, cfg, clientCfg)
 	if err != nil {
 		return nil, fmt.Errorf("error creating %s ExchangeWallet: %v", cfg.Symbol,
 			err)
 	}
 
-	return btc, nil
+	return &ExchangeWalletFullNode{iw, &authAddOn{iw.node}}, nil
+}
+
+func NoAuthClone(cfg *BTCCloneCFG) (*ExhangeWalletNoAuth, error) {
+	clientCfg, client, err := parseRPCWalletConfig(cfg.WalletCFG.Settings, cfg.Symbol, cfg.Network, cfg.Ports, cfg.SingularWallet)
+	if err != nil {
+		return nil, err
+	}
+
+	iw, err := newRPCWallet(client, cfg, clientCfg)
+	if err != nil {
+		return nil, fmt.Errorf("error creating %s ExchangeWallet: %v", cfg.Symbol,
+			err)
+	}
+	return &ExhangeWalletNoAuth{iw}, nil
 }
 
 // newRPCWallet creates the ExchangeWallet and starts the block monitor.
-func newRPCWallet(requester RawRequester, cfg *BTCCloneCFG, parsedCfg *RPCWalletConfig) (*ExchangeWalletFullNode, error) {
+func newRPCWallet(requester RawRequester, cfg *BTCCloneCFG, parsedCfg *RPCWalletConfig) (*intermediaryWallet, error) {
 	btc, err := newUnconnectedWallet(cfg, &parsedCfg.WalletConfig)
 	if err != nil {
 		return nil, err
@@ -1104,12 +1122,10 @@ func newRPCWallet(requester RawRequester, cfg *BTCCloneCFG, parsedCfg *RPCWallet
 	core.requesterV.Store(requester)
 	node := newRPCClient(core)
 	btc.node = node
-	return &ExchangeWalletFullNode{
-		intermediaryWallet: &intermediaryWallet{
-			baseWallet:     btc,
-			txFeeEstimator: node,
-			tipRedeemer:    node,
-		},
+	return &intermediaryWallet{
+		baseWallet:     btc,
+		txFeeEstimator: node,
+		tipRedeemer:    node,
 	}, nil
 }
 
@@ -2540,20 +2556,24 @@ func (btc *baseWallet) FundingCoins(ids []dex.Bytes) (asset.Coins, error) {
 	return coins, nil
 }
 
+type authAddOn struct {
+	w Wallet
+}
+
 // Unlock unlocks the ExchangeWallet. The pw supplied should be the same as the
 // password for the underlying bitcoind wallet which will also be unlocked.
-func (btc *baseWallet) Unlock(pw []byte) error {
-	return btc.node.walletUnlock(pw)
+func (a *authAddOn) Unlock(pw []byte) error {
+	return a.w.walletUnlock(pw)
 }
 
 // Lock locks the ExchangeWallet and the underlying bitcoind wallet.
-func (btc *baseWallet) Lock() error {
-	return btc.node.walletLock()
+func (a *authAddOn) Lock() error {
+	return a.w.walletLock()
 }
 
 // Locked will be true if the wallet is currently locked.
-func (btc *baseWallet) Locked() bool {
-	return btc.node.locked()
+func (a *authAddOn) Locked() bool {
+	return a.w.locked()
 }
 
 // fundedTx creates and returns a new MsgTx with the provided coins as inputs.
@@ -4047,9 +4067,9 @@ func (btc *baseWallet) DepositAddress() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if btc.Locked() {
-		return addrStr, nil
-	}
+	// if btc.Locked() {
+	// 	return addrStr, nil
+	// }
 	// If the wallet is unlocked, be extra cautious and ensure the wallet gave
 	// us an address for which we can retrieve the private keys, regardless of
 	// what ownsAddress would say.

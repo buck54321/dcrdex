@@ -611,7 +611,7 @@ func makeSwapContract(segwit bool, lockTimeOffset time.Duration) (secret []byte,
 	return
 }
 
-func tNewWallet(segwit bool, walletType string) (*ExchangeWalletFullNode, *testData, func()) {
+func tNewWallet(segwit bool, walletType string) (*intermediaryWallet, *testData, func()) {
 	if segwit {
 		tBTC.SwapSize = dexbtc.InitTxSizeSegwit
 		tBTC.SwapSizeBase = dexbtc.InitTxSizeBaseSegwit
@@ -646,7 +646,7 @@ func tNewWallet(segwit bool, walletType string) (*ExchangeWalletFullNode, *testD
 		FeeEstimator:        rpcFeeRate,
 	}
 
-	var wallet *ExchangeWalletFullNode
+	var wallet *intermediaryWallet
 	var err error
 	switch walletType {
 	case walletTypeRPC:
@@ -668,13 +668,11 @@ func tNewWallet(segwit bool, walletType string) (*ExchangeWalletFullNode, *testD
 				decodeAddr:  btcutil.DecodeAddress,
 			}
 			w.node = spvw
-			wallet = &ExchangeWalletFullNode{
-				intermediaryWallet: &intermediaryWallet{
-					baseWallet:     w,
-					txFeeEstimator: spvw,
-					tipRedeemer:    spvw,
-				},
-			} // ? ExchangeWalletSPV
+			wallet = &intermediaryWallet{
+				baseWallet:     w,
+				txFeeEstimator: spvw,
+				tipRedeemer:    spvw,
+			}
 		}
 	}
 
@@ -1305,7 +1303,7 @@ func testFundingCoins(t *testing.T, segwit bool, walletType string) {
 	ensureGood()
 }
 
-func checkMaxOrder(t *testing.T, wallet asset.Wallet, lots, swapVal, maxFees, estWorstCase, estBestCase uint64) {
+func checkMaxOrder(t *testing.T, wallet *intermediaryWallet, lots, swapVal, maxFees, estWorstCase, estBestCase uint64) {
 	t.Helper()
 	maxOrder, err := wallet.MaxOrder(&asset.MaxOrderForm{
 		LotSize:       tLotSize,
@@ -2338,8 +2336,10 @@ func TestLockUnlock(t *testing.T) {
 }
 
 func testLockUnlock(t *testing.T, segwit bool, walletType string) {
-	wallet, node, shutdown := tNewWallet(segwit, walletType)
+	w, node, shutdown := tNewWallet(segwit, walletType)
 	defer shutdown()
+
+	wallet := &ExchangeWalletFullNode{w, &authAddOn{w.node}}
 
 	pw := []byte("pass")
 
@@ -3247,7 +3247,7 @@ func testAccelerateOrder(t *testing.T, segwit bool, walletType string) {
 	w, node, shutdown := tNewWallet(segwit, walletType)
 	defer shutdown()
 
-	wallet := &ExchangeWalletAccelerator{w}
+	wallet := &ExchangeWalletAccelerator{&ExchangeWalletFullNode{w, &authAddOn{w.node}}}
 
 	var blockHash100 chainhash.Hash
 	copy(blockHash100[:], encode.RandomBytes(32))

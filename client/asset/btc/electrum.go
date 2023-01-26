@@ -24,6 +24,7 @@ import (
 // ExchangeWalletElectrum is the asset.Wallet for an external Electrum wallet.
 type ExchangeWalletElectrum struct {
 	*baseWallet
+	*authAddOn
 	ew *electrumWallet
 }
 
@@ -64,6 +65,7 @@ func ElectrumWallet(cfg *BTCCloneCFG) (*ExchangeWalletElectrum, error) {
 
 	eew := &ExchangeWalletElectrum{
 		baseWallet: btc,
+		authAddOn:  &authAddOn{btc.node},
 		ew:         ew,
 	}
 	// In (*baseWallet).feeRate, use ExchangeWalletElectrum's walletFeeRate

@@ -160,7 +160,7 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, net dex.Network) (ass
 		Testnet: "18232",
 		Simnet:  "18232",
 	}
-	var w *btc.ExchangeWalletFullNode
+	var w *btc.ExhangeWalletNoAuth
 	cloneCFG := &btc.BTCCloneCFG{
 		WalletCFG:                cfg,
 		MinNetworkVersion:        minNetworkVersion,
@@ -223,7 +223,7 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, net dex.Network) (ass
 	}
 
 	var err error
-	w, err = btc.BTCCloneWallet(cloneCFG)
+	w, err = btc.NoAuthClone(cloneCFG)
 	return w, err
 }
 
