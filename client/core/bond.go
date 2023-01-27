@@ -808,22 +808,19 @@ func (c *Core) PostBond(form *PostBondForm) (*PostBondResult, error) {
 		return nil, newError(assetSupportErr, "dex host has not connected or does not support fidelity bonds in asset %q", bondAssetSymbol)
 	}
 
-	bondValidity := minBondLifetime(c.net, int64(bondExpiry))
-	lockTime := time.Now().Add(bondValidity).Truncate(time.Second)
+	lockDur := minBondLifetime(c.net, int64(bondExpiry))
+	lockTime := time.Now().Add(lockDur).Truncate(time.Second)
 	if form.LockTime > 0 {
 		lockTime = time.Unix(int64(form.LockTime), 0)
 	}
-	expireTime := time.Now().Add(bondValidity) // when the server would expire the bond
-	if lockTime.Before(expireTime) {
-		return nil, newError(bondTimeErr, "lock time of %d has already passed the server's expiry time of %v (bond expiry %d)",
-			form.LockTime, expireTime, bondExpiry)
-	}
-	if lockTime.Add(-time.Minute).Before(expireTime) {
-		return nil, newError(bondTimeErr, "lock time of %d is less than a minute from the server's expiry time of %v (bond expiry %d)",
-			form.LockTime, expireTime, bondExpiry)
+	expireTime := lockTime.Add(time.Second * time.Duration(-bondExpiry)) // when the server would expire the bond
+	if time.Until(expireTime) < time.Minute {
+		return nil, newError(bondTimeErr, "bond would expire in less than one minute")
 	}
 	if lockDur := time.Until(lockTime); lockDur > lockTimeLimit {
 		return nil, newError(bondTimeErr, "excessive lock time (%v>%v)", lockDur, lockTimeLimit)
+	} else if lockDur <= 0 { // should be redundant, but be sure
+		return nil, newError(bondTimeErr, "lock time of %d in the past", form.LockTime)
 	}
 
 	// Check that the bond amount is non-zero.
