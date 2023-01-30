@@ -30,6 +30,7 @@ import (
 	"decred.org/dcrdex/dex/calc"
 	"decred.org/dcrdex/dex/encode"
 	"decred.org/dcrdex/dex/encrypt"
+	"decred.org/dcrdex/dex/keygen"
 	"decred.org/dcrdex/dex/msgjson"
 	"decred.org/dcrdex/dex/order"
 	ordertest "decred.org/dcrdex/dex/order/test"
@@ -38,6 +39,7 @@ import (
 	serverdex "decred.org/dcrdex/server/dex"
 	"github.com/decred/dcrd/crypto/blake256"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/decred/dcrd/hdkeychain/v3"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
@@ -125,6 +127,7 @@ var (
 			Type: "type",
 		}},
 	}
+	tBondAsset = &msgjson.BondAsset{ID: 42, Amt: tFee, Confs: 1}
 )
 
 type tMsg = *msgjson.Message
@@ -271,7 +274,7 @@ func testDexConnection(ctx context.Context, crypter *tCrypter) (*dexConnection, 
 			},
 			BondExpiry: 86400, // >0 make client treat as API v1
 			BondAssets: map[string]*msgjson.BondAsset{
-				"dcr": {ID: 42, Amt: tFee, Confs: 1},
+				"dcr": tBondAsset,
 			},
 			Fee:            tFee,
 			RegFeeConfirms: 0, // 1 or remove?
@@ -726,6 +729,9 @@ type TXCWallet struct {
 	estFee    uint64
 	estFeeErr error
 	validAddr bool
+
+	madeBond              *asset.Bond
+	requestedBondLocktime time.Time
 }
 
 var _ asset.Accelerator = (*TXCWallet)(nil)
@@ -934,8 +940,16 @@ func (w *TXCWallet) Send(address string, value, feeSuggestion uint64) (asset.Coi
 	return w.sendCoin, w.sendErr
 }
 
-func (w *TXCWallet) MakeBondTx(ver uint64, address string, regFee uint64, acctID []byte) (*asset.Bond, error) {
-	return nil, errors.New("not used")
+func (w *TXCWallet) MakeBondTx(ver uint16, amt, feeRate uint64, lockTime time.Time, privKey *secp256k1.PrivateKey, acctID []byte) (*asset.Bond, error) {
+	if w.madeBond == nil {
+		return nil, errors.New("no test bond assigned")
+	}
+	w.requestedBondLocktime = lockTime
+	return w.madeBond, nil
+}
+
+func (w *TXCWallet) RefundBond(ctx context.Context, ver uint16, coinID, script []byte, amt uint64, privKey *secp256k1.PrivateKey) ([]byte, error) {
+	return nil, errors.New("no test refund coin ID assigned")
 }
 
 func (w *TXCWallet) SendTransaction(rawTx []byte) ([]byte, error) {
@@ -1263,6 +1277,8 @@ func newTestRig() *testRig {
 		dc.connMaster.Wait()
 	}
 
+	bondXPriv, _ := hdkeychain.NewMaster(encode.RandomBytes(32), &keygen.RootKeyParams{})
+
 	rig := &testRig{
 		shutdown: shutdown,
 		core: &Core{
@@ -1294,6 +1310,7 @@ func newTestRig() *testRig {
 			localePrinter: message.NewPrinter(language.AmericanEnglish),
 
 			fiatRateSources: make(map[string]*commonRateSource),
+			bondXPriv:       bondXPriv,
 		},
 		db:      tdb,
 		queue:   queue,
@@ -10423,4 +10440,147 @@ func TestUpdateFeesPaid(t *testing.T) {
 			t.Fatalf("%s: want %d but got %d fees paid", test.name, test.paid, got)
 		}
 	}
+}
+
+func TestRotateBonds(t *testing.T) {
+	rig := newTestRig()
+
+	bondCoinID := encode.RandomBytes(10)
+	makeAssetBond := func(amt uint64) *asset.Bond {
+		return &asset.Bond{
+			Version:     0,
+			AssetID:     tBondAsset.ID,
+			Amount:      amt,
+			CoinID:      bondCoinID,
+			Data:        nil,
+			BondPrivKey: encode.RandomBytes(2),
+			SignedTx:    encode.RandomBytes(3),
+			UnsignedTx:  encode.RandomBytes(4),
+			RedeemTx:    nil,
+		}
+	}
+
+	bondWallet, tBondWallet := newTWallet(tBondAsset.ID)
+	rig.core.wallets[tBondAsset.ID] = bondWallet
+
+	tBondWallet.madeBond = makeAssetBond(tBondAsset.Amt)
+
+	acct := rig.dc.acct
+	acct.auth(0, false)
+	acct.bondAsset = tBondAsset.ID
+	acct.maxBondedAmt = tBondAsset.Amt * 4
+
+	// We could do a separate TestBondPrevalidate, but just checking some error
+	// paths here while we're set up.
+	bondValidationAmt := tBondAsset.Amt
+	bondValidationCoinID := bondCoinID
+	bondValidationAcctID := acct.id[:]
+	bondValidationAssetID := tBondAsset.ID
+	var bondValidationExpiryTweak uint64
+	rotate := func() {
+		rig.ws.queueResponse(msgjson.PreValidateBondRoute, func(msg *msgjson.Message, f msgFunc) error {
+			payload := &msgjson.PreValidateBondResult{
+				AccountID: bondValidationAcctID,
+				AssetID:   bondValidationAssetID,
+				Amount:    bondValidationAmt,
+				Expiry:    uint64(tBondWallet.requestedBondLocktime.Unix()) + bondValidationExpiryTweak,
+				BondID:    bondValidationCoinID,
+			}
+			resp, _ := msgjson.NewResponse(msg.ID, payload, nil)
+			f(resp)
+			return nil
+		})
+		rig.core.rotateBonds(tCtx)
+	}
+
+	testAddNewBonds := func(name string, targetTier uint64, expPending int) {
+		acct.pendingBonds = nil
+		acct.targetTier = targetTier
+
+		rotate()
+
+		// Expect one pendingBond
+		if len(acct.pendingBonds) != expPending {
+			t.Fatalf("%s: wrong number of pending bonds. wanted %d, got %d", name, expPending, len(acct.pendingBonds))
+		}
+	}
+
+	testAddNewBonds("add 1 tier success", 1, 1)
+
+	// Not authed
+	acct.isAuthed = false
+	testAddNewBonds("not authed fail", 1, 0)
+	acct.isAuthed = true
+
+	// No bond asset chosen
+	acct.bondAsset = 555
+	testAddNewBonds("invalid bond asset fail", 1, 0)
+	acct.bondAsset = tBondAsset.ID
+
+	// Two bonds still result in on pending bond
+	tBondWallet.madeBond = makeAssetBond(tBondAsset.Amt * 2)
+	bondValidationAmt = tBondAsset.Amt * 2
+	testAddNewBonds("add 2 tiers success", 2, 1)
+	tBondWallet.madeBond = makeAssetBond(tBondAsset.Amt)
+	bondValidationAmt = tBondAsset.Amt
+
+	// Test bond pre-validation errors.
+
+	bondValidationAmt = tBondAsset.Amt + 1
+	testAddNewBonds("wrong pre-validation amt fail", 1, 0)
+	bondValidationAmt = tBondAsset.Amt
+
+	bondValidationCoinID = encode.RandomBytes(12)
+	testAddNewBonds("wrong pre-validation coin ID fail", 1, 0)
+	bondValidationCoinID = bondCoinID
+
+	bondValidationAcctID = encode.RandomBytes(32)
+	testAddNewBonds("wrong pre-validation acct ID fail", 1, 0)
+	bondValidationAcctID = acct.id[:]
+
+	bondValidationAssetID = 555
+	testAddNewBonds("wrong pre-validation asset ID fail", 1, 0)
+	bondValidationAssetID = tBondAsset.ID
+
+	bondValidationExpiryTweak = 1
+	testAddNewBonds("wrong pre-validation expiry fail", 1, 0)
+	bondValidationExpiryTweak = 0
+
+	// Test bond expiration
+	lockTimeThresh := uint64(time.Now().Unix()) + rig.dc.cfg.BondExpiry
+	replaceThresh := lockTimeThresh + uint64(pendingBuffer(rig.core.net))
+	expiringBond := &db.Bond{
+		AssetID: tBondAsset.ID,
+		CoinID:  bondCoinID,
+		Amount:  tBondAsset.Amt,
+	}
+	acct.tier = 1
+
+	checkExpiration := func(name string, expExpired, expPending int) {
+		acct.bonds = []*db.Bond{expiringBond}
+		acct.expiredBonds = nil
+		acct.pendingBonds = nil
+		rotate()
+		if len(acct.expiredBonds) != expExpired {
+			t.Fatalf("%s: wrong number of expired bonds moved. wanted %d, got %d", name, expExpired, len(acct.expiredBonds))
+		}
+		if len(acct.pendingBonds) != expPending {
+			t.Fatalf("%s: wrong number of pending bonds created. wanted %d, got %d", name, expPending, len(acct.pendingBonds))
+		}
+	}
+
+	expiringBond.LockTime = replaceThresh + 5
+	checkExpiration("not expired, not weak", 0, 0)
+
+	expiringBond.LockTime = replaceThresh - 5
+	checkExpiration("bond is weak", 0, 1)
+
+	acct.maxBondedAmt = tBondAsset.Amt
+	checkExpiration("weak bond, but too low maxBondedAmt", 0, 0)
+	acct.maxBondedAmt = tBondAsset.Amt * 4
+
+	// TODO: rotateBonds is not considering newly expired bonds in it's
+	// tierDeficit calculation.
+	// expiringBond.LockTime = lockTimeThresh - 5
+	// checkExpiration("bond moved to expired", 1, 1)
 }

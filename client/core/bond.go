@@ -411,14 +411,9 @@ func (c *Core) rotateBonds(ctx context.Context) {
 	}
 }
 
-func (c *Core) preValidateBond(dc *dexConnection, bond *asset.Bond) error {
+func (c *Core) preValidateBond(dc *dexConnection, bond *asset.Bond, lockTime time.Time) error {
 	if len(dc.acct.encKey) == 0 {
 		return fmt.Errorf("uninitialized account")
-	}
-
-	pkBytes := dc.acct.pubKey()
-	if len(pkBytes) == 0 {
-		return fmt.Errorf("account keys not decrypted")
 	}
 
 	assetID, bondCoin := bond.AssetID, bond.CoinID
@@ -427,7 +422,7 @@ func (c *Core) preValidateBond(dc *dexConnection, bond *asset.Bond) error {
 	// Pre-validate with the raw bytes of the unsigned tx and our account
 	// pubkey.
 	preBond := &msgjson.PreValidateBond{
-		AcctPubKey: pkBytes,
+		AcctPubKey: dc.acct.pubKey(),
 		AssetID:    assetID,
 		Version:    bond.Version,
 		RawTx:      bond.UnsignedTx,
@@ -444,16 +439,24 @@ func (c *Core) preValidateBond(dc *dexConnection, bond *asset.Bond) error {
 	if err != nil {
 		c.log.Warnf("prevalidatebond: DEX signature validation error: %v", err)
 	}
+
+	if !bytes.Equal(preBondRes.AccountID, dc.acct.id[:]) {
+		return fmt.Errorf("server reported the wrong account ID for our bond pre-validation")
+	}
+	if preBondRes.AssetID != bond.AssetID {
+		return fmt.Errorf("server bond pre-validation reported wrong asset ID. wanted %d, got %d", bond.AssetID, preBondRes.AssetID)
+	}
 	if !bytes.Equal(preBondRes.BondID, bondCoin) {
 		return fmt.Errorf("server reported bond coin ID %v, expected %v", bondCoinStr,
 			coinIDString(assetID, preBondRes.BondID))
 	}
-
 	if preBondRes.Amount != bond.Amount {
 		return newError(bondTimeErr, "pre-validated bond amount is not the desired amount: %d != %d",
 			preBondRes.Amount, bond.Amount)
 	}
-
+	if int64(preBondRes.Expiry) != lockTime.Unix() {
+		return fmt.Errorf("pre-validated bond expiration does not match our lock time. wanted %d, got %d", lockTime.Unix(), preBondRes.Expiry)
+	}
 	return nil
 }
 
@@ -883,7 +886,7 @@ func (c *Core) makeAndPostBond(dc *dexConnection, acctExists bool, wallet *xcWal
 	}
 
 	// Do prevalidatebond with the *unsigned* txn.
-	if err = c.preValidateBond(dc, bond); err != nil {
+	if err = c.preValidateBond(dc, bond, lockTime); err != nil {
 		return nil, err
 	}
 
