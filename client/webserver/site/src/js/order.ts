@@ -366,19 +366,67 @@ export default class OrderPage extends BasePage {
       Doc.hide(tmpl.makerSwapMsg, tmpl.takerSwapMsg, tmpl.makerRedeemMsg, tmpl.takerRedeemMsg)
     }
 
-    Doc.setVis(!m.isCancel && (makerSwapCoin(m) || !m.revoked), tmpl.makerSwap)
-    Doc.setVis(!m.isCancel && (takerSwapCoin(m) || !m.revoked), tmpl.takerSwap)
-    // When revoked, maker redeem might still show up:
-    // - for maker, it might have been issued before revocation and got stored
-    //   in DB only after revocation
-    // - for taker, maker redeem can show up any time (because of some delays,
-    //   or maker "not playing by the rules").
-    Doc.setVis(!m.isCancel && (makerRedeemCoin(m) || !m.revoked || (m.revoked && m.side === OrderUtil.Taker)), tmpl.makerRedeem)
-    // When revoked, there is uncertainty about the taker redeem coin. The taker
-    // redeem may be needed if maker redeems while taker is waiting to refund.
-    Doc.setVis(!m.isCancel && (takerRedeemCoin(m) || (!m.revoked && m.active) || (m.side === OrderUtil.Taker && m.active && (m.counterRedeem || !m.refund))), tmpl.takerRedeem)
-    // The refund placeholder should not be shown if there is a counter redeem.
-    Doc.setVis(!m.isCancel && (m.refund || (m.revoked && m.active && !m.counterRedeem)), tmpl.refund)
+    if (!m.revoked) {
+      // Match is still following the usual success-path, it is desirable for the
+      // user to see it in full (even if to learn how atomic swap is supposed to
+      // work).
+
+      Doc.setVis(!m.isCancel && (makerSwapCoin(m) || m.active), tmpl.makerSwap)
+      Doc.setVis(!m.isCancel && (takerSwapCoin(m) || m.active), tmpl.takerSwap)
+      Doc.setVis(!m.isCancel && (makerRedeemCoin(m) || m.active), tmpl.makerRedeem)
+      // When maker isn't aware of taker redeem coin, once the match becomes inactive
+      // (nothing else maker is expected to do in this match) just hide taker redeem.
+      Doc.setVis(!m.isCancel && (takerRedeemCoin(m) || m.active), tmpl.takerRedeem)
+      // Refunding isn't a usual part of success-path, but don't rule it out.
+      Doc.setVis(!m.isCancel && m.refund, tmpl.refund)
+    } else {
+      // Match diverged from the usual success-path, since this could have happened
+      // at any step it is hard (maybe impossible) to predict the final state this
+      // match will end up in, so show only steps that already happened plus all
+      // the possibilities on the next step ahead.
+
+      // After revocation, we don't expect swap coin to appear (it could though, and
+      // we'll show it in that case).
+      Doc.setVis(!m.isCancel && (makerSwapCoin(m)), tmpl.makerSwap)
+      // After revocation, we don't expect swap coin to appear (it could though, and
+      // we'll show it in that case).
+      Doc.setVis(!m.isCancel && (takerSwapCoin(m)), tmpl.takerSwap)
+      // When match is revoked and both swaps are present, maker redeem might still show up:
+      // - as maker, we'll try to redeem until it isn't possible due to refund by taker,
+      //   so we'll have to show redeem coin until we either redeem or refund
+      //   because there isn't enough data on match card to figure out whether taker
+      //   refunded already
+      // - as taker, we should expect maker redeeming any time, so we'll have to show
+      //   redeem coins until make redeem shows up, or until we refund.
+      Doc.setVis(!m.isCancel && (makerRedeemCoin(m) || (makerSwapCoin(m) && takerSwapCoin(m) && m.active && !m.refund)), tmpl.makerRedeem)
+      // When maker isn't aware of taker redeem coin, once the match becomes inactive
+      // (nothing else maker is expected to do in this match) just hide taker redeem.
+      Doc.setVis(!m.isCancel && (takerRedeemCoin(m) || (makerRedeemCoin(m) && m.active && !m.refund)), tmpl.takerRedeem)
+      // As taker, show refund placeholder only if we have outstanding swap to refund.
+      // There is no need to wait for anything else, we can show refund placeholder
+      // (to inform the user that it is likely to happen) right after match revocation.
+      let expectingRefund = !!takerSwapCoin(m) // as taker
+      if (m.side === OrderUtil.Maker) {
+        // As maker, show refund placeholder only if we have outstanding swap to refund.
+        // If we don't have taker swap there is no need to wait for anything else, we
+        // can show refund placeholder (to inform the user that it is likely to happen)
+        // right after match revocation.
+        expectingRefund = !!makerSwapCoin(m)
+        // If we discover taker swap we'll be trying to redeem it (instead of trying
+        // to refund our own swap) until taker refunds, so start showing refund
+        // placeholder only after taker is expected to start his refund process in
+        // this case.
+        if (takerSwapCoin(m)) {
+          const takerRefundsAfter = new Date(m.stamp + lockTimeTakerMs)
+          expectingRefund = expectingRefund && Date.now() > takerRefundsAfter.getTime()
+        }
+      }
+      // We need to show refund placeholder if the match is still active after it has
+      // been revoked (to provide some feedback to the user), but refund placeholder
+      // should not be shown if there is a known redeem (or counter redeem, depending
+      // on our side).
+      Doc.setVis(!m.isCancel && (m.refund || (m.active && !m.redeem && !m.counterRedeem && expectingRefund)), tmpl.refund)
+    }
   }
 
   /*
