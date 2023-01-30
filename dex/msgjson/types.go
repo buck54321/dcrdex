@@ -948,6 +948,7 @@ type ConnectResult struct {
 	ActiveMatches       []*Match       `json:"activematches"`
 	Score               int32          `json:"score"`
 	Tier                *int64         `json:"tier"` // 1+ means bonded and may trade, a function of active bond amounts and conduct, nil legacy
+	TierDeficit         int64          `json:"tierDeficit"`
 	ActiveBonds         []*Bond        `json:"activeBonds"`
 	LegacyFeePaid       *bool          `json:"legacyFeePaid"` // not set by legacy server
 

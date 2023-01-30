@@ -857,12 +857,12 @@ func (auth *AuthManager) UserScore(user account.AccountID) (score int32) {
 }
 
 // tier computes a user's tier from their conduct score and bond tier.
-func (auth *AuthManager) tier(bondTier int64, score int32, legacyFeePaid bool) int64 {
-	tierAdj := int64(score) / int64(auth.banScore)
+func (auth *AuthManager) tier(bondTier int64, score int32, legacyFeePaid bool) (tier, deficit int64) {
+	deficit = int64(score) / int64(auth.banScore)
 	if legacyFeePaid {
 		bondTier++
 	}
-	return bondTier - tierAdj
+	return bondTier - deficit, deficit
 }
 
 // computeUserTier computes the user's tier given the provided score weighed
@@ -879,7 +879,7 @@ func (auth *AuthManager) computeUserTier(user account.AccountID, score int32) (t
 		for _, bond := range bonds {
 			bondTier += int64(bond.Strength)
 		}
-		tier = auth.tier(bondTier, score, legacyFeePaid)
+		tier, _ = auth.tier(bondTier, score, legacyFeePaid)
 		return
 	}
 
@@ -887,7 +887,7 @@ func (auth *AuthManager) computeUserTier(user account.AccountID, score int32) (t
 	defer client.mtx.Unlock()
 	wasTier := client.tier
 	bondTier = client.bondTier()
-	client.tier = auth.tier(bondTier, score, client.legacyFeePaid)
+	client.tier, _ = auth.tier(bondTier, score, client.legacyFeePaid)
 	tier = client.tier
 	changed = wasTier != tier
 
@@ -1200,7 +1200,7 @@ func (auth *AuthManager) checkBonds() {
 		score := auth.userScore(client.acct.ID)
 		auth.violationMtx.Unlock()
 
-		client.tier = auth.tier(bondTier, score, client.legacyFeePaid)
+		client.tier, _ = auth.tier(bondTier, score, client.legacyFeePaid)
 
 		return pruned, bondTier, client.tier
 	}
@@ -1258,7 +1258,7 @@ func (auth *AuthManager) addBond(user account.AccountID, bond *db.Bond) (bondTie
 	defer client.mtx.Unlock()
 
 	bondTier = client.addBond(bond)
-	tier = auth.tier(bondTier, score, client.legacyFeePaid)
+	tier, _ = auth.tier(bondTier, score, client.legacyFeePaid)
 	client.tier = tier
 
 	return
@@ -1503,7 +1503,7 @@ func (auth *AuthManager) handleConnect(conn comms.Link, msg *msgjson.Message) *m
 		bondTier += int64(bond.Strength)
 	}
 
-	tier := auth.tier(bondTier, score, legacyPaid)
+	tier, tierDeficit := auth.tier(bondTier, score, legacyPaid)
 
 	client := &clientInfo{
 		acct:          acctInfo,
@@ -1618,6 +1618,7 @@ func (auth *AuthManager) handleConnect(conn comms.Link, msg *msgjson.Message) *m
 		ActiveMatches:       msgMatches,
 		Score:               score,
 		Tier:                &tier,
+		TierDeficit:         tierDeficit,
 		ActiveBonds:         msgBonds,
 		Suspended:           &suspended,  // V0PURGE
 		LegacyFeePaid:       &legacyPaid, // courtesy for account discovery
