@@ -263,86 +263,40 @@ export default class OrderPage extends BasePage {
     const tmpl = Doc.parseTemplate(matchCard)
     tmpl.status.textContent = OrderUtil.matchStatusString(m)
 
-    const tryShowCoin = (showPlaceholder: () => void, showCoin: () => void, linkName: string, coin: Coin) => {
-      const coinLink = tmpl[linkName]
+    const tryShowCoin = (pendingEl: PageElement, coinLink: PageElement, coin: Coin) => {
       if (!coin) {
         Doc.hide(coinLink)
-        showPlaceholder()
+        Doc.show(pendingEl)
         return
       }
       coinLink.textContent = formatCoinID(coin.stringID)
       coinLink.dataset.explorerCoin = coin.stringID
       setCoinHref(coin.assetID, coinLink)
       Doc.show(coinLink)
-      showCoin()
+      Doc.hide(pendingEl)
     }
 
-    tryShowCoin(
-      (): void => {
-        Doc.show(tmpl.makerSwapPending)
-      },
-      (): void => {
-        Doc.hide(tmpl.makerSwapPending)
-      },
-      'makerSwapCoin',
-      makerSwapCoin(m)
-    )
-    tryShowCoin(
-      (): void => {
-        Doc.show(tmpl.takerSwapPending)
-      },
-      (): void => {
-        Doc.hide(tmpl.takerSwapPending)
-      },
-      'takerSwapCoin',
-      takerSwapCoin(m)
-    )
-    tryShowCoin(
-      (): void => {
-        Doc.show(tmpl.makerRedeemPending)
-      },
-      (): void => {
-        Doc.hide(tmpl.makerRedeemPending)
-      },
-      'makerRedeemCoin',
-      makerRedeemCoin(m)
-    )
-    tryShowCoin(
-      (): void => {
-        Doc.show(tmpl.takerRedeemPending)
-      },
-      (): void => {
-        Doc.hide(tmpl.takerRedeemPending)
-      },
-      'takerRedeemCoin',
-      takerRedeemCoin(m)
-    )
-    tryShowCoin(
-      (): void => {
-        let lockTime = lockTimeMakerMs
-        if (m.side === OrderUtil.Taker) {
-          lockTime = lockTimeTakerMs
-        }
-        const refundAfter = new Date(m.stamp + lockTime)
-        if (Date.now() > refundAfter.getTime()) {
-          tmpl.refundPending.textContent = intl.prep(intl.ID_REFUND_IMMINENT)
-        } else {
-          const refundAfterStr = refundAfter.toLocaleTimeString('en-GB', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-          })
-          tmpl.refundPending.textContent = intl.prep(intl.ID_REFUND_WILL_HAPPEN_AFTER, { refundAfterTime: refundAfterStr })
-        }
+    tryShowCoin(tmpl.makerSwapPending, tmpl.makerSwapCoin, makerSwapCoin(m))
+    tryShowCoin(tmpl.takerSwapPending, tmpl.takerSwapCoin, takerSwapCoin(m))
+    tryShowCoin(tmpl.makerRedeemPending, tmpl.makerRedeemCoin, makerRedeemCoin(m))
+    tryShowCoin(tmpl.takerRedeemPending, tmpl.takerRedeemCoin, takerRedeemCoin(m))
+    tryShowCoin(tmpl.refundPending, tmpl.refundCoin, m.refund)
 
-        Doc.show(tmpl.refundPending)
-      },
-      (): void => {
-        Doc.hide(tmpl.refundPending)
-      },
-      'refundCoin',
-      m.refund
-    )
+    // Special messaging for pending refunds.
+    if (m.refund) {
+      let lockTime = lockTimeMakerMs
+      if (m.side === OrderUtil.Taker) lockTime = lockTimeTakerMs
+      const refundAfter = new Date(m.stamp + lockTime)
+      if (Date.now() > refundAfter.getTime()) tmpl.refundPending.textContent = intl.prep(intl.ID_REFUND_IMMINENT)
+      else {
+        const refundAfterStr = refundAfter.toLocaleTimeString('en-GB', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        })
+        tmpl.refundPending.textContent = intl.prep(intl.ID_REFUND_WILL_HAPPEN_AFTER, { refundAfterTime: refundAfterStr })
+      }
+    }
 
     if (m.status === OrderUtil.MakerSwapCast && !m.revoked && !m.refund) {
       const c = makerSwapCoin(m)
