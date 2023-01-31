@@ -82,7 +82,7 @@ func Register(assetID uint32, driver Driver) {
 // RegisterToken should be called to register tokens. If no nets are specified
 // the token will be registered for all networks. The user must invoke
 // SetNetwork to enable net-based filtering of package function output.
-func RegisterToken(tokenID uint32, token *dex.Token, walletDef *WalletDefinition, nets ...dex.Network) {
+func RegisterToken(tokenID uint32, token *dex.Token, walletDef *WalletDefinition, supportedVersions []uint32, nets ...dex.Network) {
 	driversMtx.Lock()
 	defer driversMtx.Unlock()
 	if _, exists := tokens[tokenID]; exists {
@@ -94,8 +94,9 @@ func RegisterToken(tokenID uint32, token *dex.Token, walletDef *WalletDefinition
 	}
 	tokens[tokenID] = &nettedToken{
 		Token: &Token{
-			Token:      token,
-			Definition: walletDef,
+			Token:             token,
+			Definition:        walletDef,
+			SupportedVersions: supportedVersions,
 		},
 		nets: nets,
 	}

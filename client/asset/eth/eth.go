@@ -45,7 +45,7 @@ import (
 	"github.com/tyler-smith/go-bip39"
 )
 
-func registerToken(tokenID uint32, desc string, nets ...dex.Network) {
+func registerToken(tokenID uint32, desc string, supportedVersions []uint32, nets ...dex.Network) {
 	token, found := dexeth.Tokens[tokenID]
 	if !found {
 		panic("token " + strconv.Itoa(int(tokenID)) + " not known")
@@ -53,14 +53,14 @@ func registerToken(tokenID uint32, desc string, nets ...dex.Network) {
 	asset.RegisterToken(tokenID, token.Token, &asset.WalletDefinition{
 		Type:        "token",
 		Description: desc,
-	}, nets...)
+	}, supportedVersions, nets...)
 }
 
 func init() {
 	asset.Register(BipID, &Driver{})
 	// Test token
-	registerToken(simnetTokenID, "A token wallet for the DEX test token. Used for testing DEX software.", dex.Simnet)
-	registerToken(usdcTokenID, "The USDC Ethereum ERC20 token.", dex.Testnet)
+	registerToken(simnetTokenID, "A token wallet for the DEX test token. Used for testing DEX software.", []uint32{0}, dex.Simnet)
+	registerToken(usdcTokenID, "The USDC Ethereum ERC20 token.", []uint32{0}, dex.Testnet)
 }
 
 const (

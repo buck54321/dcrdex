@@ -167,6 +167,7 @@ export interface Token {
   name: string
   unitInfo: UnitInfo
   definition: WalletDefinition
+  supportedVersions: number[]
 }
 
 export interface WalletState {
