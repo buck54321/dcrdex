@@ -150,6 +150,7 @@ var (
 				ConfigOpts:  append(RPCOpts, WalletOpts...),
 				Seeded:      true,
 				NoAuth:      true,
+				GuideLink:   "https://github.com/decred/dcrdex/blob/master/docs/wiki/Ethereum.md",
 			},
 			// MaxSwapsInTx and MaxRedeemsInTx are set in (Wallet).Info, since
 			// the value cannot be known until we connect and get network info.

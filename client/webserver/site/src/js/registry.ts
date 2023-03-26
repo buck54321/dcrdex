@@ -224,6 +224,7 @@ export interface WalletDefinition {
   configpath: string
   configopts: ConfigOption[]
   noauth: boolean
+  guidelink: string
 }
 
 export interface ConfigOption {

@@ -302,6 +302,7 @@ export class NewWalletForm {
     this.current.selectedDef = walletDef
     const appPwCached = State.passwordIsCached() || (this.pwCache && this.pwCache.pw)
     Doc.hide(page.auth, page.oneBttnBox, page.newWalletPassBox)
+    const guideLink = walletDef.guidelink
     const configOpts = walletDef.configopts || []
     // If a config represents a wallet's birthday, we update the default
     // selection to the current date if this installation of the client
@@ -348,8 +349,8 @@ export class NewWalletForm {
         for (const opt of tokenOptsCopy) opt.regAsset = asset.id
         parentAndTokenOpts.push(...tokenOptsCopy)
       }
-      this.subform.update(parentAndTokenOpts, false)
-    } else this.subform.update(configOpts, false)
+      this.subform.update(guideLink, parentAndTokenOpts, false)
+    } else this.subform.update(guideLink, configOpts, false)
 
     if (this.subform.dynamicOpts.children.length || this.subform.defaultSettings.children.length) {
       Doc.show(page.walletSettingsHeader)
@@ -404,6 +405,7 @@ let repeatableCounter = 0
  * asset-specific wallet configuration options.
 */
 export class WalletConfigForm {
+  page: Record<string, PageElement>
   form: HTMLElement
   configElements: [ConfigOption, HTMLElement][]
   configOpts: ConfigOption[]
@@ -429,6 +431,7 @@ export class WalletConfigForm {
   assetHasActiveOrders: boolean
 
   constructor (form: HTMLElement, sectionize: boolean) {
+    this.page = Doc.idDescendants(form)
     this.form = form
     // A configElement is a div containing an input and its label.
     this.configElements = []
@@ -557,11 +560,17 @@ export class WalletConfigForm {
   /*
    * update creates the dynamic form.
    */
-  update (configOpts: ConfigOption[] | null, activeOrders: boolean) {
+  update (guideLink: string, configOpts: ConfigOption[] | null, activeOrders: boolean) {
     this.assetHasActiveOrders = activeOrders
     this.configElements = []
     this.configOpts = configOpts || []
     Doc.empty(this.dynamicOpts, this.defaultSettings, this.loadedSettings)
+
+    Doc.hide(this.page.walletCfgGuide)
+    if (guideLink !== '') {
+      this.page.walletCfgGuideLink.href = guideLink
+      Doc.show(this.page.walletCfgGuide)
+    }
 
     // If there are no options, just hide the entire form.
     if (this.configOpts.length === 0) return Doc.hide(this.form)

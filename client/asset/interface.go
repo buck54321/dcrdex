@@ -199,6 +199,9 @@ type WalletDefinition struct {
 	// TODO: Use an asset.Authenticator interface and WalletTraits to do this
 	// instead.
 	NoAuth bool `json:"noauth"`
+	// GuideLink is a link to wallet configuration docs user must follow creating
+	// new wallet or updating its settings.
+	GuideLink string `json:"guidelink"`
 }
 
 // Token combines the generic dex.Token with a WalletDefinition.
