@@ -64,7 +64,7 @@ func init() {
 }
 
 const (
-	// BipID is the BIP-0044 asset ID.
+	// BipID is the BIP-0044 asset ID for Ethereum.
 	BipID               = 60
 	defaultGasFee       = 82  // gwei
 	defaultGasFeeLimit  = 200 // gwei
@@ -225,7 +225,7 @@ var _ asset.Creator = (*Driver)(nil)
 
 // Open opens the ETH exchange wallet. Start the wallet with its Run method.
 func (d *Driver) Open(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) (asset.Wallet, error) {
-	return NewWallet(cfg, logger, network)
+	return newWallet(cfg, logger, network)
 }
 
 // DecodeCoinID creates a human-readable representation of a coin ID for Ethereum.
@@ -302,8 +302,8 @@ func (d *Driver) Exists(walletType, dataDir string, settings map[string]string, 
 	return len(ks.Wallets()) > 0, nil
 }
 
-func (d *Driver) Create(params *asset.CreateWalletParams) error {
-	return CreateWallet(params)
+func (d *Driver) Create(cfg *asset.CreateWalletParams) error {
+	return CreateEVMWallet(chainIDs[cfg.Net], cfg, false)
 }
 
 // Balance is the current balance, including information about the pending
@@ -457,6 +457,9 @@ type baseWallet struct {
 	dir        string
 	walletType string
 
+	bipID   uint32
+	chainID int64
+
 	tipMtx     sync.RWMutex
 	currentTip *types.Header
 
@@ -579,13 +582,7 @@ func genWalletSeed(entropy []byte) ([]byte, error) {
 	return bip39.NewSeed(mnemonic, ""), nil
 }
 
-// CreateWallet creates a new internal ETH wallet and stores the private key
-// derived from the wallet seed.
-func CreateWallet(cfg *asset.CreateWalletParams) error {
-	return createWallet(cfg, false)
-}
-
-func createWallet(createWalletParams *asset.CreateWalletParams, skipConnect bool) error {
+func CreateEVMWallet(chainID int64, createWalletParams *asset.CreateWalletParams, skipConnect bool) error {
 	switch createWalletParams.Type {
 	case walletTypeGeth:
 		return asset.ErrWalletTypeDisabled
@@ -651,7 +648,7 @@ func createWallet(createWalletParams *asset.CreateWalletParams, skipConnect bool
 
 		if !skipConnect {
 			if err := createAndCheckProviders(context.Background(), walletDir, endpoints,
-				createWalletParams.Net, createWalletParams.Logger); err != nil {
+				big.NewInt(chainID), createWalletParams.Net, createWalletParams.Logger); err != nil {
 				return fmt.Errorf("create and check providers: %v", err)
 			}
 		}
@@ -661,9 +658,12 @@ func createWallet(createWalletParams *asset.CreateWalletParams, skipConnect bool
 	return fmt.Errorf("unknown wallet type %q", createWalletParams.Type)
 }
 
-// NewWallet is the exported constructor by which the DEX will import the
-// exchange wallet.
-func NewWallet(assetCFG *asset.WalletConfig, logger dex.Logger, net dex.Network) (w *ETHWallet, err error) {
+// newWallet is the constructor for an Ethereum asset.Wallet.
+func newWallet(assetCFG *asset.WalletConfig, logger dex.Logger, net dex.Network) (w *ETHWallet, err error) {
+	return NewEVMWallet(BipID, chainIDs[net], assetCFG, logger, net)
+}
+
+func NewEVMWallet(assetID uint32, chainID int64, assetCFG *asset.WalletConfig, logger dex.Logger, net dex.Network) (w *ETHWallet, err error) {
 	// var cl ethFetcher
 	switch assetCFG.Type {
 	case walletTypeGeth:
@@ -687,6 +687,8 @@ func NewWallet(assetCFG *asset.WalletConfig, logger dex.Logger, net dex.Network)
 	}
 
 	eth := &baseWallet{
+		bipID:        assetID,
+		chainID:      chainID,
 		log:          logger,
 		net:          net,
 		dir:          assetCFG.DataDir,
@@ -718,7 +720,7 @@ func NewWallet(assetCFG *asset.WalletConfig, logger dex.Logger, net dex.Network)
 	aw := &assetWallet{
 		baseWallet:         eth,
 		log:                logger,
-		assetID:            BipID,
+		assetID:            assetID,
 		tipChange:          assetCFG.TipChange,
 		findRedemptionReqs: make(map[[32]byte]*findRedemptionRequest),
 		peersChange:        assetCFG.PeersChange,
@@ -735,7 +737,7 @@ func NewWallet(assetCFG *asset.WalletConfig, logger dex.Logger, net dex.Network)
 		aw.maxSwapsInTx, aw.maxRedeemsInTx)
 
 	aw.wallets = map[uint32]*assetWallet{
-		BipID: aw,
+		assetID: aw,
 	}
 
 	return &ETHWallet{
@@ -803,7 +805,7 @@ func (w *ETHWallet) Connect(ctx context.Context) (_ *sync.WaitGroup, err error) 
 			endpoints = append(endpoints, filepath.Join(u.HomeDir, "dextest", "eth", "beta", "node", "geth.ipc"))
 		}
 
-		cl, err = newMultiRPCClient(w.dir, endpoints, w.log.SubLogger("RPC"), chainConfig, big.NewInt(chainIDs[w.net]), w.net)
+		cl, err = newMultiRPCClient(w.dir, endpoints, w.log.SubLogger("RPC"), chainConfig, big.NewInt(w.chainID), w.net)
 		if err != nil {
 			return nil, err
 		}
@@ -1335,7 +1337,7 @@ func (w *assetWallet) estimateSwap(lots, lotSize uint64, maxFeeRate uint64, ver 
 // version correspond to the redeem asset. If the asset is not a fee-family
 // erc20 asset, no error is returned and the return value will be zero.
 func (w *assetWallet) allowanceGasRequired(ver, assetID uint32) (uint64, error) {
-	if assetID == BipID {
+	if assetID == w.bipID {
 		return 0, nil // it's eth (no allowance)
 	}
 	redeemWallet := w.wallet(assetID)
@@ -1356,7 +1358,7 @@ func (w *assetWallet) allowanceGasRequired(ver, assetID uint32) (uint64, error) 
 
 // gases gets the gas table for the specified contract version.
 func (w *assetWallet) gases(contractVer uint32) *dexeth.Gases {
-	return gases(w.assetID, contractVer, w.net)
+	return gases(w.bipID, w.assetID, contractVer, w.net)
 }
 
 // PreRedeem generates an estimate of the range of redemption fees that could
@@ -1870,7 +1872,7 @@ func (w *ETHWallet) Swap(swaps *asset.Swaps) ([]asset.Receipt, asset.Coin, uint6
 	}
 
 	txHash := tx.Hash()
-	w.addPendingTx(BipID, txHash, tx.Nonce(), swapVal, 0, fees)
+	w.addPendingTx(w.bipID, txHash, tx.Nonce(), swapVal, 0, fees)
 
 	receipts := make([]asset.Receipt, 0, n)
 	for _, swap := range swaps.Contracts {
@@ -2178,7 +2180,7 @@ func recoverPubkey(msgHash, sig []byte) ([]byte, error) {
 // isApproved checks whether the contract is approved to transfer tokens on our
 // behalf. For Ethereum, isApproved always returns (true, nil).
 func (w *assetWallet) isApproved() (bool, error) {
-	if w.assetID == BipID {
+	if w.assetID == w.bipID {
 		return true, nil
 	}
 	currentAllowance, err := w.tokenAllowance()
@@ -3786,12 +3788,12 @@ func (w *assetWallet) sumPendingTxs(bal *big.Int) (out, in uint64) {
 	tip := w.currentTip.Number.Uint64()
 	w.tipMtx.RUnlock()
 
-	isETH := w.assetID == BipID
+	isETH := w.assetID == w.bipID
 
 	addPendingTx := func(pt *pendingTx) {
 		in += pt.in
 		if isETH {
-			if pt.assetID == BipID {
+			if pt.assetID == w.bipID {
 				out += pt.out + pt.maxFees
 			} else {
 				out += pt.maxFees
@@ -3846,7 +3848,7 @@ func (w *assetWallet) sumPendingTxs(bal *big.Int) (out, in uint64) {
 }
 
 func (w *assetWallet) balanceWithTxPool() (*Balance, error) {
-	isETH := w.assetID == BipID
+	isETH := w.assetID == w.bipID
 
 	getBal := func() (*big.Int, error) {
 		if isETH {
@@ -4005,7 +4007,7 @@ func (w *assetWallet) initiate(ctx context.Context, assetID uint32, contracts []
 	maxFeeRate, gasLimit uint64, contractVer uint32) (tx *types.Transaction, err error) {
 
 	var val uint64
-	if assetID == BipID {
+	if assetID == w.bipID {
 		for _, c := range contracts {
 			val += c.Value
 		}

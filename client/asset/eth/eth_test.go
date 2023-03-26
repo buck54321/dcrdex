@@ -597,6 +597,8 @@ func tassetWallet(assetID uint32) (asset.Wallet, *assetWallet, *tMempoolNode, co
 
 	aw := &assetWallet{
 		baseWallet: &baseWallet{
+			bipID:         BipID,
+			chainID:       chainIDs[dex.Simnet],
 			addr:          node.addr,
 			net:           dex.Simnet,
 			node:          node,
@@ -3115,7 +3117,7 @@ func TestDriverOpen(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	settings := map[string]string{providersKey: "a.ipc"}
-	err := createWallet(&asset.CreateWalletParams{
+	err := CreateEVMWallet(chainIDs[dex.Testnet], &asset.CreateWalletParams{
 		Type:     walletTypeRPC,
 		Seed:     encode.RandomBytes(32),
 		Pass:     encode.RandomBytes(32),
@@ -3177,7 +3179,7 @@ func TestDriverExists(t *testing.T) {
 	}
 
 	// Create the wallet.
-	err = createWallet(&asset.CreateWalletParams{
+	err = CreateEVMWallet(chainIDs[dex.Simnet], &asset.CreateWalletParams{
 		Type:     walletTypeRPC,
 		Seed:     encode.RandomBytes(32),
 		Pass:     encode.RandomBytes(32),
@@ -4768,7 +4770,7 @@ func testMaxSwapRedeemLots(t *testing.T, assetID uint32) {
 	tmpDir := t.TempDir()
 
 	settings := map[string]string{providersKey: "a.ipc"}
-	err := createWallet(&asset.CreateWalletParams{
+	err := CreateEVMWallet(chainIDs[dex.Testnet], &asset.CreateWalletParams{
 		Type:     walletTypeRPC,
 		Seed:     encode.RandomBytes(32),
 		Pass:     encode.RandomBytes(32),
