@@ -921,7 +921,7 @@ export default class WalletsPage extends BasePage {
       return
     }
     const assetHasActiveOrders = app().haveActiveOrders(assetID)
-    this.reconfigForm.update(currentDef.guidelink, currentDef.configopts || [], assetHasActiveOrders)
+    this.reconfigForm.update(currentDef.configopts || [], assetHasActiveOrders)
     this.reconfigForm.setConfig(res.map)
     this.updateDisplayedReconfigFields(currentDef)
   }
@@ -930,7 +930,7 @@ export default class WalletsPage extends BasePage {
     const page = this.page
     const walletType = page.changeWalletTypeSelect.value || ''
     const walletDef = app().walletDefinition(this.selectedAssetID, walletType)
-    this.reconfigForm.update(walletDef.guidelink, walletDef.configopts || [], false)
+    this.reconfigForm.update(walletDef.configopts || [], false)
     this.updateDisplayedReconfigFields(walletDef)
   }
 

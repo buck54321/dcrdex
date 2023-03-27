@@ -302,7 +302,11 @@ export class NewWalletForm {
     this.current.selectedDef = walletDef
     const appPwCached = State.passwordIsCached() || (this.pwCache && this.pwCache.pw)
     Doc.hide(page.auth, page.oneBttnBox, page.newWalletPassBox)
-    const guideLink = walletDef.guidelink
+    Doc.hide(page.walletCfgGuide)
+    if (walletDef.guidelink) {
+      page.walletCfgGuide.href = walletDef.guidelink
+      Doc.show(page.walletCfgGuide)
+    }
     const configOpts = walletDef.configopts || []
     // If a config represents a wallet's birthday, we update the default
     // selection to the current date if this installation of the client
@@ -349,8 +353,8 @@ export class NewWalletForm {
         for (const opt of tokenOptsCopy) opt.regAsset = asset.id
         parentAndTokenOpts.push(...tokenOptsCopy)
       }
-      this.subform.update(guideLink, parentAndTokenOpts, false)
-    } else this.subform.update(guideLink, configOpts, false)
+      this.subform.update(parentAndTokenOpts, false)
+    } else this.subform.update(configOpts, false)
 
     if (this.subform.dynamicOpts.children.length || this.subform.defaultSettings.children.length) {
       Doc.show(page.walletSettingsHeader)
@@ -560,17 +564,11 @@ export class WalletConfigForm {
   /*
    * update creates the dynamic form.
    */
-  update (guideLink: string, configOpts: ConfigOption[] | null, activeOrders: boolean) {
+  update (configOpts: ConfigOption[] | null, activeOrders: boolean) {
     this.assetHasActiveOrders = activeOrders
     this.configElements = []
     this.configOpts = configOpts || []
     Doc.empty(this.dynamicOpts, this.defaultSettings, this.loadedSettings)
-
-    Doc.hide(this.page.walletCfgGuide)
-    if (guideLink !== '') {
-      this.page.walletCfgGuideLink.href = guideLink
-      Doc.show(this.page.walletCfgGuide)
-    }
 
     // If there are no options, just hide the entire form.
     if (this.configOpts.length === 0) return Doc.hide(this.form)
