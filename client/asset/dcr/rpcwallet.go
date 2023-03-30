@@ -31,6 +31,7 @@ import (
 	"github.com/decred/dcrd/rpcclient/v7"
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/wire"
+	vspdjson "github.com/decred/vspd/types"
 )
 
 var (
@@ -138,6 +139,13 @@ type rpcClient interface {
 	RawRequest(ctx context.Context, method string, params []json.RawMessage) (json.RawMessage, error)
 	WalletInfo(ctx context.Context) (*walletjson.WalletInfoResult, error)
 	ValidateAddress(ctx context.Context, address stdaddr.Address) (*walletjson.ValidateAddressWalletResult, error)
+	GetStakeInfo(ctx context.Context) (*walletjson.GetStakeInfoResult, error)
+	PurchaseTicket(ctx context.Context, fromAccount string, spendLimit dcrutil.Amount, minConf *int,
+		ticketAddress stdaddr.Address, numTickets *int, poolAddress stdaddr.Address, poolFees *dcrutil.Amount,
+		expiry *int, ticketChange *bool, ticketFee *dcrutil.Amount) ([]*chainhash.Hash, error)
+	GetTickets(ctx context.Context, includeImmature bool) ([]*chainhash.Hash, error)
+	GetVoteChoices(ctx context.Context) (*walletjson.GetVoteChoicesResult, error)
+	SetVoteChoice(ctx context.Context, agendaID, choiceID string) error
 }
 
 // newRPCWallet creates an rpcClient and uses it to construct a new instance
@@ -862,6 +870,101 @@ func (w *rpcWallet) AddressPrivKey(ctx context.Context, address stdaddr.Address)
 		return nil, errors.New("invalid private key")
 	}
 	return &priv, nil
+}
+
+func (w *rpcWallet) StakeDiff(ctx context.Context) (dcrutil.Amount, error) {
+	si, err := w.rpcClient.GetStakeInfo(ctx)
+	if err != nil {
+		return 0, err
+	}
+	amt, err := dcrutil.NewAmount(si.Difficulty)
+	if err != nil {
+		return 0, err
+	}
+	return amt, nil
+}
+
+func (w *rpcWallet) PurchaseTickets(ctx context.Context, n int, _, _ string) ([]string, error) {
+	hashes, err := w.rpcClient.PurchaseTicket(ctx, "default", 0 /*spendLimit dcrutil.Amount*/, nil, /*minConf *int*/
+		nil /*ticketAddress stdaddr.Address*/, &n, nil /*poolAddress stdaddr.Address*/, nil, /*poolFees *dcrutil.Amount*/
+		nil /*expiry *int*/, nil /*ticketChange *bool*/, nil /*ticketFee *dcrutil.Amount*/)
+	hashStrs := make([]string, len(hashes))
+	for i := range hashes {
+		hashStrs[i] = hashes[i].String()
+	}
+	return hashStrs, err
+}
+
+func (w *rpcWallet) Tickets(ctx context.Context) ([]string, error) {
+	const includeImmature = true
+	// GetTickets only works for clients with a dcrd backend.
+	hashes, err := w.rpcClient.GetTickets(ctx, includeImmature)
+	if err != nil {
+		return nil, err
+	}
+	hashStrs := make([]string, 0, len(hashes))
+	for i := range hashes {
+		hashStrs = append(hashStrs, hashes[i].String())
+	}
+	return hashStrs, nil
+}
+
+func (w *rpcWallet) VotingPreferences(ctx context.Context) ([]*walletjson.VoteChoice, []*walletjson.TSpendPolicyResult, []*walletjson.TreasuryPolicyResult, error) {
+	// Get consensus vote choices.
+	choices, err := w.rpcClient.GetVoteChoices(ctx)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to get vote choices: %v", err)
+	}
+	voteChoices := make([]*walletjson.VoteChoice, len(choices.Choices))
+	for i, v := range choices.Choices {
+		voteChoices[i] = &v
+	}
+	// Get tspend voting policy.
+	const tSpendPolicyMethod = "tspendpolicy"
+	var tSpendRes []walletjson.TSpendPolicyResult
+	err = w.rpcClientRawRequest(ctx, tSpendPolicyMethod, nil, &tSpendRes)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to get treasury spend policy: %v", err)
+	}
+	tSpendPolicy := make([]*walletjson.TSpendPolicyResult, len(tSpendRes))
+	for i, v := range tSpendRes {
+		tSpendPolicy[i] = &v
+	}
+	// Get treasury voting policy.
+	const treasuryPolicyMethod = "treasurypolicy"
+	var treasuryRes []walletjson.TreasuryPolicyResult
+	err = w.rpcClientRawRequest(ctx, treasuryPolicyMethod, nil, &treasuryRes)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to get treasury policy: %v", err)
+	}
+	treasuryPolicy := make([]*walletjson.TreasuryPolicyResult, len(treasuryRes))
+	for i, v := range treasuryRes {
+		treasuryPolicy[i] = &v
+	}
+	return voteChoices, tSpendPolicy, treasuryPolicy, nil
+}
+
+// NOTE: Will fail for communication problems with VSPs unlike internal wallets.
+func (w *rpcWallet) SetVotingPreferences(ctx context.Context, choices, tSpendPolicy,
+	treasuryPolicy map[string]string, _ func(url string) (*vspdjson.VspInfoResponse, error)) error {
+	for k, v := range choices {
+		if err := w.rpcClient.SetVoteChoice(ctx, k, v); err != nil {
+			return fmt.Errorf("unable to set vote choice: %v", err)
+		}
+	}
+	const setTSpendPolicyMethod = "settspendpolicy"
+	for k, v := range tSpendPolicy {
+		if err := w.rpcClientRawRequest(ctx, setTSpendPolicyMethod, anylist{k, v}, nil); err != nil {
+			return fmt.Errorf("unable to set tspend policy: %v", err)
+		}
+	}
+	const setTreasuryPolicyMethod = "settreasurypolicy"
+	for k, v := range treasuryPolicy {
+		if err := w.rpcClientRawRequest(ctx, setTreasuryPolicyMethod, anylist{k, v}, nil); err != nil {
+			return fmt.Errorf("unable to set treasury policy: %v", err)
+		}
+	}
+	return nil
 }
 
 // anylist is a list of RPC parameters to be converted to []json.RawMessage and

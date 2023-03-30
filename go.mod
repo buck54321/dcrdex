@@ -2,6 +2,8 @@ module decred.org/dcrdex
 
 go 1.18
 
+replace decred.org/dcrdex/client/asset/dcr/vsp => ./client/asset/dcr/vsp
+
 require (
 	decred.org/dcrwallet/v2 v2.0.11
 	fyne.io/systray v1.10.1-0.20220621085403-9a2652634e93
@@ -41,6 +43,7 @@ require (
 	github.com/decred/dcrd/wire v1.5.0
 	github.com/decred/go-socks v1.1.0
 	github.com/decred/slog v1.2.0
+	github.com/decred/vspd/types v1.1.0
 	github.com/dgraph-io/badger v1.6.2
 	github.com/ethereum/go-ethereum v1.11.5
 	github.com/fatih/color v1.11.0

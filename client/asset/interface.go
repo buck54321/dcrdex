@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"decred.org/dcrdex/dex"
+	dcrwalletjson "decred.org/dcrwallet/v2/rpc/jsonrpc/types"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
@@ -28,6 +29,7 @@ const (
 	WalletTraitRedemptionConfirmer                         // The wallet has a process to confirm a redemption.
 	WalletTraitTxFeeEstimator                              // The wallet can estimate transaction fees.
 	WalletTraitPeerManager                                 // The wallet can manage its peers.
+	WalletTraitTicketBuyer                                 // The wallet can participate in decred staking.
 )
 
 // IsRescanner tests if the WalletTrait has the WalletTraitRescanner bit set.
@@ -96,6 +98,12 @@ func (wt WalletTrait) IsPeerManager() bool {
 	return wt&WalletTraitPeerManager != 0
 }
 
+// IsTicketBuyer tests if the WalletTrait has the WalletTraitDCRStaker bit set,
+// which indicates the wallet implements the TicketBuyer interface.
+func (wt WalletTrait) IsTicketBuyer() bool {
+	return wt&WalletTraitTicketBuyer != 0
+}
+
 // DetermineWalletTraits returns the WalletTrait bitset for the provided Wallet.
 func DetermineWalletTraits(w Wallet) (t WalletTrait) {
 	if _, is := w.(Rescanner); is {
@@ -133,6 +141,9 @@ func DetermineWalletTraits(w Wallet) (t WalletTrait) {
 	}
 	if _, is := w.(PeerManager); is {
 		t |= WalletTraitPeerManager
+	}
+	if _, is := w.(TicketBuyer); is {
+		t |= WalletTraitTicketBuyer
 	}
 	return t
 }
@@ -782,6 +793,33 @@ type PeerManager interface {
 	// RemovePeer will remove a peer that was added by AddPeer. This peer may
 	// still be connected to by the wallet if it discovers it on its own.
 	RemovePeer(addr string) error
+}
+
+// TicketBuyer is a wallet that can participate in decred staking.
+type TicketBuyer interface {
+	// TicketPrice is the current price of one ticket. Also known as the
+	// stake difficulty.
+	TicketPrice() (uint64, error)
+	// VSP returns the currently set VSP address and fee.
+	VSP() (addr string, feePercent float64, err error)
+	// CanSetVSP returns whether the VSP can be changed. It cannot for
+	// rpcwallets but can for internal.
+	CanSetVSP() bool
+	// SetVSP sets the VSP provider. Ability to set should be checked with
+	// CanSetVSP first.
+	SetVSP(addr string) error
+	// PurchaseTickets purchases n amout of tickets. Ability to purchase
+	// should be checked with CanPurchaseTickets. Returns the purchased
+	// ticket hashes if successful.
+	PurchaseTickets(n int) ([]string, error)
+	// Tickets returns current active ticket hashes up until they are voted
+	// or revoked. Includes unconfirmed tickets.
+	Tickets() ([]string, error)
+	// VotingPreferences returns current voting preferences.
+	VotingPreferences() ([]*dcrwalletjson.VoteChoice, []*dcrwalletjson.TSpendPolicyResult, []*dcrwalletjson.TreasuryPolicyResult, error)
+	// SetVotingPreferences sets default voting settings for all active
+	// tickets and future tickets. Nil maps can be provided for no change.
+	SetVotingPreferences(choices, tSpendPolicy, treasuryPolicy map[string]string) error
 }
 
 // Bond is the fidelity bond info generated for a certain account ID, amount,

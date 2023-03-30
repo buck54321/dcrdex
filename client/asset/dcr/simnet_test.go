@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -28,6 +29,7 @@ import (
 	"decred.org/dcrdex/dex"
 	"decred.org/dcrdex/dex/config"
 	dexdcr "decred.org/dcrdex/dex/networks/dcr"
+	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrutil/v4"
 )
@@ -35,6 +37,8 @@ import (
 const (
 	alphaAddress = "SsWKp7wtdTZYabYFYSc9cnxhwFEjA5g4pFc"
 	betaAddress  = "Ssge52jCzbixgFC736RSTrwAnvH3a4hcPRX"
+	gammaSeed    = "1285a47d6a59f9c548b2a72c2c34a2de97967bede3844090102bbba76707fe9d"
+	vspAddr      = "http://127.0.0.1:19591"
 )
 
 var (
@@ -58,18 +62,22 @@ func mineAlpha() error {
 	return exec.Command("tmux", "send-keys", "-t", "dcr-harness:0", "./mine-alpha 1", "C-m").Run()
 }
 
-func tBackend(t *testing.T, name string, blkFunc func(string, error)) (*ExchangeWallet, *dex.ConnectionMaster) {
+func tBackend(t *testing.T, name string, isInternal bool, blkFunc func(string, error)) (*ExchangeWallet, *dex.ConnectionMaster) {
 	t.Helper()
 	user, err := user.Current()
 	if err != nil {
 		t.Fatalf("error getting current user: %v", err)
 	}
-	cfgPath := filepath.Join(user.HomeDir, "dextest", "dcr", name, name+".conf")
-	settings, err := config.Parse(cfgPath)
-	if err != nil {
-		t.Fatalf("error reading config options: %v", err)
+	settings := make(map[string]string)
+	if !isInternal {
+		cfgPath := filepath.Join(user.HomeDir, "dextest", "dcr", name, name+".conf")
+		var err error
+		settings, err = config.Parse(cfgPath)
+		if err != nil {
+			t.Fatalf("error reading config options: %v", err)
+		}
+		settings["account"] = "default"
 	}
-	settings["account"] = "default"
 	walletCfg := &asset.WalletConfig{
 		Settings: settings,
 		TipChange: func(err error) {
@@ -78,6 +86,16 @@ func tBackend(t *testing.T, name string, blkFunc func(string, error)) (*Exchange
 		PeersChange: func(num uint32, err error) {
 			t.Logf("peer count = %d, err = %v", num, err)
 		},
+	}
+	if isInternal {
+		seed, err := hex.DecodeString(gammaSeed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dataDir := t.TempDir()
+		createSPVWallet(walletPassword, seed, dataDir, 0, 0, chaincfg.SimNetParams())
+		walletCfg.Type = walletTypeSPV
+		walletCfg.DataDir = dataDir
 	}
 	var backend asset.Wallet
 	backend, err = NewWallet(walletCfg, tLogger, dex.Simnet)
@@ -88,6 +106,23 @@ func tBackend(t *testing.T, name string, blkFunc func(string, error)) (*Exchange
 	err = cm.Connect(tCtx)
 	if err != nil {
 		t.Fatalf("error connecting backend: %v", err)
+	}
+	if isInternal {
+		i := 0
+		for {
+			synced, _, err := backend.SyncStatus()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if synced {
+				break
+			}
+			if i == 5 {
+				t.Fatal("spv wallet not synced after 5 seconds")
+			}
+			i++
+			time.Sleep(time.Second)
+		}
 	}
 	return backend.(*ExchangeWallet), cm
 }
@@ -103,17 +138,27 @@ func newTestRig(t *testing.T, blkFunc func(string, error)) *testRig {
 		backends:          make(map[string]*ExchangeWallet),
 		connectionMasters: make(map[string]*dex.ConnectionMaster, 3),
 	}
-	rig.backends["alpha"], rig.connectionMasters["alpha"] = tBackend(t, "alpha", blkFunc)
-	rig.backends["beta"], rig.connectionMasters["beta"] = tBackend(t, "beta", blkFunc)
+	rig.backends["alpha"], rig.connectionMasters["alpha"] = tBackend(t, "alpha", false, blkFunc)
+	rig.backends["beta"], rig.connectionMasters["beta"] = tBackend(t, "beta", false, blkFunc)
+	rig.backends["gamma"], rig.connectionMasters["gamma"] = tBackend(t, "gamma", true, blkFunc)
 	return rig
 }
 
+// alpha is an external wallet connected to dcrd.
 func (rig *testRig) alpha() *ExchangeWallet {
 	return rig.backends["alpha"]
 }
+
+// beta is an external spv wallet.
 func (rig *testRig) beta() *ExchangeWallet {
 	return rig.backends["beta"]
 }
+
+// gamma is an internal spv wallet.
+func (rig *testRig) gamma() *ExchangeWallet {
+	return rig.backends["gamma"]
+}
+
 func (rig *testRig) close(t *testing.T) {
 	t.Helper()
 	for name, cm := range rig.connectionMasters {
@@ -529,5 +574,96 @@ func runTest(t *testing.T, splitTx bool) {
 	err = rig.beta().Lock()
 	if err != nil {
 		t.Fatalf("error locking wallet: %v", err)
+	}
+}
+
+func TestTickets(t *testing.T) {
+	rig := newTestRig(t, func(name string, err error) {
+		tLogger.Infof("%s has reported a new block, error = %v", name, err)
+	})
+	defer rig.close(t)
+	tLogger.Info("Testing ticket methods with the alpha rig.")
+	testTickets(t, false, rig.alpha())
+	// TODO: beta wallet is spv but has no vps in its config. Add it and
+	// test here.
+	tLogger.Info("Testing ticket methods with the gamma rig.")
+	testTickets(t, true, rig.gamma())
+}
+
+func testTickets(t *testing.T, isInternal bool, ew *ExchangeWallet) {
+	// Testing isInternal helper method.
+	if isInternal != ew.isInternal() {
+		t.Fatalf("expected isInternal %v but got %v", isInternal, ew.isInternal())
+	}
+
+	// Testing TicketPrice.
+	tp, err := ew.TicketPrice()
+	if err != nil {
+		t.Fatalf("ticket price error: %v", err)
+	}
+	tLogger.Infof("Ticket price is %d atoms", tp)
+
+	// Testing CanSetVSP.
+	if ew.CanSetVSP() != isInternal {
+		t.Fatal("can set vsp not same as is internal")
+	}
+
+	// Testing SetVSP.
+	err = ew.SetVSP(vspAddr)
+	if isInternal {
+		if err != nil {
+			t.Fatalf("unexected error setting spv for internal wallet: %v", err)
+		}
+	} else {
+		if err == nil {
+			t.Fatal("exected error setting spv for external wallet")
+		}
+	}
+
+	// Test getting VSP.
+	addr, feePercent, err := ew.VSP()
+	if isInternal {
+		if err != nil {
+			t.Fatalf("unexected error setting spv for internal wallet: %v", err)
+		}
+		if addr != vspAddr {
+			t.Fatalf("wanted vsp addr %s but got %s", vspAddr, addr)
+		}
+		if feePercent != 2.0 {
+			t.Fatalf("wanted vsp fee %v but got %v", 2.0, feePercent)
+		}
+	} else {
+		if err == nil {
+			t.Fatal("exected error setting spv for external wallet")
+		}
+	}
+
+	// Testing PurchaseTickets.
+	if err := ew.Unlock(walletPassword); err != nil {
+		t.Fatalf("unable to unlock wallet: %v", err)
+	}
+	tickets, err := ew.PurchaseTickets(3)
+	if err != nil {
+		t.Fatalf("error purchasing tickets: %v", err)
+	}
+	tLogger.Infof("Purchased the following tickets: %v", tickets)
+
+	// Test getting tickets.
+	hashes, err := ew.Tickets()
+	if err != nil {
+		t.Fatalf("error getting tickets: %v", err)
+	}
+	tLogger.Infof("Ticket hashes are %v", hashes)
+
+	// Test getting VotingPreferences.
+	vc, tspolicy, tpolicy, err := ew.VotingPreferences()
+	if err != nil {
+		t.Fatalf("error getting voting preferences: %v", err)
+	}
+	tLogger.Infof("Vote choices %v\nTSpend policy %v\nTreasury policy %v", vc, tspolicy, tpolicy)
+
+	// Testing SetVotingPreferences.
+	if err := ew.SetVotingPreferences(nil, nil, nil); err != nil {
+		t.Fatalf("error setting voting preferences: %v", err)
 	}
 }

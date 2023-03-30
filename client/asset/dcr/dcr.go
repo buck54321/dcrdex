@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,8 @@ import (
 	"io"
 	"math"
 	"net/http"
+	neturl "net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -44,6 +47,7 @@ import (
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/txscript/v4/stdscript"
 	"github.com/decred/dcrd/wire"
+	vspdjson "github.com/decred/vspd/types"
 )
 
 const (
@@ -88,6 +92,8 @@ const (
 	// freshFeeAge is the expiry age for cached fee rates of external origin,
 	// past which fetchFeeFromOracle should be used to refresh the rate.
 	freshFeeAge = time.Minute
+
+	vspFileName = "vsp.json"
 )
 
 var (
@@ -537,6 +543,14 @@ type exchangeWalletConfig struct {
 	apiFeeFallback   bool
 }
 
+// vsp holds info needed for purchasing tickes from a vsp. pub is from the vsp
+// and is used for verifying communications.
+type vsp struct {
+	Url           string  `json:"url"`
+	FeePercentage float64 `json:"feepercent"`
+	PubKey        string  `json:"pubkey"`
+}
+
 // ExchangeWallet is a wallet backend for Decred. The backend is how the DEX
 // client app communicates with the Decred blockchain and wallet. ExchangeWallet
 // satisfies the dex.Wallet interface.
@@ -568,6 +582,8 @@ type ExchangeWallet struct {
 	tipChange     func(error)
 	lastPeerCount uint32
 	peersChange   func(uint32, error)
+	dir           string
+	walletType    string
 
 	oracleFeesMtx sync.Mutex
 	oracleFees    map[uint64]feeStamped // conf target => fee rate
@@ -585,6 +601,11 @@ type ExchangeWallet struct {
 
 	externalTxMtx   sync.RWMutex
 	externalTxCache map[chainhash.Hash]*externalTx
+
+	vspV    atomic.Value // *vsp
+	vspInfo func(url string) (*vspdjson.VspInfoResponse, error)
+
+	connected atomic.Bool
 }
 
 func (dcr *ExchangeWallet) config() *exchangeWalletConfig {
@@ -661,6 +682,7 @@ var _ asset.Withdrawer = (*ExchangeWallet)(nil)
 var _ asset.LiveReconfigurer = (*ExchangeWallet)(nil)
 var _ asset.TxFeeEstimator = (*ExchangeWallet)(nil)
 var _ asset.Bonder = (*ExchangeWallet)(nil)
+var _ asset.TicketBuyer = (*ExchangeWallet)(nil)
 
 type block struct {
 	height int64
@@ -802,6 +824,11 @@ func unconnectedWallet(cfg *asset.WalletConfig, dcrCfg *walletConfig, chainParam
 		return nil, err
 	}
 
+	dir := filepath.Join(cfg.DataDir, chainParams.Name)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, err
+	}
+
 	w := &ExchangeWallet{
 		log:                 logger,
 		chainParams:         chainParams,
@@ -812,6 +839,22 @@ func unconnectedWallet(cfg *asset.WalletConfig, dcrCfg *walletConfig, chainParam
 		findRedemptionQueue: make(map[outPoint]*findRedemptionReq),
 		externalTxCache:     make(map[chainhash.Hash]*externalTx),
 		oracleFees:          make(map[uint64]feeStamped),
+		dir:                 dir,
+		vspInfo:             vspInfo,
+		walletType:          cfg.Type,
+	}
+
+	if b, err := os.ReadFile(filepath.Join(dir, vspFileName)); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	} else {
+		var v vsp
+		err = json.Unmarshal(b, &v)
+		if err != nil {
+			return nil, err
+		}
+		w.vspV.Store(&v)
 	}
 
 	w.cfgV.Store(walletCfg)
@@ -876,6 +919,8 @@ func (dcr *ExchangeWallet) Connect(ctx context.Context) (*sync.WaitGroup, error)
 	defer func() {
 		if !success {
 			dcr.wallet.Disconnect()
+		} else {
+			dcr.connected.Store(true)
 		}
 	}()
 
@@ -4521,6 +4566,137 @@ func (dcr *ExchangeWallet) EstimateSendTxFee(address string, sendAmount, feeRate
 		finalFee = estFeeWithChange
 	}
 	return finalFee, isValidAddress, nil
+}
+
+func (dcr *ExchangeWallet) isInternal() bool {
+	return dcr.walletType == walletTypeSPV
+}
+
+// TicketPrice is the current price of one ticket. Also known as the stake
+// difficulty. Part of the asset.TicketBuyer interface.
+func (dcr *ExchangeWallet) TicketPrice() (uint64, error) {
+	if !dcr.connected.Load() {
+		return 0, errors.New("not connected, login first")
+	}
+	sdiff, err := dcr.wallet.StakeDiff(dcr.ctx)
+	if err != nil {
+		return 0, err
+	}
+	return uint64(sdiff), nil
+}
+
+// VSP returns the currently set VSP address and fee.
+func (dcr *ExchangeWallet) VSP() (addr string, feePercentage float64, err error) {
+	if !dcr.isInternal() {
+		return "", 0.0, errors.New("unable to get external VSP stats")
+	}
+	v := dcr.vspV.Load()
+	if v == nil {
+		return "", 0.0, errors.New("no vsp set")
+	}
+	return v.(*vsp).Url, v.(*vsp).FeePercentage, nil
+}
+
+// CanSetVSP returns whether the VSP can be changed. It cannot for rpcwallets
+// but can for internal. Part of the asset.TicketBuyer interface.
+func (dcr *ExchangeWallet) CanSetVSP() bool {
+	// Cannot set for rpcwallets.
+	return dcr.isInternal()
+}
+
+func vspInfo(url string) (*vspdjson.VspInfoResponse, error) {
+	suffix := "/api/v3/vspinfo"
+	path, err := neturl.JoinPath(url, suffix)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.Get(path)
+	if err != nil {
+		return nil, fmt.Errorf("http get error: %v", err)
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var info vspdjson.VspInfoResponse
+	err = json.Unmarshal(b, &info)
+	if err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
+// SetVSP sets the VSP provider. Ability to set should be checked with CanSetVSP
+// first. Part of the asset.TicketBuyer interface.
+func (dcr *ExchangeWallet) SetVSP(url string) error {
+	if !dcr.isInternal() {
+		return errors.New("cannot set vsp for external wallet")
+	}
+	info, err := dcr.vspInfo(url)
+	if err != nil {
+		return err
+	}
+	v := vsp{
+		Url:           url,
+		PubKey:        base64.StdEncoding.EncodeToString(info.PubKey),
+		FeePercentage: info.FeePercentage,
+	}
+	b, err := json.Marshal(&v)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dcr.dir, vspFileName), b, 0666); err != nil {
+		return err
+	}
+	dcr.vspV.Store(&v)
+	return nil
+}
+
+// PurchaseTickets purchases n amout of tickets. Ability to purchase should be
+// checked with CanPurchaseTickets. Part of the asset.TicketBuyer interface.
+func (dcr *ExchangeWallet) PurchaseTickets(n int) ([]string, error) {
+	if n < 1 {
+		return nil, nil
+	}
+	if !dcr.connected.Load() {
+		return nil, errors.New("not connected, login first")
+	}
+	if !dcr.isInternal() {
+		return dcr.wallet.PurchaseTickets(dcr.ctx, n, "", "")
+	}
+	v := dcr.vspV.Load()
+	if v == nil {
+		return nil, errors.New("no vsp set")
+	}
+	return dcr.wallet.PurchaseTickets(dcr.ctx, n, v.(*vsp).Url, v.(*vsp).PubKey)
+}
+
+// Tickets returns current active tickets up until they are able to be spent.
+// Includes unconfirmed tickets. Part of the asset.TicketBuyer interface.
+func (dcr *ExchangeWallet) Tickets() ([]string, error) {
+	if !dcr.connected.Load() {
+		return nil, errors.New("not connected, login first")
+	}
+	return dcr.wallet.Tickets(dcr.ctx)
+}
+
+// VotingPreferences returns current voting preferences. Part of the
+// asset.TicketBuyer interface.
+func (dcr *ExchangeWallet) VotingPreferences() ([]*walletjson.VoteChoice, []*walletjson.TSpendPolicyResult, []*walletjson.TreasuryPolicyResult, error) {
+	if !dcr.connected.Load() {
+		return nil, nil, nil, errors.New("not connected, login first")
+	}
+	return dcr.wallet.VotingPreferences(dcr.ctx)
+}
+
+// SetVotingPreferences sets default voting settings for all active tickets and
+// future tickets. Nil maps can be provided for no change. Part of the
+// asset.TicketBuyer interface.
+func (dcr *ExchangeWallet) SetVotingPreferences(choices map[string]string, tspendPolicy map[string]string, treasuryPolicy map[string]string) error {
+	if !dcr.connected.Load() {
+		return errors.New("not connected, login first")
+	}
+	return dcr.wallet.SetVotingPreferences(dcr.ctx, choices, tspendPolicy, treasuryPolicy, dcr.vspInfo)
 }
 
 func (dcr *ExchangeWallet) broadcastTx(signedTx *wire.MsgTx) (*chainhash.Hash, error) {

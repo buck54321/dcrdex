@@ -5,6 +5,7 @@ package dcr
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"decred.org/dcrdex/client/asset"
+	loadvsp "decred.org/dcrdex/client/asset/dcr/vsp"
 	"decred.org/dcrdex/dex"
 	"decred.org/dcrwallet/v2/chain"
 	walleterrors "decred.org/dcrwallet/v2/errors"
@@ -40,6 +42,7 @@ import (
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/wire"
 	"github.com/decred/slog"
+	vspdjson "github.com/decred/vspd/types"
 	"github.com/jrick/logrotate/rotator"
 )
 
@@ -63,14 +66,11 @@ type dcrWallet interface {
 	AccountBalance(ctx context.Context, account uint32, confirms int32) (wallet.Balances, error)
 	LockedOutpoints(ctx context.Context, accountName string) ([]chainjson.TransactionInput, error)
 	ListUnspent(ctx context.Context, minconf, maxconf int32, addresses map[string]struct{}, accountName string) ([]*walletjson.ListUnspentResult, error)
-	UnlockOutpoint(txHash *chainhash.Hash, index uint32)
 	LockOutpoint(txHash *chainhash.Hash, index uint32)
 	ListTransactionDetails(ctx context.Context, txHash *chainhash.Hash) ([]walletjson.ListTransactionsResult, error)
 	MainChainTip(ctx context.Context) (hash chainhash.Hash, height int32)
 	NewExternalAddress(ctx context.Context, account uint32, callOpts ...wallet.NextAddressCallOption) (stdaddr.Address, error)
 	NewInternalAddress(ctx context.Context, account uint32, callOpts ...wallet.NextAddressCallOption) (stdaddr.Address, error)
-	SignTransaction(ctx context.Context, tx *wire.MsgTx, hashType txscript.SigHashType, additionalPrevScripts map[wire.OutPoint][]byte,
-		additionalKeysByAddress map[string]*dcrutil.WIF, p2shRedeemScriptsByAddress map[string][]byte) ([]wallet.SignatureError, error)
 	PublishTransaction(ctx context.Context, tx *wire.MsgTx, n wallet.NetworkBackend) (*chainhash.Hash, error)
 	BlockHeader(ctx context.Context, blockHash *chainhash.Hash) (*wire.BlockHeader, error)
 	BlockInMainChain(ctx context.Context, hash *chainhash.Hash) (haveBlock, invalidated bool, err error)
@@ -82,6 +82,18 @@ type dcrWallet interface {
 	LoadPrivateKey(ctx context.Context, addr stdaddr.Address) (key *secp256k1.PrivateKey, zero func(), err error)
 	TxDetails(ctx context.Context, txHash *chainhash.Hash) (*udb.TxDetails, error)
 	GetTransactionsByHashes(ctx context.Context, txHashes []*chainhash.Hash) (txs []*wire.MsgTx, notFound []*wire.InvVect, err error)
+	StakeInfo(ctx context.Context) (*wallet.StakeInfoData, error)
+	AgendaChoices(ctx context.Context, ticketHash *chainhash.Hash) (choices []wallet.AgendaChoice, voteBits uint16, err error)
+	PurchaseTickets(ctx context.Context, n wallet.NetworkBackend, req *wallet.PurchaseTicketsRequest) (*wallet.PurchaseTicketsResponse, error)
+	ForUnspentUnexpiredTickets(ctx context.Context, f func(hash *chainhash.Hash) error) error
+	TreasuryKeyPolicies() []wallet.TreasuryKeyPolicy
+	GetAllTSpends(ctx context.Context) []*wire.MsgTx
+	TSpendPolicy(tspendHash, ticketHash *chainhash.Hash) stake.TreasuryVoteT
+	VSPHostForTicket(ctx context.Context, ticketHash *chainhash.Hash) (string, error)
+	SetAgendaChoices(ctx context.Context, ticketHash *chainhash.Hash, choices ...wallet.AgendaChoice) (voteBits uint16, err error)
+	SetTSpendPolicy(ctx context.Context, tspendHash *chainhash.Hash, policy stake.TreasuryVoteT, ticketHash *chainhash.Hash) error
+	SetTreasuryKeyPolicy(ctx context.Context, pikey []byte, policy stake.TreasuryVoteT, ticketHash *chainhash.Hash) error
+	loadvsp.WalletFetcher
 	// TODO: Rescan and DiscoverActiveAddresses can be used for a Rescanner.
 }
 
@@ -821,6 +833,211 @@ func (w *spvWallet) bestPeerInitialHeight() int32 {
 func (w *spvWallet) AddressPrivKey(ctx context.Context, addr stdaddr.Address) (*secp256k1.PrivateKey, error) {
 	privKey, _, err := w.dcrWallet.LoadPrivateKey(ctx, addr)
 	return privKey, err
+}
+
+func (w *spvWallet) StakeDiff(ctx context.Context) (dcrutil.Amount, error) {
+	si, err := w.dcrWallet.StakeInfo(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return si.Sdiff, nil
+}
+
+func (w *spvWallet) PurchaseTickets(ctx context.Context, n int, vspHost, vspPubKey string) ([]string, error) {
+	vspClient, err := loadvsp.NewVSPClient(w.dcrWallet, vspHost, vspPubKey, 0, 0, 0.2e8, new(net.Dialer).DialContext)
+	if err != nil {
+		return nil, err
+	}
+	request := &wallet.PurchaseTicketsRequest{
+		Count:                n,
+		MinConf:              1,
+		VSPFeePaymentProcess: vspClient.Process,
+		VSPFeeProcess:        vspClient.FeePercentage,
+		// TODO: CSPP/mixing
+	}
+	res, err := w.dcrWallet.PurchaseTickets(ctx, w.spv, request)
+	if err != nil {
+		return nil, err
+	}
+	hashes := res.TicketHashes
+	hashStrs := make([]string, len(hashes))
+	for i := range hashes {
+		hashStrs[i] = hashes[i].String()
+	}
+	return hashStrs, err
+}
+
+func (w *spvWallet) Tickets(ctx context.Context) ([]string, error) {
+	var hashStrs []string
+	f := func(hash *chainhash.Hash) error {
+		hashStrs = append(hashStrs, hash.String())
+		return nil
+	}
+	if err := w.dcrWallet.ForUnspentUnexpiredTickets(ctx, f); err != nil {
+		return nil, err
+	}
+	return hashStrs, nil
+}
+
+func (w *spvWallet) VotingPreferences(ctx context.Context) ([]*walletjson.VoteChoice, []*walletjson.TSpendPolicyResult, []*walletjson.TreasuryPolicyResult, error) {
+	_, agendas := wallet.CurrentAgendas(w.chainParams)
+
+	choices, _, err := w.dcrWallet.AgendaChoices(ctx, nil)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to get agenda choices: %v", err)
+	}
+
+	voteChoices := make([]*walletjson.VoteChoice, len(choices))
+
+	for i := range choices {
+		voteChoices[i] = &walletjson.VoteChoice{
+			AgendaID:          choices[i].AgendaID,
+			AgendaDescription: agendas[i].Vote.Description,
+			ChoiceID:          choices[i].ChoiceID,
+		}
+		for j := range agendas[i].Vote.Choices {
+			if choices[i].ChoiceID == agendas[i].Vote.Choices[j].Id {
+				voteChoices[i].ChoiceDescription = agendas[i].Vote.Choices[j].Description
+				break
+			}
+		}
+	}
+	policyToStr := func(p stake.TreasuryVoteT) string {
+		var policy string
+		switch p {
+		case stake.TreasuryVoteYes:
+			policy = "yes"
+		case stake.TreasuryVoteNo:
+			policy = "no"
+		}
+		return policy
+	}
+	tspends := w.dcrWallet.GetAllTSpends(ctx)
+	tSpendPolicy := make([]*walletjson.TSpendPolicyResult, 0, len(tspends))
+	for i := range tspends {
+		tspendHash := tspends[i].TxHash()
+		p := w.dcrWallet.TSpendPolicy(&tspendHash, nil)
+		r := walletjson.TSpendPolicyResult{
+			Hash:   tspendHash.String(),
+			Policy: policyToStr(p),
+		}
+		tSpendPolicy = append(tSpendPolicy, &r)
+	}
+
+	policies := w.dcrWallet.TreasuryKeyPolicies()
+	treasuryPolicy := make([]*walletjson.TreasuryPolicyResult, 0, len(policies))
+	for i := range policies {
+		r := walletjson.TreasuryPolicyResult{
+			Key:    hex.EncodeToString(policies[i].PiKey),
+			Policy: policyToStr(policies[i].Policy),
+		}
+		if policies[i].Ticket != nil {
+			r.Ticket = policies[i].Ticket.String()
+		}
+		treasuryPolicy = append(treasuryPolicy, &r)
+	}
+
+	return voteChoices, tSpendPolicy, treasuryPolicy, nil
+}
+
+func (w *spvWallet) SetVotingPreferences(ctx context.Context, choices, tspendPolicy,
+	treasuryPolicy map[string]string, vspInfo func(url string) (*vspdjson.VspInfoResponse, error)) error {
+	// Set the consensus vote choices for the wallet.
+	agendaChoices := make([]wallet.AgendaChoice, len(choices))
+	for k, v := range choices {
+		choice := wallet.AgendaChoice{
+			AgendaID: k,
+			ChoiceID: v,
+		}
+		agendaChoices = append(agendaChoices, choice)
+	}
+	if len(agendaChoices) > 0 {
+		_, err := w.SetAgendaChoices(ctx, nil, agendaChoices...)
+		if err != nil {
+			return err
+		}
+	}
+	strToPolicy := func(s, t string) (stake.TreasuryVoteT, error) {
+		var policy stake.TreasuryVoteT
+		switch s {
+		case "abstain", "invalid", "":
+			policy = stake.TreasuryVoteInvalid
+		case "yes":
+			policy = stake.TreasuryVoteYes
+		case "no":
+			policy = stake.TreasuryVoteNo
+		default:
+			return 0, fmt.Errorf("unknown %s policy %q", t, s)
+		}
+		return policy, nil
+	}
+	// Set the tspend policy for the wallet.
+	for k, v := range tspendPolicy {
+		if len(k) != chainhash.MaxHashStringSize {
+			return fmt.Errorf("invalid tspend hash length, expected %d got %d",
+				chainhash.MaxHashStringSize, len(k))
+		}
+		hash, err := chainhash.NewHashFromStr(k)
+		if err != nil {
+			return fmt.Errorf("invalid hash %s: %v", k, err)
+		}
+		policy, err := strToPolicy(v, "tspend")
+		if err != nil {
+			return err
+		}
+		err = w.dcrWallet.SetTSpendPolicy(ctx, hash, policy, nil)
+		if err != nil {
+			return err
+		}
+	}
+	// Set the treasury policy for the wallet.
+	for k, v := range treasuryPolicy {
+		pikey, err := hex.DecodeString(k)
+		if err != nil {
+			return fmt.Errorf("unable to decode pi key %s: %v", k, err)
+		}
+		if len(pikey) != secp256k1.PubKeyBytesLenCompressed {
+			return fmt.Errorf("treasury key %s must be 33 bytes", k)
+		}
+		policy, err := strToPolicy(v, "treasury")
+		if err != nil {
+			return err
+		}
+		err = w.dcrWallet.SetTreasuryKeyPolicy(ctx, pikey, policy, nil)
+		if err != nil {
+			return err
+		}
+	}
+	// Set voting preferences for VSPs. Continuing for all errors.
+	return w.dcrWallet.ForUnspentUnexpiredTickets(ctx, func(hash *chainhash.Hash) error {
+		vspHost, err := w.dcrWallet.VSPHostForTicket(ctx, hash)
+		if err != nil {
+			if errors.Is(err, walleterrors.NotExist) {
+				w.log.Warnf("ticket %s is not associated with a VSP", hash)
+				return nil
+			}
+			w.log.Warnf("unable to get VSP associated with ticket %s: %v", hash, err)
+			return nil
+		}
+		info, err := vspInfo(vspHost)
+		if err != nil {
+			w.log.Warnf("unable to get info from vsp at %s for ticket %s: %v", vspHost, hash, err)
+			return nil
+		}
+		vspPubKey := base64.StdEncoding.EncodeToString(info.PubKey)
+		vspClient, err := loadvsp.NewVSPClient(w.dcrWallet, vspHost, vspPubKey, 0, 0, 0.2e8, new(net.Dialer).DialContext)
+		if err != nil {
+			w.log.Warnf("unable to load vsp at %s for ticket %s: %v", vspHost, hash, err)
+			return nil
+		}
+		// Never return errors here, so all tickets are tried.
+		// The first error will be returned to the user.
+		err = vspClient.SetVoteChoice(ctx, hash, agendaChoices, tspendPolicy, treasuryPolicy)
+		if err != nil {
+			w.log.Warnf("unable to set vote for vsp at %s for ticket %s: %v", vspHost, hash, err)
+		}
+		return nil
+	})
 }
 
 // cacheBlock caches a block for future use. The block has a lastAccess stamp
