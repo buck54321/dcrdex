@@ -22,6 +22,7 @@ import (
 	_ "decred.org/dcrdex/server/asset/btc"  // register btc asset
 	_ "decred.org/dcrdex/server/asset/dcr"  // register dcr asset
 	_ "decred.org/dcrdex/server/asset/doge" // register doge asset
+	_ "decred.org/dcrdex/server/asset/firo" // register firo asset
 	_ "decred.org/dcrdex/server/asset/ltc"  // register ltc asset
 	_ "decred.org/dcrdex/server/asset/zec"  // register zec asset
 	dexsrv "decred.org/dcrdex/server/dex"
