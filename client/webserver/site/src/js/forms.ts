@@ -428,6 +428,7 @@ export class WalletConfigForm {
   loadedSettings: PageElement
   defaultSettingsMsg: PageElement
   defaultSettings: PageElement
+  walletCfgGuide: PageElement
   assetHasActiveOrders: boolean
 
   constructor (form: HTMLElement, sectionize: boolean) {
@@ -462,6 +463,7 @@ export class WalletConfigForm {
     this.loadedSettings = Doc.tmplElement(form, 'loadedSettings')
     this.defaultSettingsMsg = Doc.tmplElement(form, 'defaultSettingsMsg')
     this.defaultSettings = Doc.tmplElement(form, 'defaultSettings')
+    this.walletCfgGuide = Doc.tmplElement(form, 'walletCfgGuide')
 
     if (!sectionize) Doc.hide(this.showOther)
 
@@ -566,10 +568,10 @@ export class WalletConfigForm {
     this.configOpts = configOpts || []
     Doc.empty(this.dynamicOpts, this.defaultSettings, this.loadedSettings)
 
-    Doc.hide(this.page.walletCfgGuide)
+    Doc.hide(this.walletCfgGuide)
     if (guideLink !== '') {
-      this.page.walletCfgGuideLink.href = guideLink
-      Doc.show(this.page.walletCfgGuide)
+      this.walletCfgGuide.href = guideLink
+      Doc.show(this.walletCfgGuide)
     }
 
     // If there are no options, just hide the entire form.
