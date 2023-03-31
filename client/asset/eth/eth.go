@@ -116,7 +116,7 @@ var (
 			Key:         providersKey,
 			DisplayName: "Provider",
 			Description: "Specify one or more providers. For infrastructure " +
-				"providers, use an https address. Only url-based authentication " +
+				"providers, prefer using wss address. Only url-based authentication " +
 				"is supported. For a local node, use the filepath to an IPC file.",
 			Repeatable: providerDelimiter,
 			RepeatN:    2,
