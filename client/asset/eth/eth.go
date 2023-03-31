@@ -119,18 +119,8 @@ var (
 				"providers, use an https address. Only url-based authentication " +
 				"is supported. For a local node, use the filepath to an IPC file.",
 			Repeatable: providerDelimiter,
+			RepeatN:    2,
 			Required:   true,
-		},
-		// Allow for single Provider setup, still nag the user to specify 2nd one for
-		// additional safety in case 1st provider fails during trade settlement.
-		{
-			Key:         providersKey,
-			DisplayName: "Provider",
-			Description: "Specify one or more providers. For infrastructure " +
-				"providers, use an https address. Only url-based authentication " +
-				"is supported. For a local node, use the filepath to an IPC file.",
-			Repeatable: providerDelimiter,
-			Required:   false,
 		},
 	}
 	// WalletInfo defines some general information about a Ethereum wallet.

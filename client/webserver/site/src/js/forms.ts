@@ -584,11 +584,25 @@ export class WalletConfigForm {
     const defaultedOpts = []
     for (const opt of this.configOpts) {
       if (this.sectionize && opt.default !== null) defaultedOpts.push(opt)
-      else this.addOpt(this.dynamicOpts, opt)
+      else {
+        let repeatCnt = 1
+        if (opt.repeatN) repeatCnt = opt.repeatN
+        let elem: any
+        for (let i = 0; i < repeatCnt; i++) {
+          repeatableCounter++
+          elem = this.addOpt(this.dynamicOpts, opt, elem, repeatableCounter)
+        }
+      }
     }
     if (defaultedOpts.length) {
       for (const opt of defaultedOpts) {
-        this.addOpt(this.defaultSettings, opt)
+        let repeatCnt = 1
+        if (opt.repeatN) repeatCnt = opt.repeatN
+        let elem: any
+        for (let i = 0; i < repeatCnt; i++) {
+          repeatableCounter++
+          elem = this.addOpt(this.defaultSettings, opt, elem, repeatableCounter)
+        }
       }
       Doc.show(this.showOther, this.defaultSettingsMsg, this.defaultSettings)
     } else {
@@ -629,6 +643,7 @@ export class WalletConfigForm {
       if (v === undefined) continue
       if (opt.repeatable) {
         if (handledRepeatables[opt.key]) {
+          el.remove()
           removes.push(r)
           continue
         }
