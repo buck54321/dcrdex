@@ -26,6 +26,7 @@ import {
   PeerSource,
   WalletPeer
 } from './registry'
+import { POKE, make } from './notifications'
 
 const animationLength = 300
 const traitRescanner = 1
@@ -1016,7 +1017,11 @@ export default class WalletsPage extends BasePage {
     const loaded = app().loading(this.body)
     const res = await postJSON('/api/connectwallet', { assetID })
     loaded()
-    if (!app().checkResponse(res)) return
+    if (!app().checkResponse(res)) {
+      const { symbol } = app().assets[assetID]
+      app().notify(make(intl.prep(intl.ID_CONNECT_WALLET_ERR_MSG, { assetName: symbol }), res.msg, POKE))
+      return
+    }
     this.updateDisplayedAsset(assetID)
   }
 
