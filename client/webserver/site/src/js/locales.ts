@@ -219,7 +219,7 @@ export const enUS: Locale = {
   [ID_EMPTY_DEX_ADDRESS_MSG]: 'DEX address cannot be empty',
   [ID_SELECT_WALLET_FOR_FEE_PAYMENT]: 'Select a valid wallet to post a bond',
   [ID_WALLET_SYNC_FINISHING_UP]: 'finishing up',
-  [ID_CONNECT_WALLET_ERR_MSG]: 'Error connecting {{ assetName }} wallet'
+  [ID_CONNECT_WALLET_ERR_MSG]: 'Error connecting {{ assetName }} wallet: {{ errMsg }}'
 }
 
 export const ptBR: Locale = {

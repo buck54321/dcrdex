@@ -26,7 +26,6 @@ import {
   PeerSource,
   WalletPeer
 } from './registry'
-import { POKE, make } from './notifications'
 
 const animationLength = 300
 const traitRescanner = 1
@@ -639,7 +638,7 @@ export default class WalletsPage extends BasePage {
       page.balanceBox, page.fiatBalanceBox, page.createWalletBox, page.walletDetails,
       page.sendReceive, page.connectBttnBox, page.statusLocked, page.statusReady,
       page.statusOff, page.unlockBttnBox, page.lockBttnBox, page.connectBttnBox,
-      page.peerCountBox, page.syncProgressBox, page.statusDisabled
+      page.peerCountBox, page.syncProgressBox, page.statusDisabled, page.connectWalletErr
     )
     if (wallet) {
       this.updateDisplayedAssetBalance()
@@ -1014,12 +1013,15 @@ export default class WalletsPage extends BasePage {
 
   /* doConnect connects to a wallet via the connectwallet API route. */
   async doConnect (assetID: number) {
+    const page = this.page
+    Doc.hide(this.page.connectWalletErr)
     const loaded = app().loading(this.body)
     const res = await postJSON('/api/connectwallet', { assetID })
     loaded()
     if (!app().checkResponse(res)) {
       const { symbol } = app().assets[assetID]
-      app().notify(make(intl.prep(intl.ID_CONNECT_WALLET_ERR_MSG, { assetName: symbol }), res.msg, POKE))
+      page.connectWalletErr.dataset.tooltip = intl.prep(intl.ID_CONNECT_WALLET_ERR_MSG, { assetName: symbol, errMsg: res.msg })
+      Doc.show(page.connectWalletErr)
       return
     }
     this.updateDisplayedAsset(assetID)
