@@ -1014,13 +1014,13 @@ export default class WalletsPage extends BasePage {
   /* doConnect connects to a wallet via the connectwallet API route. */
   async doConnect (assetID: number) {
     const page = this.page
-    Doc.hide(this.page.connectWalletErr)
+    Doc.hide(page.connectWalletErr)
     const loaded = app().loading(this.body)
     const res = await postJSON('/api/connectwallet', { assetID })
     loaded()
     if (!app().checkResponse(res)) {
       const { symbol } = app().assets[assetID]
-      page.connectWalletErr.dataset.tooltip = intl.prep(intl.ID_CONNECT_WALLET_ERR_MSG, { assetName: symbol, errMsg: res.msg })
+      page.connectWalletErr.textContent = intl.prep(intl.ID_CONNECT_WALLET_ERR_MSG, { assetName: symbol, errMsg: res.msg })
       Doc.show(page.connectWalletErr)
       return
     }
