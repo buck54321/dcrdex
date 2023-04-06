@@ -5,6 +5,7 @@ declare global {
     recordLogger: (loggerID: string, enable: boolean) => void
     dumpLogger: (loggerID: string) => void
     localeDiscrepancies: () => void
+    testFormatFourSigFigs: () => void
   }
 }
 
