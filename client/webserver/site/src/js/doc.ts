@@ -5,6 +5,7 @@ import {
   WalletState,
   PageElement
 } from './registry'
+import { RateEncodingFactor } from './orderutil'
 
 const parser = new window.DOMParser()
 
@@ -26,6 +27,8 @@ const BipIDs: Record<number, string> = {
 
 const BipSymbols = Object.values(BipIDs)
 
+const rateEncodingPower = Math.log10(RateEncodingFactor)
+
 const intFormatter = new Intl.NumberFormat((navigator.languages as string[]))
 
 const threeSigFigs = new Intl.NumberFormat((navigator.languages as string[]), {
@@ -33,13 +36,23 @@ const threeSigFigs = new Intl.NumberFormat((navigator.languages as string[]), {
   maximumSignificantDigits: 3
 })
 
+const fourSigFigs = new Intl.NumberFormat((navigator.languages as string[]), {
+  minimumSignificantDigits: 4,
+  maximumSignificantDigits: 4
+})
+
 const fiveSigFigs = new Intl.NumberFormat((navigator.languages as string[]), {
   minimumSignificantDigits: 5,
   maximumSignificantDigits: 5
 })
 
+const oneFractionalDigit = new Intl.NumberFormat((navigator.languages as string[]), {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1
+})
+
 /* A cache for formatters used for Doc.formatCoinValue. */
-const decimalFormatters = {}
+const decimalFormatters: Record<number, Intl.NumberFormat> = {}
 
 /*
  * decimalFormatter gets the formatCoinValue formatter for the specified decimal
@@ -261,6 +274,23 @@ export default class Doc {
   static formatThreeSigFigs (v: number): string {
     if (v >= 1000) return intFormatter.format(Math.round(v))
     return threeSigFigs.format(v)
+  }
+
+  static formatQtyFourSigFigs (qtyAtomic: number, unitInfo: UnitInfo) {
+    const c = unitInfo.conventional.conversionFactor
+    const maxDecimals = Math.round(Math.log10(c))
+    return Doc.formatFourSigFigs(qtyAtomic / c, maxDecimals)
+  }
+
+  static formatRateFourSigFigs (encRate: number, bui: UnitInfo, qui: UnitInfo, rateStep: number) {
+    const r = bui.conventional.conversionFactor / qui.conventional.conversionFactor
+    const convRate = encRate * r / RateEncodingFactor
+    const maxDecimals = Math.min(Math.round(rateEncodingPower - Math.floor(Math.log10(rateStep))), 1)
+    return Doc.formatFourSigFigs(convRate, maxDecimals)
+  }
+
+  static formatFourSigFigs (n: number, maxDecimals?: number): string {
+    return formatSigFigsWithFormatters(4, oneFractionalDigit, fourSigFigs, fullPrecisionFormatter(4), n, maxDecimals)
   }
 
   static formatFiveSigFigs (v: number, prec?: number): string {
@@ -624,4 +654,56 @@ const aMinute = 60000
 function timeMod (t: number, dur: number) {
   const n = Math.floor(t / dur)
   return [n, t - n * dur]
+}
+
+function formatSigFigsWithFormatters (sigFigs: number, intFormatter: Intl.NumberFormat, sigFigFormatter: Intl.NumberFormat, preciseFormatter: Intl.NumberFormat, n: number, maxDecimals?: number): string {
+  if (n >= Math.round(Math.pow(10, sigFigs - 1))) return intFormatter.format(n)
+  const s = sigFigFormatter.format(n)
+  if (typeof maxDecimals !== 'number') return s
+  const fractional = sigFigFormatter.formatToParts(n).filter((part: Intl.NumberFormatPart) => part.type === 'fraction')[0].value
+  if (fractional.length <= maxDecimals) return s
+  return preciseFormatter.format(n)
+}
+
+if (process.env.NODE_ENV === 'development') {
+  // Code will only appear in dev build.
+  // https://webpack.js.org/guides/production/
+  window.testFormatFourSigFigs = () => {
+    const tests: [string, string, number | undefined, string][] = [
+      ['en-US', '1.234567', undefined, '1.235'], // sigFigFormatter
+      ['en-US', '1.234567', 2, '1.23'], // decimalFormatter
+      ['en-US', '1234', undefined, '1,234.0'], // oneFractionalDigit
+      ['en-US', '12', undefined, '12.00'], // sigFigFormatter
+      ['fr-FR', '123.45678', undefined, '123,5'], // oneFractionalDigit
+      ['fr-FR', '1234.5', undefined, '1 234,5'], // U+202F for thousands separator
+      // For Arabic, https://www.saitak.com/number is useful, but seems to use
+      // slightly different unicode points and no thousands separator. I think
+      // the Arabic decimal separator is supposed to be more like a point, not
+      // a comma, but Google Chrome uses U+066B (Arabic Decimal Separator),
+      // which looks like a comma to me. ¯\_(ツ)_/¯
+      ['ar-EG', '123.45678', undefined, '١٢٣٫٥'],
+      ['ar-EG', '1234', undefined, '١٬٢٣٤٫٠'],
+      ['ar-EG', '0.12345', 3, '٠٫١٢٣']
+    ]
+
+    // Reproduce the NumberFormats with ONLY our desired language.
+    for (const [code, unformatted, maxDecimals, expected] of tests) {
+      const intFormatter = new Intl.NumberFormat(code, { // oneFractionalDigit
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1
+      })
+      const sigFigFormatter = new Intl.NumberFormat(code, {
+        minimumSignificantDigits: 4,
+        maximumSignificantDigits: 4
+      })
+      const decimalFormatter = new Intl.NumberFormat(code, { // fullPrecisionFormatter
+        minimumFractionDigits: maxDecimals,
+        maximumFractionDigits: maxDecimals
+      })
+      for (const k in decimalFormatters) delete decimalFormatters[k]
+      const s = formatSigFigsWithFormatters(4, intFormatter, sigFigFormatter, decimalFormatter, parseFloat(unformatted), maxDecimals)
+      if (s !== expected) console.log(`TEST FAILED: f('${code}', ${unformatted}, ${maxDecimals}) => '${s}' != '${expected}'}`)
+      else console.log(`✔️ f('${code}', ${unformatted}, ${maxDecimals}) => ${s} ✔️`)
+    }
+  }
 }
