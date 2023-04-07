@@ -6,11 +6,9 @@
   <span class="me-2 errcolor ico-disconnected d-hide peers-table-icon" id="disconnectedIconTmpl"></span>
   <span class="me-2 errcolor ico-cross d-hide pointer peers-table-icon" id="removeIconTmpl"></span>
   <div id="errorModal" class="d-hide p-4 d-flex flex-column mw-425">
-      <div class="fs22 text-center">[[[error_message]]]</div>
-      <div id="errorModalMsg" class="fs16 errcolor text-center my-2"></div>
-      <div class="d-flex justify-content-end my-1">
-        <button id="errorModalOk" type="button" class="justify-content-center selected">[[[Ok]]]</button>
-      </div>
+      <div class="form-closer hoverbg"><span class="ico-cross"></span></div>
+      <div class="fs22 text-center">[[[Error]]]</div>
+      <div id="errorModalMsg" class="fs16 errcolor my-2 text-center"></div>
   </div>
   <div class="fill-abs d-flex align-items-stretch">
     {{- /* ASSET SELECT */ -}}

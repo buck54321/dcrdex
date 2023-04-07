@@ -144,13 +144,14 @@ export default class WalletsPage extends BasePage {
 
     this.keyup = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (Doc.isDisplayed(this.page.forms)) this.closePopups()
-        if (Doc.isDisplayed(this.page.errorModal)) this.hideErrorModal()
+        if (Doc.isDisplayed(page.forms)) this.closePopups()
+        if (Doc.isDisplayed(page.errorModal)) this.hideErrorModal()
       }
     }
     Doc.bind(document, 'keyup', this.keyup)
 
-    Doc.bind(page.errorModalOk, 'click', () => this.hideErrorModal())
+    const errorModalCloser = page.errorModal.querySelector('.form-closer')
+    if (errorModalCloser) Doc.bind(errorModalCloser, 'click', () => this.hideErrorModal())
 
     Doc.bind(page.downloadLogs, 'click', async () => { this.downloadLogs() })
     Doc.bind(page.exportWallet, 'click', async () => { this.displayExportWalletAuth() })
