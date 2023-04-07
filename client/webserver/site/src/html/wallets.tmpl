@@ -5,6 +5,13 @@
   <span class="me-2 connection ico-connection d-hide peers-table-icon" id="connectedIconTmpl"></span>
   <span class="me-2 errcolor ico-disconnected d-hide peers-table-icon" id="disconnectedIconTmpl"></span>
   <span class="me-2 errcolor ico-cross d-hide pointer peers-table-icon" id="removeIconTmpl"></span>
+  <div id="errorModal" class="d-hide p-4 d-flex flex-column mw-425">
+      <div class="fs22 text-center">[[[error_message]]]</div>
+      <div id="errorModalMsg" class="fs16 errcolor text-center my-2"></div>
+      <div class="d-flex justify-content-end my-1">
+        <button id="errorModalOk" type="button" class="justify-content-center selected">[[[Ok]]]</button>
+      </div>
+  </div>
   <div class="fill-abs d-flex align-items-stretch">
     {{- /* ASSET SELECT */ -}}
     <div class="d-flex flex-column align-items-stretch stylish-overflow invisible" id="assetSelect">
@@ -94,9 +101,7 @@
                     </tr>
                     <tr id="connectBttnBox">
                       <td colspan="2" class="pb-2">
-                        <button id="connectBttn" class="fs14 p-1 hoverbg">[[[Connect]]]
-                          <span id="connectWalletErr" class="ps-1 d-hide ico-info fs14 errcolor" data-tooltip=""></span>
-                        </button>
+                        <button id="connectBttn" class="fs14 p-1 hoverbg">[[[Connect]]]</button>
                       </td>
                     </tr>
                     <tr>

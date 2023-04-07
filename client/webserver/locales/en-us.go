@@ -335,4 +335,6 @@ var EnUS = map[string]string{
 	"connected":              "Connected",
 	"Remove":                 "Remove",
 	"unready_wallets_msg":    "Your wallets must be connected and unlocked before trades can be processed. Resolve this ASAP!",
+	"Ok":                     "Ok",
+	"error_message":          "Error Message",
 }

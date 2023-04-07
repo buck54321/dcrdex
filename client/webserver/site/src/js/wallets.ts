@@ -139,15 +139,18 @@ export default class WalletsPage extends BasePage {
     })
 
     Doc.bind(page.forms, 'mousedown', (e: MouseEvent) => {
-      if (!Doc.mouseInElement(e, this.currentForm)) { this.closePopups() }
+      if (!Doc.mouseInElement(e, this.currentForm)) this.closePopups()
     })
 
     this.keyup = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (Doc.isDisplayed(this.page.forms)) this.closePopups()
+        if (Doc.isDisplayed(this.page.errorModal)) this.hideErrorModal()
       }
     }
     Doc.bind(document, 'keyup', this.keyup)
+
+    Doc.bind(page.errorModalOk, 'click', () => this.hideErrorModal())
 
     Doc.bind(page.downloadLogs, 'click', async () => { this.downloadLogs() })
     Doc.bind(page.exportWallet, 'click', async () => { this.displayExportWalletAuth() })
@@ -227,6 +230,12 @@ export default class WalletsPage extends BasePage {
   closePopups () {
     Doc.hide(this.page.forms)
     if (this.animation) this.animation.stop()
+  }
+
+  hideErrorModal () {
+    const page = this.page
+    page.errorModalMsg.textContent = ''
+    Doc.hide(page.errorModal)
   }
 
   // stepSend makes a request to get an estimated fee and displays the confirm
@@ -638,8 +647,9 @@ export default class WalletsPage extends BasePage {
       page.balanceBox, page.fiatBalanceBox, page.createWalletBox, page.walletDetails,
       page.sendReceive, page.connectBttnBox, page.statusLocked, page.statusReady,
       page.statusOff, page.unlockBttnBox, page.lockBttnBox, page.connectBttnBox,
-      page.peerCountBox, page.syncProgressBox, page.statusDisabled, page.connectWalletErr
+      page.peerCountBox, page.syncProgressBox, page.statusDisabled
     )
+    this.hideErrorModal()
     if (wallet) {
       this.updateDisplayedAssetBalance()
 
@@ -1013,15 +1023,15 @@ export default class WalletsPage extends BasePage {
 
   /* doConnect connects to a wallet via the connectwallet API route. */
   async doConnect (assetID: number) {
-    const page = this.page
-    Doc.hide(this.page.connectWalletErr)
+    this.hideErrorModal()
     const loaded = app().loading(this.body)
     const res = await postJSON('/api/connectwallet', { assetID })
     loaded()
     if (!app().checkResponse(res)) {
       const { symbol } = app().assets[assetID]
-      page.connectWalletErr.dataset.tooltip = intl.prep(intl.ID_CONNECT_WALLET_ERR_MSG, { assetName: symbol, errMsg: res.msg })
-      Doc.show(page.connectWalletErr)
+      const page = this.page
+      page.errorModalMsg.textContent = intl.prep(intl.ID_CONNECT_WALLET_ERR_MSG, { assetName: symbol, errMsg: res.msg })
+      Doc.show(page.errorModal)
       return
     }
     this.updateDisplayedAsset(assetID)
