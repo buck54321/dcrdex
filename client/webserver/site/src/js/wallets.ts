@@ -145,13 +145,9 @@ export default class WalletsPage extends BasePage {
     this.keyup = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (Doc.isDisplayed(page.forms)) this.closePopups()
-        if (Doc.isDisplayed(page.errorModal)) this.hideErrorModal()
       }
     }
     Doc.bind(document, 'keyup', this.keyup)
-
-    const errorModalCloser = page.errorModal.querySelector('.form-closer')
-    if (errorModalCloser) Doc.bind(errorModalCloser, 'click', () => this.hideErrorModal())
 
     Doc.bind(page.downloadLogs, 'click', async () => { this.downloadLogs() })
     Doc.bind(page.exportWallet, 'click', async () => { this.displayExportWalletAuth() })
@@ -231,12 +227,6 @@ export default class WalletsPage extends BasePage {
   closePopups () {
     Doc.hide(this.page.forms)
     if (this.animation) this.animation.stop()
-  }
-
-  hideErrorModal () {
-    const page = this.page
-    page.errorModalMsg.textContent = ''
-    Doc.hide(page.errorModal)
   }
 
   // stepSend makes a request to get an estimated fee and displays the confirm
@@ -650,7 +640,6 @@ export default class WalletsPage extends BasePage {
       page.statusOff, page.unlockBttnBox, page.lockBttnBox, page.connectBttnBox,
       page.peerCountBox, page.syncProgressBox, page.statusDisabled
     )
-    this.hideErrorModal()
     if (wallet) {
       this.updateDisplayedAssetBalance()
 
@@ -1024,7 +1013,6 @@ export default class WalletsPage extends BasePage {
 
   /* doConnect connects to a wallet via the connectwallet API route. */
   async doConnect (assetID: number) {
-    this.hideErrorModal()
     const loaded = app().loading(this.body)
     const res = await postJSON('/api/connectwallet', { assetID })
     loaded()
@@ -1032,7 +1020,7 @@ export default class WalletsPage extends BasePage {
       const { symbol } = app().assets[assetID]
       const page = this.page
       page.errorModalMsg.textContent = intl.prep(intl.ID_CONNECT_WALLET_ERR_MSG, { assetName: symbol, errMsg: res.msg })
-      Doc.show(page.errorModal)
+      this.showForm(page.errorModal)
       return
     }
     this.updateDisplayedAsset(assetID)

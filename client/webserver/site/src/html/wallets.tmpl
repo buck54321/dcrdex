@@ -5,11 +5,6 @@
   <span class="me-2 connection ico-connection d-hide peers-table-icon" id="connectedIconTmpl"></span>
   <span class="me-2 errcolor ico-disconnected d-hide peers-table-icon" id="disconnectedIconTmpl"></span>
   <span class="me-2 errcolor ico-cross d-hide pointer peers-table-icon" id="removeIconTmpl"></span>
-  <div id="errorModal" class="d-hide p-4 d-flex flex-column mw-425">
-      <div class="form-closer hoverbg"><span class="ico-cross"></span></div>
-      <div class="fs22 text-center">[[[Error]]]</div>
-      <div id="errorModalMsg" class="fs16 errcolor my-2 text-center"></div>
-  </div>
   <div class="fill-abs d-flex align-items-stretch">
     {{- /* ASSET SELECT */ -}}
     <div class="d-flex flex-column align-items-stretch stylish-overflow invisible" id="assetSelect">
@@ -540,6 +535,11 @@
       </div>
     </form>
 
+    <form id="errorModal" class="d-hide">
+      <div class="form-closer hoverbg"><span class="ico-cross"></span></div>
+      <div class="fs22 text-center">[[[Error]]]</div>
+      <div id="errorModalMsg" class="fs16 errcolor my-2 text-center"></div>
+    </form>
   </div>
 </div>
 {{template "bottom"}}
