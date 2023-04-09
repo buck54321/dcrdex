@@ -69,6 +69,7 @@ export default class WalletsPage extends BasePage {
   assetButtons: Record<number, AssetButton>
   newWalletForm: NewWalletForm
   reconfigForm: WalletConfigForm
+  walletCfgGuide: PageElement
   unlockForm: UnlockWalletForm
   depositAddrForm: DepositAddress
   keyup: (e: KeyboardEvent) => void
@@ -121,6 +122,8 @@ export default class WalletsPage extends BasePage {
 
     // Bind the wallet reconfig form.
     this.reconfigForm = new WalletConfigForm(page.reconfigInputs, false)
+
+    this.walletCfgGuide = Doc.tmplElement(page.reconfigForm, 'walletCfgGuide')
 
     // Bind the wallet unlock form.
     this.unlockForm = new UnlockWalletForm(page.unlockWalletForm, (assetID: number) => this.openWalletSuccess(assetID, page.unlockWalletForm))
@@ -921,7 +924,8 @@ export default class WalletsPage extends BasePage {
       return
     }
     const assetHasActiveOrders = app().haveActiveOrders(assetID)
-    this.reconfigForm.update(currentDef.guidelink, currentDef.configopts || [], assetHasActiveOrders)
+    this.reconfigForm.update(currentDef.configopts || [], assetHasActiveOrders)
+    this.setGuideLink(currentDef.guidelink)
     this.reconfigForm.setConfig(res.map)
     this.updateDisplayedReconfigFields(currentDef)
   }
@@ -930,8 +934,17 @@ export default class WalletsPage extends BasePage {
     const page = this.page
     const walletType = page.changeWalletTypeSelect.value || ''
     const walletDef = app().walletDefinition(this.selectedAssetID, walletType)
-    this.reconfigForm.update(walletDef.guidelink, walletDef.configopts || [], false)
+    this.reconfigForm.update(walletDef.configopts || [], false)
+    this.setGuideLink(walletDef.guidelink)
     this.updateDisplayedReconfigFields(walletDef)
+  }
+
+  setGuideLink (guideLink: string) {
+    Doc.hide(this.walletCfgGuide)
+    if (guideLink !== '') {
+      this.walletCfgGuide.href = guideLink
+      Doc.show(this.walletCfgGuide)
+    }
   }
 
   updateDisplayedReconfigFields (walletDef: WalletDefinition) {

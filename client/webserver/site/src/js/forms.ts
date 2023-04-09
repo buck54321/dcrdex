@@ -67,7 +67,7 @@ export class NewWalletForm {
   current: CurrentAsset
   pwHiders: HTMLElement[]
   subform: WalletConfigForm
-  currentWalletType: string
+  walletCfgGuide: PageElement
   parentSyncer: null | ((w: WalletState) => void)
   createUpdater: null | ((note: WalletCreationNote) => void)
 
@@ -89,6 +89,8 @@ export class NewWalletForm {
 
     // WalletConfigForm will set the global app variable.
     this.subform = new WalletConfigForm(page.walletSettings, true)
+
+    this.walletCfgGuide = Doc.tmplElement(form, 'walletCfgGuide')
 
     bind(form, page.submitAdd, () => this.submit())
     bind(form, page.oneBttn, () => this.submit())
@@ -349,8 +351,9 @@ export class NewWalletForm {
         for (const opt of tokenOptsCopy) opt.regAsset = asset.id
         parentAndTokenOpts.push(...tokenOptsCopy)
       }
-      this.subform.update(guideLink, parentAndTokenOpts, false)
-    } else this.subform.update(guideLink, configOpts, false)
+      this.subform.update(parentAndTokenOpts, false)
+    } else this.subform.update(configOpts, false)
+    this.setGuideLink(guideLink)
 
     if (this.subform.dynamicOpts.children.length || this.subform.defaultSettings.children.length) {
       Doc.show(page.walletSettingsHeader)
@@ -362,6 +365,14 @@ export class NewWalletForm {
 
     this.refresh()
     await this.loadDefaults()
+  }
+
+  setGuideLink (guideLink: string) {
+    Doc.hide(this.walletCfgGuide)
+    if (guideLink !== '') {
+      this.walletCfgGuide.href = guideLink
+      Doc.show(this.walletCfgGuide)
+    }
   }
 
   /* setError sets and shows the in-form error message. */
@@ -428,7 +439,6 @@ export class WalletConfigForm {
   loadedSettings: PageElement
   defaultSettingsMsg: PageElement
   defaultSettings: PageElement
-  walletCfgGuide: PageElement
   assetHasActiveOrders: boolean
 
   constructor (form: HTMLElement, sectionize: boolean) {
@@ -463,7 +473,6 @@ export class WalletConfigForm {
     this.loadedSettings = Doc.tmplElement(form, 'loadedSettings')
     this.defaultSettingsMsg = Doc.tmplElement(form, 'defaultSettingsMsg')
     this.defaultSettings = Doc.tmplElement(form, 'defaultSettings')
-    this.walletCfgGuide = Doc.tmplElement(form, 'walletCfgGuide')
 
     if (!sectionize) Doc.hide(this.showOther)
 
@@ -562,17 +571,11 @@ export class WalletConfigForm {
   /*
    * update creates the dynamic form.
    */
-  update (guideLink: string, configOpts: ConfigOption[] | null, activeOrders: boolean) {
+  update (configOpts: ConfigOption[] | null, activeOrders: boolean) {
     this.assetHasActiveOrders = activeOrders
     this.configElements = []
     this.configOpts = configOpts || []
     Doc.empty(this.dynamicOpts, this.defaultSettings, this.loadedSettings)
-
-    Doc.hide(this.walletCfgGuide)
-    if (guideLink !== '') {
-      this.walletCfgGuide.href = guideLink
-      Doc.show(this.walletCfgGuide)
-    }
 
     // If there are no options, just hide the entire form.
     if (this.configOpts.length === 0) return Doc.hide(this.form)
