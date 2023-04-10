@@ -409,7 +409,7 @@ export class NewWalletForm {
   }
 }
 
-let repeatableCounter = 0
+let dynamicInputCounter = 0
 
 /*
  * WalletConfigForm is a dynamically generated sub-form for setting
@@ -517,8 +517,7 @@ export class WalletConfigForm {
     if (loadedOpts + defaultOpts === 0) Doc.hide(this.showOther, this.otherSettings)
   }
 
-  addOpt (box: HTMLElement, opt: ConfigOption, insertAfter?: PageElement, n?: number): PageElement {
-    const elID = 'wcfg-' + opt.key + (n ? String(n) : '')
+  addOpt (box: HTMLElement, opt: ConfigOption, insertAfter?: PageElement, skipRepeatN?: boolean): PageElement {
     let el: HTMLElement
     if (opt.isboolean) el = this.checkboxTmpl.cloneNode(true) as HTMLElement
     else if (opt.isdate) el = this.dateInputTmpl.cloneNode(true) as HTMLElement
@@ -526,13 +525,15 @@ export class WalletConfigForm {
       el = this.repeatableTmpl.cloneNode(true) as HTMLElement
       el.classList.add('repeatable')
       Doc.bind(Doc.tmplElement(el, 'add'), 'click', () => {
-        repeatableCounter++
-        this.addOpt(box, opt, el, repeatableCounter)
+        this.addOpt(box, opt, el, true)
       })
+      if (!skipRepeatN) for (let i = 0; i < (opt.repeatN ? opt.repeatN - 1 : 0); i++) this.addOpt(box, opt, insertAfter, true)
     } else el = this.textInputTmpl.cloneNode(true) as HTMLElement
     this.configElements.push([opt, el])
     const input = el.querySelector('input') as ConfigOptionInput
     input.dataset.configKey = opt.key
+    dynamicInputCounter++
+    const elID = 'wcfg-' + String(dynamicInputCounter)
     input.id = elID
     const label = Doc.safeSelector(el, 'label')
     label.htmlFor = elID // 'for' attribute, but 'for' is a keyword
@@ -589,26 +590,10 @@ export class WalletConfigForm {
     const defaultedOpts = []
     for (const opt of this.configOpts) {
       if (this.sectionize && opt.default !== null) defaultedOpts.push(opt)
-      else {
-        let repeatCnt = 1
-        if (opt.repeatN) repeatCnt = opt.repeatN
-        let elem: any
-        for (let i = 0; i < repeatCnt; i++) {
-          repeatableCounter++
-          elem = this.addOpt(this.dynamicOpts, opt, elem, repeatableCounter)
-        }
-      }
+      else this.addOpt(this.dynamicOpts, opt)
     }
     if (defaultedOpts.length) {
-      for (const opt of defaultedOpts) {
-        let repeatCnt = 1
-        if (opt.repeatN) repeatCnt = opt.repeatN
-        let elem: any
-        for (let i = 0; i < repeatCnt; i++) {
-          repeatableCounter++
-          elem = this.addOpt(this.defaultSettings, opt, elem, repeatableCounter)
-        }
-      }
+      for (const opt of defaultedOpts) this.addOpt(this.defaultSettings, opt)
       Doc.show(this.showOther, this.defaultSettingsMsg, this.defaultSettings)
     } else {
       Doc.hide(this.showOther)
@@ -658,8 +643,7 @@ export class WalletConfigForm {
         finds.push(el)
         Doc.safeSelector(el, 'input').value = firstVal
         for (let i = 1; i < vals.length; i++) {
-          repeatableCounter++
-          const newEl = this.addOpt(el.parentElement as PageElement, opt, el, repeatableCounter)
+          const newEl = this.addOpt(el.parentElement as PageElement, opt, el)
           Doc.safeSelector(newEl, 'input').value = vals[i]
           finds.push(newEl)
         }
