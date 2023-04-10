@@ -532,6 +532,8 @@ export class WalletConfigForm {
     this.configElements.push([opt, el])
     const input = el.querySelector('input') as ConfigOptionInput
     input.dataset.configKey = opt.key
+    // We need to generate a unique ID only for the <input id> => <label for>
+    // matching.
     dynamicInputCounter++
     const elID = 'wcfg-' + String(dynamicInputCounter)
     input.id = elID
@@ -642,8 +644,12 @@ export class WalletConfigForm {
         const firstVal = vals[0]
         finds.push(el)
         Doc.safeSelector(el, 'input').value = firstVal
+        // Add repeatN - 1 empty elements to the reconfig form. Add them before
+        // the populated inputs just because of the way we're using the
+        // insertAfter argument to addOpt.
+        for (let i = 1; i < (opt.repeatN || 1); i++) finds.push(this.addOpt(el.parentElement as PageElement, opt, el, true))
         for (let i = 1; i < vals.length; i++) {
-          const newEl = this.addOpt(el.parentElement as PageElement, opt, el)
+          const newEl = this.addOpt(el.parentElement as PageElement, opt, el, true)
           Doc.safeSelector(newEl, 'input').value = vals[i]
           finds.push(newEl)
         }
