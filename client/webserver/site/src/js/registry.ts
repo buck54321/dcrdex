@@ -6,6 +6,7 @@ declare global {
     dumpLogger: (loggerID: string) => void
     localeDiscrepancies: () => void
     testFormatFourSigFigs: () => void
+    testFormatRateToRateStep: () => void
   }
 }
 
