@@ -87,6 +87,11 @@ func NewBackend(configPath string, logger dex.Logger, network dex.Network) (asse
 		FeeConfs:             1,  // the default
 		NoCompetitionFeeRate: 1,  // 0.00001000 FIRO/kB
 		MaxFeeBlocks:         16, // copied from dgb
+		BooleanGetBlockRPC:   true,
+		// Firo actually has estimatesmartfee, but with a big warning
+		//    WARNING: This interface is unstable and may disappear or change!
+		// and it also doesn't accept an estimate_mode argument.
+		DumbFeeEstimates: true,
 	})
 }
 
