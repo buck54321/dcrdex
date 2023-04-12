@@ -51,7 +51,7 @@ function decimalFormatter (prec: number) {
 }
 
 /* A cache for formatters used for Doc.formatFullPrecision. */
-const fullPrecisionFormatters = {}
+const fullPrecisionFormatters: Record<number, Intl.NumberFormat> = {}
 
 /*
  * fullPrecisionFormatter gets the formatFullPrecision formatter for the
@@ -302,7 +302,7 @@ export default class Doc {
 
   static conventionalRateStep (rateStepEnc: number, baseUnitInfo: UnitInfo, quoteUnitInfo: UnitInfo) {
     const [qFactor, bFactor] = [quoteUnitInfo.conventional.conversionFactor, baseUnitInfo.conventional.conversionFactor]
-    return rateStepEnc / (RateEncodingFactor * bFactor / qFactor)
+    return rateStepEnc / RateEncodingFactor * (bFactor / qFactor)
   }
 
   /*
@@ -680,7 +680,8 @@ if (process.env.NODE_ENV === 'development') {
         minimumSignificantDigits: 4,
         maximumSignificantDigits: 4
       })
-      for (const k in decimalFormatters) delete decimalFormatters[k]
+      for (const k in decimalFormatters) delete decimalFormatters[k] // cleanup
+      for (const k in fullPrecisionFormatters) delete fullPrecisionFormatters[k] // cleanup
       const s = formatSigFigsWithFormatters(4, intFormatter, sigFigFormatter, parseFloat(unformatted), maxDecimals, code)
       if (s !== expected) console.log(`TEST FAILED: f('${code}', ${unformatted}, ${maxDecimals}) => '${s}' != '${expected}'}`)
       else console.log(`✔️ f('${code}', ${unformatted}, ${maxDecimals}) => ${s} ✔️`)
@@ -694,18 +695,31 @@ if (process.env.NODE_ENV === 'development') {
       [1.5e7, 100, 1e8, 1e8, '0.150000'],
       // USDC quote -> utxo base with a rate of $10 / 1 XYZ. USDC has an
       // conversion factor of 1e6, so $10 encodes to 1e7, 1 XYZ encodes to 1e8,
-      // encoded rate is 1e7 / 1e8 * 1e8 = 1e7, bFactor / qFactor is 1e-2.
-      // The conventional rate step is 200 / 1e8 * 1e-2 = 2e-8, so using
-      // rateStepDigits, we should get 8 decimal digits.
-      [1e7, 200, 1e6, 1e8, '10.00000000'],
+      // encoded rate is 1e7 / 1e8 * 1e8 = 1e7, bFactor / qFactor is 1e2.
+      // The conventional rate step is 200 / 1e8 * 1e2 = 2e-4, so using
+      // rateStepDigits, we should get 4 decimal digits.
+      [1e7, 200, 1e6, 1e8, '10.0000'],
       // Set a rate of 1 atom USDC for 0.01 BTC. That atomic rate will be 1 /
       // 1e6 = 1e-6. The encoded rate will be 1e-6 * 1e8 = 1e2. As long as our
       // rate step divides evenly into 100, this should work. The conventional
-      // rate is 1e-6 / 1e-2 = 1e-8, so expect 8 decimal digits.
-      [1e2, 100, 1e6, 1e8, '0.00010000']
+      // rate is 1e-6 / 1e-2 = 1e-4, so expect 4 decimal digits.
+      [1e2, 100, 1e6, 1e8, '0.0001'],
+      // DCR-ETH, expect 6 decimals.
+      [1.5e7, 1000, 1e9, 1e8, '0.015000'],
+      [1e6, 1000, 1e9, 1e8, '0.001000'],
+      [1e3, 1000, 1e9, 1e8, '0.000001'],
+      [100001000, 1000, 1e9, 1e8, '0.100001'],
+      [1000001000, 1000, 1e9, 1e8, '1.000001'],
+      // DCR-USDC, expect 3 decimals.
+      [1.5e7, 1000, 1e6, 1e8, '15.000'],
+      [1e6, 1000, 1e6, 1e8, '1.000'],
+      [1e3, 1000, 1e6, 1e8, '0.001'],
+      [101000, 1000, 1e6, 1e8, '0.101'],
+      [1001000, 1000, 1e6, 1e8, '1.001']
     ]
 
     for (const [encRate, rateStep, qFactor, bFactor, expEncoding] of tests) {
+      for (const k in fullPrecisionFormatters) delete fullPrecisionFormatters[k] // cleanup
       const bui = { conventional: { conversionFactor: bFactor } } as any as UnitInfo
       const qui = { conventional: { conversionFactor: qFactor } } as any as UnitInfo
       const enc = Doc.formatRateFullPrecision(encRate, bui, qui, rateStep)
