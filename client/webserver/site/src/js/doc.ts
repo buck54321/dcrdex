@@ -57,19 +57,22 @@ const fullPrecisionFormatters = {}
  * fullPrecisionFormatter gets the formatFullPrecision formatter for the
  * specified decimal precision.
  */
-function fullPrecisionFormatter (prec: number) {
-  return formatter(fullPrecisionFormatters, prec, prec)
+function fullPrecisionFormatter (prec: number, locales?: string | string[]) {
+  return formatter(fullPrecisionFormatters, prec, prec, locales)
 }
 
 /*
  * formatter gets the formatter from the supplied cache if it already exists,
  * else creates it.
  */
-function formatter (formatters: Record<string, Intl.NumberFormat>, min: number, max: number): Intl.NumberFormat {
+function formatter (formatters: Record<string, Intl.NumberFormat>, min: number, max: number, locales?: string | string[]): Intl.NumberFormat {
   const k = `${min}-${max}`
   let fmt = formatters[k]
   if (!fmt) {
-    fmt = new Intl.NumberFormat((navigator.languages as string[]), {
+    if (!locales) {
+      locales = navigator.languages as string[]
+    }
+    fmt = new Intl.NumberFormat(locales, {
       minimumFractionDigits: min,
       maximumFractionDigits: max
     })
@@ -268,7 +271,7 @@ export default class Doc {
     const convRate = encRate * r / RateEncodingFactor
     const conventionalRateStep = Doc.conventionalRateStep(rateStepEnc, bui, qui)
     const rateStepDigits = Math.round(Math.log10(1 / conventionalRateStep))
-    return convRate.toFixed(rateStepDigits)
+    return fullPrecisionFormatter(rateStepDigits).format(convRate)
   }
 
   static formatFourSigFigs (n: number): string {
@@ -637,13 +640,13 @@ function timeMod (t: number, dur: number) {
   return [n, t - n * dur]
 }
 
-function formatSigFigsWithFormatters (sigFigs: number, intFormatter: Intl.NumberFormat, sigFigFormatter: Intl.NumberFormat, n: number, maxDecimals?: number): string {
+function formatSigFigsWithFormatters (sigFigs: number, intFormatter: Intl.NumberFormat, sigFigFormatter: Intl.NumberFormat, n: number, maxDecimals?: number, locales?: string | string[]): string {
   if (n >= Math.round(Math.pow(10, sigFigs - 1))) return intFormatter.format(n)
   const s = sigFigFormatter.format(n)
   if (typeof maxDecimals !== 'number') return s
   const fractional = sigFigFormatter.formatToParts(n).filter((part: Intl.NumberFormatPart) => part.type === 'fraction')[0].value
   if (fractional.length <= maxDecimals) return s
-  return fullPrecisionFormatter(maxDecimals).format(n)
+  return fullPrecisionFormatter(maxDecimals, locales).format(n)
 }
 
 if (process.env.NODE_ENV === 'development') {
@@ -678,7 +681,7 @@ if (process.env.NODE_ENV === 'development') {
         maximumSignificantDigits: 4
       })
       for (const k in decimalFormatters) delete decimalFormatters[k]
-      const s = formatSigFigsWithFormatters(4, intFormatter, sigFigFormatter, parseFloat(unformatted), maxDecimals)
+      const s = formatSigFigsWithFormatters(4, intFormatter, sigFigFormatter, parseFloat(unformatted), maxDecimals, code)
       if (s !== expected) console.log(`TEST FAILED: f('${code}', ${unformatted}, ${maxDecimals}) => '${s}' != '${expected}'}`)
       else console.log(`✔️ f('${code}', ${unformatted}, ${maxDecimals}) => ${s} ✔️`)
     }
