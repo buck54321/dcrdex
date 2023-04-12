@@ -260,13 +260,14 @@ export default class Doc {
   }
 
   /*
-   * formatRate formats rate to represent it exactly at rate step precision,
-   * trimming non-effectual zeros if there are any.
+   * formatRateFullPrecision formats rate to represent it exactly at rate step
+   * precision, trimming non-effectual zeros if there are any.
    */
-  static formatRateToRateStep (encRate: number, bui: UnitInfo, qui: UnitInfo, rateStepEnc: number) {
+  static formatRateFullPrecision (encRate: number, bui: UnitInfo, qui: UnitInfo, rateStepEnc: number) {
     const r = bui.conventional.conversionFactor / qui.conventional.conversionFactor
     const convRate = encRate * r / RateEncodingFactor
-    const rateStepDigits = Doc.rateStepDigits(Doc.decodeRateStep(rateStepEnc, bui, qui))
+    const conventionalRateStep = Doc.conventionalRateStep(rateStepEnc, bui, qui)
+    const rateStepDigits = Math.round(Math.log10(1 / conventionalRateStep))
     return convRate.toFixed(rateStepDigits)
   }
 
@@ -296,13 +297,9 @@ export default class Doc {
     return fullPrecisionFormatter(prec).format(value)
   }
 
-  static decodeRateStep (rateStepEnc: number, baseUnitInfo: UnitInfo, quoteUnitInfo: UnitInfo) {
+  static conventionalRateStep (rateStepEnc: number, baseUnitInfo: UnitInfo, quoteUnitInfo: UnitInfo) {
     const [qFactor, bFactor] = [quoteUnitInfo.conventional.conversionFactor, baseUnitInfo.conventional.conversionFactor]
     return rateStepEnc / (RateEncodingFactor * bFactor / qFactor)
-  }
-
-  static rateStepDigits (rateStepDec: number) {
-    return Math.round(Math.log10(1 / rateStepDec))
   }
 
   /*
@@ -687,7 +684,7 @@ if (process.env.NODE_ENV === 'development') {
     }
   }
 
-  window.testFormatRateToRateStep = () => {
+  window.testFormatRateFullPrecision = () => {
     const tests: [number, number, number, number, string][] = [
       // Two utxo assets with a conventional rate of 0.15. Conventional rate
       // step is 100 / 1e8 = 1e-6, so there should be 6 decimal digits.
@@ -708,7 +705,7 @@ if (process.env.NODE_ENV === 'development') {
     for (const [encRate, rateStep, qFactor, bFactor, expEncoding] of tests) {
       const bui = { conventional: { conversionFactor: bFactor } } as any as UnitInfo
       const qui = { conventional: { conversionFactor: qFactor } } as any as UnitInfo
-      const enc = Doc.formatRateToRateStep(encRate, bui, qui, rateStep)
+      const enc = Doc.formatRateFullPrecision(encRate, bui, qui, rateStep)
       if (enc !== expEncoding) console.log(`TEST FAILED: f(${encRate}, ${bFactor}, ${qFactor}, ${rateStep}) => ${enc} != ${expEncoding}`)
       else console.log(`✔️ f(${encRate}, ${bFactor}, ${qFactor}, ${rateStep}) => ${enc} ✔️`)
     }

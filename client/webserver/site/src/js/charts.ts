@@ -385,7 +385,7 @@ export class DepthChart extends Chart {
   book: OrderBook
   zoomLevel: number
   lotSize: number
-  rateStep: number
+  conventionalRateStep: number
   lines: DepthLine[]
   markers: Record<string, DepthMarker[]>
   zoomInBttn: Region
@@ -457,7 +457,7 @@ export class DepthChart extends Chart {
   set (book: OrderBook, lotSize: number, rateStepEnc: number, baseUnitInfo: UnitInfo, quoteUnitInfo: UnitInfo) {
     this.book = book
     this.lotSize = lotSize / baseUnitInfo.conventional.conversionFactor
-    this.rateStep = Doc.decodeRateStep(rateStepEnc, baseUnitInfo, quoteUnitInfo)
+    this.conventionalRateStep = Doc.conventionalRateStep(rateStepEnc, baseUnitInfo, quoteUnitInfo)
     this.baseUnit = baseUnitInfo.conventional.unit
     this.quoteUnit = quoteUnitInfo.conventional.unit
     if (!this.zoomLevel) {
@@ -587,7 +587,7 @@ export class DepthChart extends Chart {
 
     // Print the x labels
     const xLabels = makeLabels(ctx, this.plotRegion.width(), dataExtents.x.min,
-      dataExtents.x.max, 100, this.rateStep, '')
+      dataExtents.x.max, 100, this.conventionalRateStep, '')
 
     this.plotXLabels(xLabels, low, high, [`${this.quoteUnit}/`, this.baseUnit])
 

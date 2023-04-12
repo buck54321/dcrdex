@@ -1285,7 +1285,7 @@ export default class MarketsPage extends BasePage {
       details.side.classList.add(ord.sell ? 'sellcolor' : 'buycolor')
       header.side.classList.add(ord.sell ? 'sellcolor' : 'buycolor')
       details.qty.textContent = header.qty.textContent = Doc.formatCoinValue(ord.qty, market.baseUnitInfo)
-      details.rate.textContent = Doc.formatRateToRateStep(ord.rate, market.baseUnitInfo, market.quoteUnitInfo, cfg.ratestep)
+      details.rate.textContent = Doc.formatRateFullPrecision(ord.rate, market.baseUnitInfo, market.quoteUnitInfo, cfg.ratestep)
       header.baseSymbol.textContent = ord.baseSymbol.toUpperCase()
       details.type.textContent = OrderUtil.typeString(ord)
       this.updateMetaOrder(mord)
@@ -2933,7 +2933,7 @@ class OrderTableRowManager {
     this.msgRate = orderBin[0].msgRate
     this.epoch = !!orderBin[0].epoch
     this.baseUnitInfo = baseUnitInfo
-    const rateText = Doc.formatRateToRateStep(this.msgRate, baseUnitInfo, quoteUnitInfo, rateStep)
+    const rateText = Doc.formatRateFullPrecision(this.msgRate, baseUnitInfo, quoteUnitInfo, rateStep)
     this.setRateEl(rateText)
     this.setEpochEl()
     this.updateQtyNumOrdersEl()
