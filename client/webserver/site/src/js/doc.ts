@@ -27,6 +27,8 @@ const BipIDs: Record<number, string> = {
 
 const BipSymbols = Object.values(BipIDs)
 
+const log10RateEncodingFactor = Math.round(Math.log10(RateEncodingFactor))
+
 const intFormatter = new Intl.NumberFormat((navigator.languages as string[]))
 
 const fourSigFigs = new Intl.NumberFormat((navigator.languages as string[]), {
@@ -269,8 +271,8 @@ export default class Doc {
   static formatRateFullPrecision (encRate: number, bui: UnitInfo, qui: UnitInfo, rateStepEnc: number) {
     const r = bui.conventional.conversionFactor / qui.conventional.conversionFactor
     const convRate = encRate * r / RateEncodingFactor
-    const conventionalRateStep = Doc.conventionalRateStep(rateStepEnc, bui, qui)
-    const rateStepDigits = Math.round(Math.log10(1 / conventionalRateStep))
+    const rateStepDigits = log10RateEncodingFactor - Math.floor(Math.log10(rateStepEnc)) -
+      Math.floor(Math.log10(bui.conventional.conversionFactor) - Math.log10(qui.conventional.conversionFactor))
     return fullPrecisionFormatter(rateStepDigits).format(convRate)
   }
 
@@ -715,7 +717,11 @@ if (process.env.NODE_ENV === 'development') {
       [1e6, 1000, 1e6, 1e8, '1.000'],
       [1e3, 1000, 1e6, 1e8, '0.001'],
       [101000, 1000, 1e6, 1e8, '0.101'],
-      [1001000, 1000, 1e6, 1e8, '1.001']
+      [1001000, 1000, 1e6, 1e8, '1.001'],
+      // UTXO assets but with a rate step that's not a perfect power of 10.
+      // For a rate step of 500, a min rate would be e.g. rate step = 500.
+      // 5e2 / 1e8 = 5e-6 = 0.000005
+      [5e2, 500, 1e8, 1e8, '0.000005']
     ]
 
     for (const [encRate, rateStep, qFactor, bFactor, expEncoding] of tests) {
