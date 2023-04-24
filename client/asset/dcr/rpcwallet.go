@@ -895,18 +895,52 @@ func (w *rpcWallet) PurchaseTickets(ctx context.Context, n int, _, _ string) ([]
 	return hashStrs, err
 }
 
-func (w *rpcWallet) Tickets(ctx context.Context) ([]string, error) {
+func (w *rpcWallet) Tickets(ctx context.Context) ([]*asset.Ticket, error) {
 	const includeImmature = true
 	// GetTickets only works for clients with a dcrd backend.
 	hashes, err := w.rpcClient.GetTickets(ctx, includeImmature)
 	if err != nil {
 		return nil, err
 	}
-	hashStrs := make([]string, 0, len(hashes))
-	for i := range hashes {
-		hashStrs = append(hashStrs, hashes[i].String())
+	tickets := make([]*asset.Ticket, 0, len(hashes))
+	for _, h := range hashes {
+		tx, err := w.client().GetTransaction(ctx, h)
+		if err != nil {
+			w.log.Errorf("GetTransaction error for ticket %s: %v", h, err)
+			continue
+		}
+		msgTx, err := msgTxFromHex(tx.Hex)
+		if err != nil {
+			w.log.Errorf("Error decoding ticket %s tx hex: %v", h, err)
+			continue
+		}
+
+		if len(msgTx.TxOut) < 1 {
+			w.log.Errorf("No outputs for ticket %s", h)
+			continue
+		}
+
+		feeAmt, _ := dcrutil.NewAmount(tx.Fee)
+
+		tickets = append(tickets, &asset.Ticket{
+			Ticket: asset.TicketTransaction{
+				Hash:        h.String(),
+				TicketPrice: uint64(msgTx.TxOut[0].Value),
+				Fees:        uint64(feeAmt),
+				Stamp:       uint64(tx.Time),
+				BlockHeight: tx.BlockIndex,
+			},
+			// The walletjson.GetTransactionResult returned from GetTransaction
+			// actually has a TicketStatus string field, but it doesn't appear
+			// to ever be populated by dcrwallet.
+			// Status:  somehowConvertFromString(tx.TicketStatus),
+
+			// Not sure how to get the spender through RPC.
+			// Spender: ?,
+		})
 	}
-	return hashStrs, nil
+
+	return tickets, nil
 }
 
 func (w *rpcWallet) VotingPreferences(ctx context.Context) ([]*walletjson.VoteChoice, []*walletjson.TSpendPolicyResult, []*walletjson.TreasuryPolicyResult, error) {

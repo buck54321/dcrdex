@@ -4572,36 +4572,40 @@ func (dcr *ExchangeWallet) isInternal() bool {
 	return dcr.walletType == walletTypeSPV
 }
 
-// TicketPrice is the current price of one ticket. Also known as the stake
-// difficulty. Part of the asset.TicketBuyer interface.
-func (dcr *ExchangeWallet) TicketPrice() (uint64, error) {
+func (dcr *ExchangeWallet) StakeStatus() (*asset.TicketStakingStatus, error) {
 	if !dcr.connected.Load() {
-		return 0, errors.New("not connected, login first")
+		return nil, errors.New("not connected, login first")
 	}
 	sdiff, err := dcr.wallet.StakeDiff(dcr.ctx)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return uint64(sdiff), nil
-}
-
-// VSP returns the currently set VSP address and fee.
-func (dcr *ExchangeWallet) VSP() (addr string, feePercentage float64, err error) {
-	if !dcr.isInternal() {
-		return "", 0.0, errors.New("unable to get external VSP stats")
+	isRPC := !dcr.isInternal()
+	var vspURL string
+	if !isRPC {
+		if v := dcr.vspV.Load(); v != nil {
+			vspURL = v.(*vsp).Url
+		}
 	}
-	v := dcr.vspV.Load()
-	if v == nil {
-		return "", 0.0, errors.New("no vsp set")
+	tickets, err := dcr.wallet.Tickets(dcr.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving tickets: %w", err)
 	}
-	return v.(*vsp).Url, v.(*vsp).FeePercentage, nil
-}
-
-// CanSetVSP returns whether the VSP can be changed. It cannot for rpcwallets
-// but can for internal. Part of the asset.TicketBuyer interface.
-func (dcr *ExchangeWallet) CanSetVSP() bool {
-	// Cannot set for rpcwallets.
-	return dcr.isInternal()
+	voteChoices, tSpendPolicy, treasuryPolicy, err := dcr.wallet.VotingPreferences(dcr.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving stances: %w", err)
+	}
+	return &asset.TicketStakingStatus{
+		TicketPrice: uint64(sdiff),
+		VSP:         vspURL,
+		IsRPC:       isRPC,
+		Tickets:     tickets,
+		Stances: asset.Stances{
+			VoteChoices:    voteChoices,
+			TSpendPolicy:   tSpendPolicy,
+			TreasuryPolicy: treasuryPolicy,
+		},
+	}, nil
 }
 
 func vspInfo(url string) (*vspdjson.VspInfoResponse, error) {
@@ -4669,24 +4673,6 @@ func (dcr *ExchangeWallet) PurchaseTickets(n int) ([]string, error) {
 		return nil, errors.New("no vsp set")
 	}
 	return dcr.wallet.PurchaseTickets(dcr.ctx, n, v.(*vsp).Url, v.(*vsp).PubKey)
-}
-
-// Tickets returns current active tickets up until they are able to be spent.
-// Includes unconfirmed tickets. Part of the asset.TicketBuyer interface.
-func (dcr *ExchangeWallet) Tickets() ([]string, error) {
-	if !dcr.connected.Load() {
-		return nil, errors.New("not connected, login first")
-	}
-	return dcr.wallet.Tickets(dcr.ctx)
-}
-
-// VotingPreferences returns current voting preferences. Part of the
-// asset.TicketBuyer interface.
-func (dcr *ExchangeWallet) VotingPreferences() ([]*walletjson.VoteChoice, []*walletjson.TSpendPolicyResult, []*walletjson.TreasuryPolicyResult, error) {
-	if !dcr.connected.Load() {
-		return nil, nil, nil, errors.New("not connected, login first")
-	}
-	return dcr.wallet.VotingPreferences(dcr.ctx)
 }
 
 // SetVotingPreferences sets default voting settings for all active tickets and

@@ -86,6 +86,7 @@ type dcrWallet interface {
 	AgendaChoices(ctx context.Context, ticketHash *chainhash.Hash) (choices []wallet.AgendaChoice, voteBits uint16, err error)
 	PurchaseTickets(ctx context.Context, n wallet.NetworkBackend, req *wallet.PurchaseTicketsRequest) (*wallet.PurchaseTicketsResponse, error)
 	ForUnspentUnexpiredTickets(ctx context.Context, f func(hash *chainhash.Hash) error) error
+	GetTickets(ctx context.Context, f func([]*wallet.TicketSummary, *wire.BlockHeader) (bool, error), startBlock, endBlock *wallet.BlockIdentifier) error
 	TreasuryKeyPolicies() []wallet.TreasuryKeyPolicy
 	GetAllTSpends(ctx context.Context) []*wire.MsgTx
 	TSpendPolicy(tspendHash, ticketHash *chainhash.Hash) stake.TreasuryVoteT
@@ -867,16 +868,63 @@ func (w *spvWallet) PurchaseTickets(ctx context.Context, n int, vspHost, vspPubK
 	return hashStrs, err
 }
 
-func (w *spvWallet) Tickets(ctx context.Context) ([]string, error) {
-	var hashStrs []string
-	f := func(hash *chainhash.Hash) error {
-		hashStrs = append(hashStrs, hash.String())
-		return nil
+func (w *spvWallet) Tickets(ctx context.Context) ([]*asset.Ticket, error) {
+	return w.ticketsInRange(ctx, 0, 0)
+}
+
+func (w *spvWallet) ticketsInRange(ctx context.Context, fromHeight, toHeight int32) ([]*asset.Ticket, error) {
+	params := w.ChainParams()
+
+	tickets := make([]*asset.Ticket, 0)
+
+	processTicket := func(ticketSummaries []*wallet.TicketSummary, hdr *wire.BlockHeader) (bool, error) {
+		for _, ticketSummary := range ticketSummaries {
+			spender := ""
+			if ticketSummary.Spender != nil {
+				spender = ticketSummary.Spender.Hash.String()
+			}
+
+			if ticketSummary.Ticket == nil || len(ticketSummary.Ticket.MyOutputs) < 1 {
+				w.log.Errorf("No zeroth output")
+			}
+
+			var blockHeight int64 = -1
+			if hdr != nil {
+				blockHeight = int64(hdr.Height)
+			}
+
+			tickets = append(tickets, &asset.Ticket{
+				Ticket: asset.TicketTransaction{
+					Hash:        ticketSummary.Ticket.Hash.String(),
+					TicketPrice: uint64(ticketSummary.Ticket.MyOutputs[0].Amount),
+					Fees:        uint64(ticketSummary.Ticket.Fee),
+					Stamp:       uint64(ticketSummary.Ticket.Timestamp),
+					BlockHeight: blockHeight,
+				},
+				Status:  asset.TicketStatus(ticketSummary.Status),
+				Spender: spender,
+			})
+		}
+
+		return false, nil
 	}
-	if err := w.dcrWallet.ForUnspentUnexpiredTickets(ctx, f); err != nil {
+
+	const requiredConfs = 6 + 2
+	endBlockNum := toHeight
+	if endBlockNum == 0 {
+		_, endBlockNum = w.MainChainTip(ctx)
+	}
+	startBlockNum := fromHeight
+	if startBlockNum > 0 {
+		startBlockNum = endBlockNum -
+			int32(params.TicketExpiry+uint32(params.TicketMaturity)-requiredConfs)
+	}
+	startBlock := wallet.NewBlockIdentifierFromHeight(startBlockNum)
+	endBlock := wallet.NewBlockIdentifierFromHeight(endBlockNum)
+	if err := w.dcrWallet.GetTickets(ctx, processTicket, startBlock, endBlock); err != nil {
 		return nil, err
 	}
-	return hashStrs, nil
+	return tickets, nil
 }
 
 func (w *spvWallet) VotingPreferences(ctx context.Context) ([]*walletjson.VoteChoice, []*walletjson.TSpendPolicyResult, []*walletjson.TreasuryPolicyResult, error) {

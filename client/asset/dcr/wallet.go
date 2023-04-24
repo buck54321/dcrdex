@@ -152,7 +152,7 @@ type Wallet interface {
 	PurchaseTickets(ctx context.Context, n int, vspHost, vspPubKey string) ([]string, error)
 	// Tickets returns current active ticket hashes up until they are voted
 	// or revoked. Includes unconfirmed tickets.
-	Tickets(ctx context.Context) ([]string, error)
+	Tickets(ctx context.Context) ([]*asset.Ticket, error)
 	VotingPreferences(ctx context.Context) ([]*walletjson.VoteChoice, []*walletjson.TSpendPolicyResult, []*walletjson.TreasuryPolicyResult, error)
 	SetVotingPreferences(ctx context.Context, choices, tspendPolicy, treasuryPolicy map[string]string, vspInfo func(url string) (*vspdjson.VspInfoResponse, error)) error
 	Reconfigure(ctx context.Context, cfg *asset.WalletConfig, net dex.Network, currentAddress, depositAccount string) (restart bool, err error)

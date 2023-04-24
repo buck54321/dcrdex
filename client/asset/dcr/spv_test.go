@@ -210,6 +210,10 @@ func (w *tDcrWallet) ForUnspentUnexpiredTickets(ctx context.Context, f func(hash
 	return nil
 }
 
+func (w *tDcrWallet) GetTickets(ctx context.Context, f func([]*wallet.TicketSummary, *wire.BlockHeader) (bool, error), startBlock, endBlock *wallet.BlockIdentifier) error {
+	return nil
+}
+
 func (w *tDcrWallet) AgendaChoices(ctx context.Context, ticketHash *chainhash.Hash) (choices []wallet.AgendaChoice, voteBits uint16, err error) {
 	return nil, 0, nil
 }

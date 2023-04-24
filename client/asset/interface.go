@@ -795,16 +795,60 @@ type PeerManager interface {
 	RemovePeer(addr string) error
 }
 
-// TicketBuyer is a wallet that can participate in decred staking.
-type TicketBuyer interface {
+type TicketTransaction struct {
+	Hash        string `json:"hash"`
+	TicketPrice uint64 `json:"ticketPrice"`
+	Fees        uint64 `json:"fees"`
+	Stamp       uint64 `json:"stamp"`
+	BlockHeight int64  `json:"blockHeight"`
+}
+
+type TicketStatus uint
+
+// Copy of wallet.TicketStatus
+const (
+	TicketStatusUnknown TicketStatus = iota
+	TicketStatusUnmined
+	TicketStatusImmature
+	TicketStatusLive
+	TicketStatusVoted
+	TicketStatusMissed
+	TicketStatusExpired
+	TicketStatusUnspent
+	TicketStatusRevoked
+)
+
+type Ticket struct {
+	Ticket  TicketTransaction `json:"ticket"`
+	Status  TicketStatus      `json:"status"`
+	Spender string            `json:"spender"`
+}
+
+type Stances struct {
+	VoteChoices    []*dcrwalletjson.VoteChoice           `json:"voteChoices"`
+	TSpendPolicy   []*dcrwalletjson.TSpendPolicyResult   `json:"tSpendPolicy"`
+	TreasuryPolicy []*dcrwalletjson.TreasuryPolicyResult `json:"treasuryPolicy"`
+}
+
+type TicketStakingStatus struct {
 	// TicketPrice is the current price of one ticket. Also known as the
 	// stake difficulty.
-	TicketPrice() (uint64, error)
-	// VSP returns the currently set VSP address and fee.
-	VSP() (addr string, feePercent float64, err error)
-	// CanSetVSP returns whether the VSP can be changed. It cannot for
-	// rpcwallets but can for internal.
-	CanSetVSP() bool
+	TicketPrice uint64 `json:"ticketPrice"`
+	// VSP is the currently set VSP address and fee.
+	VSP string `json:"vsp"`
+	// IsRPC will be true if this is an RPC wallet, in which case we can't
+	// set a new VSP and some other information may not be available.
+	IsRPC bool `json:"isRPC"`
+	// Tickets returns current active tickets up until they are voted or
+	// revoked. Includes unconfirmed tickets.
+	Tickets []*Ticket `json:"tickets"`
+	// Stances returns current voting preferences.
+	Stances Stances `json:"stances"`
+}
+
+// TicketBuyer is a wallet that can participate in decred staking.
+type TicketBuyer interface {
+	StakeStatus() (*TicketStakingStatus, error)
 	// SetVSP sets the VSP provider. Ability to set should be checked with
 	// CanSetVSP first.
 	SetVSP(addr string) error
@@ -812,11 +856,6 @@ type TicketBuyer interface {
 	// should be checked with CanPurchaseTickets. Returns the purchased
 	// ticket hashes if successful.
 	PurchaseTickets(n int) ([]string, error)
-	// Tickets returns current active ticket hashes up until they are voted
-	// or revoked. Includes unconfirmed tickets.
-	Tickets() ([]string, error)
-	// VotingPreferences returns current voting preferences.
-	VotingPreferences() ([]*dcrwalletjson.VoteChoice, []*dcrwalletjson.TSpendPolicyResult, []*dcrwalletjson.TreasuryPolicyResult, error)
 	// SetVotingPreferences sets default voting settings for all active
 	// tickets and future tickets. Nil maps can be provided for no change.
 	SetVotingPreferences(choices, tSpendPolicy, treasuryPolicy map[string]string) error
