@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"decred.org/dcrdex/client/asset"
-	loadvsp "decred.org/dcrdex/client/asset/dcr/vsp"
 	"decred.org/dcrdex/dex"
 	"decred.org/dcrwallet/v2/chain"
 	walleterrors "decred.org/dcrwallet/v2/errors"
@@ -42,6 +41,7 @@ import (
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/wire"
 	"github.com/decred/slog"
+	vspclient "github.com/decred/vspd/client/v2"
 	vspdjson "github.com/decred/vspd/types"
 	"github.com/jrick/logrotate/rotator"
 )
@@ -93,7 +93,7 @@ type dcrWallet interface {
 	SetAgendaChoices(ctx context.Context, ticketHash *chainhash.Hash, choices ...wallet.AgendaChoice) (voteBits uint16, err error)
 	SetTSpendPolicy(ctx context.Context, tspendHash *chainhash.Hash, policy stake.TreasuryVoteT, ticketHash *chainhash.Hash) error
 	SetTreasuryKeyPolicy(ctx context.Context, pikey []byte, policy stake.TreasuryVoteT, ticketHash *chainhash.Hash) error
-	loadvsp.WalletFetcher
+	vspclient.Wallet
 	// TODO: Rescan and DiscoverActiveAddresses can be used for a Rescanner.
 }
 
@@ -843,8 +843,23 @@ func (w *spvWallet) StakeDiff(ctx context.Context) (dcrutil.Amount, error) {
 	return si.Sdiff, nil
 }
 
+func newVSPClient(w vspclient.Wallet, vspHost, vspPubKey string, log dex.Logger) (*vspclient.AutoClient, error) {
+	return vspclient.New(vspclient.Config{
+		URL:    vspHost,
+		PubKey: vspPubKey,
+		Dialer: new(net.Dialer).DialContext,
+		Wallet: w,
+		Policy: &vspclient.Policy{
+			MaxFee:     0.2e8,
+			FeeAcct:    0,
+			ChangeAcct: 0,
+		},
+	}, log)
+}
+
 func (w *spvWallet) PurchaseTickets(ctx context.Context, n int, vspHost, vspPubKey string) ([]string, error) {
-	vspClient, err := loadvsp.NewVSPClient(w.dcrWallet, vspHost, vspPubKey, 0, 0, 0.2e8, new(net.Dialer).DialContext)
+
+	vspClient, err := newVSPClient(w.dcrWallet, vspHost, vspPubKey, w.log.SubLogger("VSP"))
 	if err != nil {
 		return nil, err
 	}
@@ -1025,14 +1040,14 @@ func (w *spvWallet) SetVotingPreferences(ctx context.Context, choices, tspendPol
 			return nil
 		}
 		vspPubKey := base64.StdEncoding.EncodeToString(info.PubKey)
-		vspClient, err := loadvsp.NewVSPClient(w.dcrWallet, vspHost, vspPubKey, 0, 0, 0.2e8, new(net.Dialer).DialContext)
+		vspClient, err := newVSPClient(w.dcrWallet, vspHost, vspPubKey, w.log.SubLogger("VSP"))
 		if err != nil {
 			w.log.Warnf("unable to load vsp at %s for ticket %s: %v", vspHost, hash, err)
 			return nil
 		}
 		// Never return errors here, so all tickets are tried.
 		// The first error will be returned to the user.
-		err = vspClient.SetVoteChoice(ctx, hash, agendaChoices, tspendPolicy, treasuryPolicy)
+		err = vspClient.SetVoteChoice(ctx, hash, choices, tspendPolicy, treasuryPolicy)
 		if err != nil {
 			w.log.Warnf("unable to set vote for vsp at %s for ticket %s: %v", vspHost, hash, err)
 		}

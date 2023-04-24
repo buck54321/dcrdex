@@ -2,10 +2,10 @@ module decred.org/dcrdex
 
 go 1.18
 
-replace decred.org/dcrdex/client/asset/dcr/vsp => ./client/asset/dcr/vsp
+replace github.com/decred/vspd/client/v2 => github.com/jholdstock/vspd/client/v2 v2.0.0-20230424165325-5d3f56b5c4e4
 
 require (
-	decred.org/dcrwallet/v2 v2.0.11
+	decred.org/dcrwallet/v2 v2.1.1
 	fyne.io/systray v1.10.1-0.20220621085403-9a2652634e93
 	github.com/btcsuite/btcd v0.23.3
 	github.com/btcsuite/btcd/btcec/v2 v2.2.1
@@ -26,14 +26,14 @@ require (
 	github.com/decred/dcrd/blockchain/stake/v4 v4.0.0
 	github.com/decred/dcrd/blockchain/v4 v4.0.2
 	github.com/decred/dcrd/certgen v1.1.1
-	github.com/decred/dcrd/chaincfg/chainhash v1.0.3
+	github.com/decred/dcrd/chaincfg/chainhash v1.0.4
 	github.com/decred/dcrd/chaincfg/v3 v3.1.1
 	github.com/decred/dcrd/connmgr/v3 v3.1.0
-	github.com/decred/dcrd/crypto/blake256 v1.0.0
+	github.com/decred/dcrd/crypto/blake256 v1.0.1
 	github.com/decred/dcrd/dcrec v1.0.0
 	github.com/decred/dcrd/dcrec/edwards/v2 v2.0.2
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.1.0
-	github.com/decred/dcrd/dcrjson/v4 v4.0.0
+	github.com/decred/dcrd/dcrjson/v4 v4.0.1
 	github.com/decred/dcrd/dcrutil/v4 v4.0.0
 	github.com/decred/dcrd/gcs/v3 v3.0.0
 	github.com/decred/dcrd/hdkeychain/v3 v3.1.0
@@ -43,6 +43,7 @@ require (
 	github.com/decred/dcrd/wire v1.5.0
 	github.com/decred/go-socks v1.1.0
 	github.com/decred/slog v1.2.0
+	github.com/decred/vspd/client/v2 v2.0.0-00010101000000-000000000000
 	github.com/decred/vspd/types v1.1.0
 	github.com/dgraph-io/badger v1.6.2
 	github.com/ethereum/go-ethereum v1.11.5
@@ -67,7 +68,7 @@ require (
 	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/tyler-smith/go-bip39 v1.1.0
-	go.etcd.io/bbolt v1.3.7-0.20220130032806-d5db64bdbfde
+	go.etcd.io/bbolt v1.3.7
 	golang.org/x/crypto v0.7.0
 	golang.org/x/sync v0.1.0
 	golang.org/x/term v0.6.0
@@ -105,6 +106,7 @@ require (
 	github.com/decred/dcrd/crypto/ripemd160 v1.0.1 // indirect
 	github.com/decred/dcrd/database/v3 v3.0.0 // indirect
 	github.com/decred/dcrd/lru v1.1.1 // indirect
+	github.com/decred/vspd/types/v2 v2.0.0 // indirect
 	github.com/dgraph-io/ristretto v0.0.2 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
 	github.com/edsrzf/mmap-go v1.0.0 // indirect
@@ -128,7 +130,7 @@ require (
 	github.com/huin/goupnp v1.0.3 // indirect
 	github.com/jackpal/go-nat-pmp v1.0.2 // indirect
 	github.com/jrick/bitset v1.0.0 // indirect
-	github.com/jrick/wsrpc/v2 v2.3.4 // indirect
+	github.com/jrick/wsrpc/v2 v2.3.5 // indirect
 	github.com/kkdai/bstream v1.0.0 // indirect
 	github.com/klauspost/compress v1.15.15 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
