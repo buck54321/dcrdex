@@ -256,6 +256,20 @@ func (wc *rpcClient) reconfigure(cfg *asset.WalletConfig, currentAddress string)
 			return false, errors.New("wrong net")
 		}
 
+		// Ensure we can get a new address and decode it.
+		if wc.addrFunc != nil { // with an addrFunc, cannot check since it likely uses the prior rpcClient
+			return true, nil
+		}
+		var addrStr string
+		if err := call(wc.ctx, cl, methodNewAddress, nil, &addrStr); err != nil {
+			wc.log.Warnf("Failed to retrieve address (%v). Full wallet reconnect may be required.", err)
+			return true, nil // force a restart so connect uses wc.externalAddress
+		}
+		if _, err = wc.decodeAddr(addrStr, wc.chainParams); err != nil {
+			wc.log.Warnf("Failed to decode address (%v). Full wallet reconnect may be required.", err)
+			return true, nil // force a restart so connect uses wc.externalAddress
+		}
+
 		wc.requesterV.Store(cl)
 		wc.rpcConfig = newCfg
 
