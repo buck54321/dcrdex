@@ -231,49 +231,42 @@ func (wc *rpcClient) reconfigure(cfg *asset.WalletConfig, currentAddress string)
 			return false, fmt.Errorf("error creating RPC client with new credentials: %v", err)
 		}
 
-		// If the wallet is in active use, check the supplied address.
-		if parsedCfg.ActivelyUsed {
-			// We can't use wc.ownsAddress because the rpcClient still has the
-			// old requester stored, so we'll call directly.
-			method := methodGetAddressInfo
-			if wc.legacyValidateAddressRPC {
-				method = methodValidateAddress
+		// This Swap -> re-Store on error pattern is not canonical for the
+		// atomic type, but is simple and should be safe enough.
+		oldRequester := wc.requesterV.Swap(cl)
+		var passedChecks bool
+		defer func() {
+			if passedChecks {
+				wc.requesterV.Store(cl)
+				wc.rpcConfig = newCfg
 			}
+			wc.requesterV.Store(oldRequester)
+		}()
 
-			ai := new(GetAddressInfoResult)
-			if err := call(wc.ctx, cl, method, anylist{currentAddress}, ai); err != nil {
-				return false, fmt.Errorf("error getting address info with new RPC credentials: %w", err)
-			} else if !ai.IsMine {
+		// If the wallet is in active use, check the supplied address.
+		addr, err := wc.decodeAddr(currentAddress, wc.chainParams)
+		if err != nil {
+			return false, fmt.Errorf("error decoding provided current address %q: %w", currentAddress, err)
+		}
+		if mine, err := wc.ownsAddress(addr); err != nil {
+			return false, fmt.Errorf("error getting address info with new RPC credentials: %w", err)
+		} else if !mine {
+			if parsedCfg.ActivelyUsed {
 				return false, errors.New("cannot reconfigure to a new RPC wallet during active use")
 			}
+			// We don't own the address. Trigger a restart so the caller will
+			// refresh their address.
+			restartRequired = true
 		}
 
-		chainInfo := new(getBlockchainInfoResult)
-		if err := call(wc.ctx, cl, methodGetBlockchainInfo, nil, chainInfo); err != nil {
-			return false, fmt.Errorf("%s: %w", methodGetBlockchainInfo, err)
-		}
-		if !chainOK(wc.cloneParams.Network, chainInfo.Chain) {
-			return false, errors.New("wrong net")
-		}
-
-		// Ensure we can get a new address and decode it.
-		if wc.addrFunc != nil { // with an addrFunc, cannot check since it likely uses the prior rpcClient
-			return true, nil
-		}
-		var addrStr string
-		if err := call(wc.ctx, cl, methodNewAddress, nil, &addrStr); err != nil {
-			wc.log.Warnf("Failed to retrieve address (%v). Full wallet reconnect may be required.", err)
-			return true, nil // force a restart so connect uses wc.externalAddress
-		}
-		if _, err = wc.decodeAddr(addrStr, wc.chainParams); err != nil {
-			wc.log.Warnf("Failed to decode address (%v). Full wallet reconnect may be required.", err)
-			return true, nil // force a restart so connect uses wc.externalAddress
+		// connect will run version and network ID checks, as well as any
+		// specified connectFunc, which may be required to e.g. initialize
+		// wallet accounts.
+		if err := wc.connect(wc.ctx, nil); err != nil {
+			return false, fmt.Errorf("error passing connect checks on new wallet: %w", err)
 		}
 
-		wc.requesterV.Store(cl)
-		wc.rpcConfig = newCfg
-
-		// No restart required
+		passedChecks = true
 	}
 	return
 }
