@@ -74,10 +74,11 @@ const (
 	walletTypeSPV      = "SPV"
 	walletTypeElectrum = "electrumRPC"
 
-	swapFeeBumpKey   = "swapfeebump"
-	splitKey         = "swapsplit"
-	splitBufferKey   = "splitbuffer"
-	redeemFeeBumpFee = "redeemfeebump"
+	swapFeeBumpKey    = "swapfeebump"
+	splitKey          = "swapsplit"
+	splitBufferKey    = "splitbuffer"
+	overfundBufferKey = "overfundbuffer"
+	redeemFeeBumpFee  = "redeemfeebump"
 	// externalApiUrl is the URL of the external API in case of fallback.
 	externalApiUrl = "https://mempool.space/api/"
 	// testnetExternalApiUrl is the URL of the testnet external API in case of
@@ -787,6 +788,10 @@ type fundMultiOptions struct {
 	//
 	// Use the splitBufferKey const defined above in the options map to set this.
 	SplitBuffer *uint64
+	// OverfundBuffer is the allowable amount of overfunding allowed in a
+	// single order. OverfundBuffer must be > SplitBuffer. If OverfundBuffer
+	// is not set or set to zero, the value will be set to SplitBuffer * 2.
+	OverfundBuffer *uint64
 }
 
 func decodeFundMultiOptions(options map[string]string) (*fundMultiOptions, error) {
@@ -809,6 +814,13 @@ func decodeFundMultiOptions(options map[string]string) (*fundMultiOptions, error
 			return nil, fmt.Errorf("error parsing split buffer option: %w", err)
 		}
 		opts.SplitBuffer = &b
+	}
+	if overfundBuffer, ok := options[overfundBufferKey]; ok {
+		b, err := strconv.ParseUint(overfundBuffer, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing overfund buffer option: %w", err)
+		}
+		opts.OverfundBuffer = &b
 	}
 
 	return opts, nil
@@ -2359,6 +2371,12 @@ func (btc *baseWallet) fundInternal(keep uint64, minConfs uint32, lockUnspents b
 	if err != nil {
 		return nil, nil, nil, nil, 0, 0, fmt.Errorf("error getting spendable utxos: %w", err)
 	}
+	return btc.fundInternalWithUTXOs(utxos, avail, keep, minConfs, lockUnspents, enough)
+}
+
+func (btc *baseWallet) fundInternalWithUTXOs(utxos []*compositeUTXO, avail, keep uint64, minConfs uint32, lockUnspents bool,
+	enough func(size, sum uint64) (bool, uint64)) (
+	coins asset.Coins, fundingCoins map[outPoint]*utxo, spents []*output, redeemScripts []dex.Bytes, size, sum uint64, err error) {
 
 	if keep > 0 {
 		kept := leastOverFund(reserveEnough(keep), utxos)
@@ -2411,112 +2429,13 @@ func (btc *baseWallet) fund(keep uint64, minConfs uint32, lockUnspents bool,
 	return btc.fundInternal(keep, minConfs, lockUnspents, enough)
 }
 
-// fundMultiBestEffors makes a best effort to fund every order. If it is not
-// possible, it returns coins for the orders that could be funded. The coins
-// that fund each order are returned in the same order as the values that were
-// passed in.
-func (btc *baseWallet) fundMultiBestEffort(keep, maxLock uint64, values []*asset.MultiOrderValue,
-	maxFeeRate uint64) ([]asset.Coins, [][]dex.Bytes, map[outPoint]*utxo, []*output, error) {
-	utxos, _, avail, err := btc.spendableUTXOs(0)
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("error getting spendable utxos: %w", err)
-	}
+// fundMulti first attempts to fund each of the orders with with the available
+// UTXOs. If a split is not allowed, it will fund the orders that it was able
+// to fund. If splitting is allowed, a split transaction will be created to fund
+// all of the orders.
+func (btc *baseWallet) fundMulti(maxLock uint64, values []*asset.MultiOrderValue, splitTxFeeRate, maxFeeRate, splitBuffer,
+	overfundBuffer uint64, allowSplit bool) ([]asset.Coins, [][]dex.Bytes, uint64, error) {
 
-	fundInOrder := func(orderedValues []*asset.MultiOrderValue) [][]*compositeUTXO {
-		allFundingUTXOs := make([][]*compositeUTXO, 0, len(orderedValues))
-		remainingUTXOs := utxos
-		var totalFunded uint64
-		for _, value := range orderedValues {
-			enough := orderEnough(value.Value, value.MaxSwapCount, maxFeeRate, btc.initTxSizeBase, btc.initTxSize, btc.segwit, false)
-
-			var fundingUTXOs []*compositeUTXO
-			if maxLock > 0 {
-				if maxLock < totalFunded {
-					// Should never happen unless there is a bug in leastOverFundWithLimit
-					btc.log.Errorf("maxLock < totalFunded. %d < %d", maxLock, totalFunded)
-					return allFundingUTXOs
-				}
-				fundingUTXOs = leastOverFundWithLimit(enough, maxLock-totalFunded, remainingUTXOs)
-			} else {
-				fundingUTXOs = leastOverFund(enough, remainingUTXOs)
-			}
-			if len(fundingUTXOs) == 0 {
-				return allFundingUTXOs
-			}
-			totalFunded += sumUTXOs(fundingUTXOs)
-			if totalFunded > avail-keep {
-				return allFundingUTXOs
-			}
-			allFundingUTXOs = append(allFundingUTXOs, fundingUTXOs)
-			remainingUTXOs = utxoSetDiff(remainingUTXOs, fundingUTXOs)
-		}
-		return allFundingUTXOs
-	}
-
-	reorderFundingUTXOs := func(fundingUTXOs [][]*compositeUTXO, orderedValues []*asset.MultiOrderValue) [][]*compositeUTXO {
-		reorderedFundingUTXOs := make([][]*compositeUTXO, 0, len(fundingUTXOs))
-		for _, value := range values {
-			for i, orderedValue := range orderedValues {
-				if value == orderedValue {
-					reorderedFundingUTXOs = append(reorderedFundingUTXOs, fundingUTXOs[i])
-					break
-				}
-			}
-		}
-		return reorderedFundingUTXOs
-	}
-
-	returnValues := func(allFundingUTXOs [][]*compositeUTXO) (coins []asset.Coins, redeemScripts [][]dex.Bytes, fundingCoins map[outPoint]*utxo, spents []*output, err error) {
-		coins = make([]asset.Coins, len(allFundingUTXOs))
-		fundingCoins = make(map[outPoint]*utxo)
-		spents = make([]*output, 0, len(allFundingUTXOs))
-		redeemScripts = make([][]dex.Bytes, len(allFundingUTXOs))
-		for i, fundingUTXOs := range allFundingUTXOs {
-			coins[i] = make(asset.Coins, len(fundingUTXOs))
-			redeemScripts[i] = make([]dex.Bytes, len(fundingUTXOs))
-			for j, output := range fundingUTXOs {
-				coins[i][j] = newOutput(output.txHash, output.vout, output.amount)
-				fundingCoins[outPoint{txHash: *output.txHash, vout: output.vout}] = &utxo{
-					txHash:  output.txHash,
-					vout:    output.vout,
-					amount:  output.amount,
-					address: output.address,
-				}
-				spents = append(spents, newOutput(output.txHash, output.vout, output.amount))
-				redeemScripts[i][j] = output.redeemScript
-			}
-		}
-		return
-	}
-
-	valuesCopy := make([]*asset.MultiOrderValue, len(values))
-	copy(valuesCopy, values)
-
-	// Try to fund in increasing order of value first.
-	sort.Slice(valuesCopy, func(i, j int) bool {
-		return valuesCopy[i].Value < valuesCopy[j].Value
-	})
-	allFundingUTXOs := fundInOrder(valuesCopy)
-	if len(allFundingUTXOs) == len(values) { // successfully funded all orders
-		reorderedFundingUTXOs := reorderFundingUTXOs(allFundingUTXOs, valuesCopy)
-		return returnValues(reorderedFundingUTXOs)
-	}
-
-	// If could not fully fund, fund as much as possible in the priority
-	// order.
-	allFundingUTXOs = fundInOrder(values)
-	return returnValues(allFundingUTXOs)
-}
-
-// fundMultiWithSplit creates a split transaction with one output for each
-// order in order to fund the orders. An error is returned if there is not
-// enough funds in the wallet to cover the split transaction for each order.
-// If splitBuffer is non-zero, each order's output in the split transaction
-// will be increased by the percentage defined in splitBuffer. If an
-// order requires .1 BTC and the splitBuffer is 5, the order's output will
-// be .105 BTC.
-func (btc *baseWallet) fundMultiWithSplit(keep, maxLock uint64, values []*asset.MultiOrderValue,
-	splitTxFeeRate, maxFeeRate, splitBuffer uint64) ([]asset.Coins, [][]dex.Bytes, uint64, error) {
 	var swapInputSize uint64
 	if btc.segwit {
 		swapInputSize = dexbtc.RedeemP2WPKHInputTotalSize
@@ -2524,18 +2443,131 @@ func (btc *baseWallet) fundMultiWithSplit(keep, maxLock uint64, values []*asset.
 		swapInputSize = dexbtc.RedeemP2PKHInputSize
 	}
 
-	var totalOutputRequired uint64
-	requiredForOrders := make([]uint64, len(values))
-	for i, value := range values {
-		req := calc.RequiredOrderFundsAlt(value.Value, swapInputSize, value.MaxSwapCount, btc.initTxSizeBase, btc.initTxSize, maxFeeRate)
-		req = req * (100 + splitBuffer) / 100
-		requiredForOrders[i] = req
-		totalOutputRequired += req
+	type fundedOrd struct {
+		value         *asset.MultiOrderValue
+		index         int
+		splitReq      uint64 // will be zero if funded with existing utxos
+		utxos         []*utxo
+		redeemScripts []dex.Bytes
 	}
 
+	ords := make([]*fundedOrd, len(values))
+
+	results := func(splitFees uint64) ([]asset.Coins, [][]dex.Bytes, uint64, error) { // Don't call until after vloop
+		coins := make([]asset.Coins, len(values))
+		redeemScripts := make([][]dex.Bytes, len(values))
+		ops := make([]*output, 0, len(values)) // could be underestimate
+		for i, ord := range ords {
+			cs := make(asset.Coins, len(ord.utxos))
+			for j, utxo := range ord.utxos {
+				op := newOutput(utxo.txHash, utxo.vout, utxo.amount)
+				cs[j] = op
+				ops = append(ops, op)
+				btc.fundingCoins[op.pt] = utxo
+			}
+			redeemScripts[i] = ord.redeemScripts
+
+		}
+		btc.node.lockUnspent(false, ops)
+		return coins, redeemScripts, splitFees, nil
+	}
+
+	btc.fundingMtx.Lock()
+	defer btc.fundingMtx.Unlock()
+
+	reserves := btc.reserves()
+
+	utxos, _, avail, err := btc.spendableUTXOs(0)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("error getting spendable utxos: %w", err)
+	}
+
+	var unfunded []*fundedOrd
+	var totalFunded, requiredFromSplit uint64
+
+	addUnfunded := func(v *asset.MultiOrderValue, ord *fundedOrd) {
+		ord.splitReq = calc.RequiredOrderFundsAlt(v.Value, swapInputSize, v.MaxSwapCount, btc.initTxSizeBase, btc.initTxSize, maxFeeRate)
+		requiredFromSplit += ord.splitReq
+		unfunded = append(unfunded, ord)
+	}
+
+vloop:
+	for i, v := range values {
+		ord := &fundedOrd{
+			value: v,
+			index: i,
+		}
+		ords[i] = ord
+		enough := orderEnough(v.Value, v.MaxSwapCount, maxFeeRate, btc.initTxSizeBase, btc.initTxSize, btc.segwit, false)
+		remainingFunding := maxLock - totalFunded
+		var fundingUTXOs []*compositeUTXO
+		// The best option is a single, perfectly-sized utxo.
+		// Example (without fees): orders of (30, 20, 10), utxos of (10, 10, 10, 30).
+		// If the first order matches with (10, 10, 10), the next order would
+		// consume the utxo with value 30, and the last order would be unfunded.
+		// By consuming the single-utxo match, we leave smaller matches behind
+		// which can be assembled into a more distinct order values.
+		// Notably, leastOverfund identifies if a single utxo exists, but the
+		// logic there is the opposite there, preferring to use
+		// subsetWithLeastOverFund which could potentially pick (10, 10, 10).
+		for _, u := range utxos {
+			req := calc.RequiredOrderFundsAlt(v.Value, uint64(u.input.VBytes()), v.MaxSwapCount, btc.initTxSizeBase, btc.initTxSize, maxFeeRate)
+			allowableOverfund := req*(100+overfundBuffer)/100 - req
+			excess := u.amount - req
+			if u.amount > req && excess < allowableOverfund && u.amount < remainingFunding {
+				fundingUTXOs = []*compositeUTXO{u}
+				break
+			}
+		}
+		// If there isn't a single utxo that is appropriate, try leastOverFund.
+		if len(fundingUTXOs) == 0 {
+			fundingUTXOs = leastOverFundWithLimit(enough, remainingFunding, utxos)
+
+		}
+		if len(fundingUTXOs) == 0 {
+			addUnfunded(v, ord)
+			continue vloop
+		}
+		var sum, sz uint64
+		for _, u := range fundingUTXOs {
+			sum += u.amount
+			sz += uint64(u.input.VBytes())
+		}
+		req := calc.RequiredOrderFundsAlt(v.Value, sz, v.MaxSwapCount, btc.initTxSizeBase, btc.initTxSize, maxFeeRate)
+		allowableOverfund := req*(100+overfundBuffer)/100 - req
+		excess := sum - req
+		if excess > allowableOverfund {
+			addUnfunded(v, ord)
+			continue vloop
+		}
+		// We found utxos within our buffer.
+		utxos = utxoSetDiff(utxos, fundingUTXOs)
+		for _, txo := range fundingUTXOs {
+			ord.utxos = append(ord.utxos, &utxo{txo.txHash, txo.vout, txo.address, txo.amount})
+			ord.redeemScripts = append(ord.redeemScripts, txo.redeemScript)
+		}
+		avail -= sum
+		totalFunded += sum
+	}
+
+	// No unfunded at this point is the ideal case. That means we had a 100%
+	// utxo recycle rate. Just need to check that remaining UTXOs cover
+	// reserves.
+	if len(unfunded) == 0 {
+		if avail < reserves {
+			return nil, nil, 0, fmt.Errorf("not enough reserves")
+		}
+		return results(0)
+	}
+
+	if !allowSplit { // partial results
+		return results(0)
+	}
+
+	// We'll generate a split tx for the rest.
 	var splitTxSizeWithoutInputs uint64 = dexbtc.MinimumTxOverhead
 	numOutputs := len(values)
-	if keep > 0 {
+	if reserves > 0 {
 		numOutputs++
 	}
 	if btc.segwit {
@@ -2545,20 +2577,21 @@ func (btc *baseWallet) fundMultiWithSplit(keep, maxLock uint64, values []*asset.
 	}
 	enough := func(inputSize, sum uint64) (bool, uint64) {
 		splitTxFee := (splitTxSizeWithoutInputs + inputSize) * splitTxFeeRate
-		req := totalOutputRequired + splitTxFee
+		req := requiredFromSplit + splitTxFee
 		return sum >= req, sum - req
 	}
-	fundSplitCoins, _, _, _, inputsSize, totalIn, err := btc.fundInternal(keep, 0, true, enough)
+
+	// We may not have the full balance available, so set aside the correct
+	// amount. The ensures that we stay under maxLock.
+	totalReserves := reserves
+	remain := maxLock - totalFunded
+	if remain < avail {
+		totalReserves += avail - remain
+	}
+
+	fundSplitCoins, _, _, _, _, totalIn, err := btc.fundInternalWithUTXOs(utxos, avail, totalReserves, 0, true, enough)
 	if err != nil {
 		return nil, nil, 0, err
-	}
-	if maxLock > 0 {
-		totalSize := inputsSize + splitTxSizeWithoutInputs
-		if totalOutputRequired+(totalSize*splitTxFeeRate) > maxLock {
-			// This will only happen if we are right at the edge. If maxLock > totalOutputRequired,
-			// we would not get this far.
-			return nil, nil, 0, fmt.Errorf("amount required for split > maxLock")
-		}
 	}
 
 	baseTx, _, _, err := btc.fundedTx(fundSplitCoins)
@@ -2566,77 +2599,40 @@ func (btc *baseWallet) fundMultiWithSplit(keep, maxLock uint64, values []*asset.
 		return nil, nil, 0, err
 	}
 
-	outputAddresses := make([]btcutil.Address, len(values))
-	for i, req := range requiredForOrders {
-		changeAddr, err := btc.node.changeAddress()
+	outputAddresses := make([]string, len(values))
+	for i, ord := range unfunded {
+		addr, err := btc.node.changeAddress()
 		if err != nil {
 			return nil, nil, 0, err
 		}
-		outputAddresses[i] = changeAddr
-		script, err := txscript.PayToAddrScript(changeAddr)
+		outputAddresses[i] = addr.String()
+		script, err := txscript.PayToAddrScript(addr)
 		if err != nil {
 			return nil, nil, 0, err
 		}
-		baseTx.AddTxOut(wire.NewTxOut(int64(req), script))
+		baseTx.AddTxOut(wire.NewTxOut(int64(ord.splitReq), script))
 	}
 
 	changeAddr, err := btc.node.changeAddress()
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	tx, err := btc.sendWithReturn(baseTx, changeAddr, totalIn, totalOutputRequired, splitTxFeeRate)
+	tx, err := btc.sendWithReturn(baseTx, changeAddr, totalIn, requiredFromSplit, splitTxFeeRate)
 	if err != nil {
 		return nil, nil, 0, err
 	}
 	txHash := tx.TxHash()
 
-	coins := make([]asset.Coins, len(values))
-	redeemScripts := make([][]dex.Bytes, len(values))
-	ops := make([]*output, len(values))
-	for i := range coins {
-		coins[i] = asset.Coins{newOutput(&txHash, uint32(i), uint64(tx.TxOut[i].Value))}
-		redeemScripts[i] = []dex.Bytes{tx.TxOut[i].PkScript}
-		ops[i] = newOutput(&txHash, uint32(i), uint64(tx.TxOut[i].Value))
-		btc.fundingCoins[ops[i].pt] = &utxo{
-			txHash:  &txHash,
-			vout:    uint32(i),
-			amount:  uint64(tx.TxOut[i].Value),
-			address: outputAddresses[i].String(),
-		}
+	for vout, ord := range unfunded {
+		ord.utxos = []*utxo{{&txHash, uint32(vout), outputAddresses[vout], uint64(tx.TxOut[vout].Value)}}
+		// No redeem script for P2(W)PKH outputs
 	}
-	btc.node.lockUnspent(false, ops)
-
 	var totalOut uint64
 	for _, txOut := range tx.TxOut {
 		totalOut += uint64(txOut.Value)
 	}
 
-	return coins, redeemScripts, totalIn - totalOut, nil
-}
-
-// fundMulti first attempts to fund each of the orders with with the available
-// UTXOs. If a split is not allowed, it will fund the orders that it was able
-// to fund. If splitting is allowed, a split transaction will be created to fund
-// all of the orders.
-func (btc *baseWallet) fundMulti(maxLock uint64, values []*asset.MultiOrderValue, splitTxFeeRate, maxFeeRate uint64, allowSplit bool, splitBuffer uint64) ([]asset.Coins, [][]dex.Bytes, uint64, error) {
-	btc.fundingMtx.Lock()
-	defer btc.fundingMtx.Unlock()
-
-	reserves := btc.reserves()
-
-	coins, redeemScripts, fundingCoins, spents, err := btc.fundMultiBestEffort(reserves, maxLock, values, maxFeeRate)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	if len(coins) == len(values) || !allowSplit {
-		for pt, fc := range fundingCoins {
-			btc.fundingCoins[pt] = fc
-		}
-		btc.node.lockUnspent(false, spents)
-		return coins, redeemScripts, 0, nil
-	}
-
-	return btc.fundMultiWithSplit(reserves, maxLock, values, splitTxFeeRate, maxFeeRate, splitBuffer)
+	return results(totalIn - totalOut)
 }
 
 func tryFund(utxos []*compositeUTXO,
@@ -5817,16 +5813,20 @@ func (btc *baseWallet) FundMultiOrder(mo *asset.MultiOrder, maxLock uint64) ([]a
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("error decoding options: %w", err)
 	}
-	useSplit := btc.useSplitTx()
 	var splitBuffer uint64
-	if customCfg.Split != nil {
-		useSplit = *customCfg.Split
-	}
-	if useSplit && customCfg.SplitBuffer != nil {
+	if customCfg.SplitBuffer != nil {
 		splitBuffer = *customCfg.SplitBuffer
 	}
+	var overfundBuffer = splitBuffer * 2
+	if customCfg.OverfundBuffer != nil && *customCfg.OverfundBuffer != 0 {
+		overfundBuffer = *customCfg.OverfundBuffer
+	}
+	allowSplit := true
+	if customCfg.Split != nil {
+		allowSplit = *customCfg.Split
+	}
 
-	return btc.fundMulti(maxLock, mo.Values, mo.FeeSuggestion, mo.MaxFeeRate, useSplit, splitBuffer)
+	return btc.fundMulti(maxLock, mo.Values, mo.FeeSuggestion, mo.MaxFeeRate, splitBuffer, overfundBuffer, allowSplit)
 }
 
 type utxo struct {
