@@ -607,11 +607,12 @@ export default class MarketsPage extends BasePage {
   setMarketDetails () {
     if (!this.market) return
     for (const s of this.stats) {
-      s.tmpl.baseIcon.src = Doc.logoPath(this.market.cfg.basesymbol)
-      s.tmpl.quoteIcon.src = Doc.logoPath(this.market.cfg.quotesymbol)
+      const [ba, qa] = [app().assets[this.market.base.id], app().assets[this.market.quote.id]]
+      s.tmpl.baseIcon.src = Doc.logoPath(ba.symbol)
+      s.tmpl.quoteIcon.src = Doc.logoPath(qa.symbol)
       Doc.empty(s.tmpl.baseSymbol, s.tmpl.quoteSymbol)
-      s.tmpl.baseSymbol.appendChild(Doc.symbolize(this.market.cfg.basesymbol))
-      s.tmpl.quoteSymbol.appendChild(Doc.symbolize(this.market.cfg.quotesymbol))
+      s.tmpl.baseSymbol.appendChild(Doc.symbolize(ba, true))
+      s.tmpl.quoteSymbol.appendChild(Doc.symbolize(qa, true))
     }
   }
 
@@ -846,7 +847,7 @@ export default class MarketsPage extends BasePage {
     if (base.token) {
       const baseAsset = app().assets[base.id]
       const baseVersion = this.market.dex.assets[base.id].version
-      if (baseAsset && baseAsset.wallet.approved && baseAsset.wallet.approved[baseVersion] !== undefined) {
+      if (baseAsset?.wallet?.approved && baseAsset.wallet.approved[baseVersion] !== undefined) {
         baseAssetApprovalStatus = baseAsset.wallet.approved[baseVersion]
       }
     }
@@ -986,8 +987,8 @@ export default class MarketsPage extends BasePage {
 
   setOrderBttnText () {
     if (this.isSell()) {
-      this.page.submitBttn.textContent = intl.prep(intl.ID_SET_BUTTON_SELL, { asset: Doc.shortSymbol(this.market.baseCfg.symbol) })
-    } else this.page.submitBttn.textContent = intl.prep(intl.ID_SET_BUTTON_BUY, { asset: Doc.shortSymbol(this.market.baseCfg.symbol) })
+      this.page.submitBttn.textContent = intl.prep(intl.ID_SET_BUTTON_SELL, { asset: Doc.shortSymbol(this.market.baseCfg.unitInfo.conventional.unit) })
+    } else this.page.submitBttn.textContent = intl.prep(intl.ID_SET_BUTTON_BUY, { asset: Doc.shortSymbol(this.market.baseCfg.unitInfo.conventional.unit) })
   }
 
   setCandleDurBttns () {
@@ -1595,10 +1596,8 @@ export default class MarketsPage extends BasePage {
   handleBookRoute (note: BookUpdate) {
     app().log('book', 'handleBookRoute:', note)
     const mktBook = note.payload
-    const market = this.market
-    const page = this.page
-    const host = market.dex.host
-    const [b, q] = [market.baseCfg, market.quoteCfg]
+    const { market: { cfg, dex: { host }, rateConversionFactor }, page } = this
+    const [b, q] = [app().assets[this.market.base.id], app().assets[this.market.quote.id]]
     if (mktBook.base !== b.id || mktBook.quote !== q.id) return
     this.refreshActiveOrders()
     this.handleBook(mktBook)
@@ -1611,15 +1610,19 @@ export default class MarketsPage extends BasePage {
       quote: mktBook.quote
     })
 
-    page.lotSize.textContent = Doc.formatCoinValue(market.cfg.lotsize, market.baseUnitInfo)
-    page.rateStep.textContent = Doc.formatCoinValue(market.cfg.ratestep / market.rateConversionFactor)
+    page.lotSize.textContent = Doc.formatCoinValue(cfg.lotsize, b.unitInfo)
+    page.rateStep.textContent = Doc.formatCoinValue(cfg.ratestep / rateConversionFactor)
     this.baseUnits.forEach(el => {
       Doc.empty(el)
-      el.appendChild(Doc.symbolize(b.symbol))
+      if (el.dataset.unitFormat === 'noparent') {
+        el.textContent = b.unitInfo.conventional.unit
+      } else el.appendChild(Doc.symbolize(b))
     })
     this.quoteUnits.forEach(el => {
       Doc.empty(el)
-      el.appendChild(Doc.symbolize(q.symbol))
+      if (el.dataset.unitFormat === 'noparent') {
+        el.textContent = q.unitInfo.conventional.unit
+      } else el.appendChild(Doc.symbolize(q))
     })
     this.balanceWgt.setWallets(host, b.id, q.id)
     this.setMarketBuyOrderEstimate()
@@ -2895,8 +2898,8 @@ class MarketRow {
     const tmpl = this.tmpl = Doc.parseTemplate(this.node)
     tmpl.baseIcon.src = Doc.logoPath(mkt.basesymbol)
     tmpl.quoteIcon.src = Doc.logoPath(mkt.quotesymbol)
-    tmpl.baseSymbol.appendChild(Doc.symbolize(mkt.basesymbol))
-    tmpl.quoteSymbol.appendChild(Doc.symbolize(mkt.quotesymbol))
+    tmpl.baseSymbol.appendChild(Doc.symbolize(app().assets[mkt.baseid], true))
+    tmpl.quoteSymbol.appendChild(Doc.symbolize(app().assets[mkt.quoteid], true))
     tmpl.baseName.textContent = mkt.baseName
     tmpl.host.textContent = mkt.xc.host
     tmpl.host.style.color = hostColor(mkt.xc.host)
@@ -3004,7 +3007,7 @@ class BalanceWidget {
     tmpl.logo.src = Doc.logoPath(cfg.symbol)
     tmpl.addWalletSymbol.textContent = cfg.symbol.toUpperCase()
     Doc.empty(tmpl.symbol)
-    tmpl.symbol.appendChild(Doc.symbolize(cfg.symbol))
+    tmpl.symbol.appendChild(Doc.symbolize(app().assets[assetID], true))
     // Handle an unsupported asset.
     if (!asset) {
       Doc.show(tmpl.unsupported)
@@ -3060,7 +3063,7 @@ class BalanceWidget {
       const { wallet: { balance }, unitInfo, symbol } = app().assets[asset.token.parentID]
       const icon = document.createElement('img')
       icon.src = Doc.logoPath(symbol)
-      icon.classList.add('micro-icon')
+      icon.classList.add('micro-icon', 'ms-1')
       addRow(intl.prep(intl.ID_FEE_BALANCE), balance.available, unitInfo, icon)
     }
 
