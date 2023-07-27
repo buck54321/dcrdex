@@ -241,7 +241,9 @@ func (a *TAuth) RequestWithTimeout(user account.AccountID, msg *msgjson.Message,
 }
 
 func (a *TAuth) PreimageSuccess(user account.AccountID, refTime time.Time, oid order.OrderID) {}
-func (a *TAuth) MissedPreimage(user account.AccountID, refTime time.Time, oid order.OrderID)  {}
+func (a *TAuth) MissedPreimage(user account.AccountID, refTime time.Time, oid order.OrderID) bool {
+	return false
+}
 func (a *TAuth) SwapSuccess(user account.AccountID, mmid db.MarketMatchID, value uint64, refTime time.Time) {
 }
 func (a *TAuth) Inaction(user account.AccountID, step auth.NoActionStep, mmid db.MarketMatchID, matchValue uint64, refTime time.Time, oid order.OrderID) {
@@ -253,9 +255,10 @@ func (a *TAuth) AcctStatus(user account.AccountID) (connected bool, tier int64) 
 	return true, 1
 }
 func (a *TAuth) RecordCompletedOrder(account.AccountID, order.OrderID, time.Time) {}
-func (a *TAuth) RecordCancel(aid account.AccountID, coid, oid order.OrderID, epochGap int32, t time.Time) {
+func (a *TAuth) RecordCancel(aid account.AccountID, coid, oid order.OrderID, epochGap int32, t time.Time) bool {
 	a.cancelOrder = coid
 	a.canceledOrder = oid
+	return false
 }
 
 type TMarketTunnel struct {

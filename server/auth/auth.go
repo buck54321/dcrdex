@@ -518,8 +518,9 @@ func (auth *AuthManager) GraceLimit() int {
 }
 
 // RecordCancel records a user's executed cancel order, including the canceled
-// order ID, and the time when the cancel was executed.
-func (auth *AuthManager) RecordCancel(user account.AccountID, oid, target order.OrderID, epochGap int32, t time.Time) {
+// order ID, and the time when the cancel was executed. RecordCancel does not
+// call the unbookFunc in the case of a suspension.
+func (auth *AuthManager) RecordCancel(user account.AccountID, oid, target order.OrderID, epochGap int32, t time.Time) (suspended bool) {
 	score := auth.recordOrderDone(user, oid, &target, epochGap, t.UnixMilli())
 
 	tier, bondTier, changed := auth.computeUserTier(user, score)
@@ -528,11 +529,13 @@ func (auth *AuthManager) RecordCancel(user account.AccountID, oid, target order.
 	// If their tier sinks below 1, unbook their orders and send a note.
 	if tier < 1 {
 		details := fmt.Sprintf("excessive cancellation rate, new tier = %d", tier)
-		auth.Penalize(user, account.CancellationRate, details)
+		suspended = true
+		auth.suspend(user, account.CancellationRate, details)
 	}
 	if changed {
 		go auth.sendTierChanged(user, tier, "excessive, cancellation rate")
 	}
+	return
 }
 
 // RecordCompletedOrder records a user's completed order, where completed means
@@ -1017,7 +1020,7 @@ func (auth *AuthManager) Inaction(user account.AccountID, misstep NoActionStep, 
 	if tier < 1 {
 		details := fmt.Sprintf("swap %v failure (%v) for order %v, new tier = %d",
 			mmid.MatchID, misstep, oid, tier)
-		auth.Penalize(user, account.FailureToAct, details)
+		auth.unbookAndSuspend(user, account.FailureToAct, details)
 	}
 	if changed {
 		reason := fmt.Sprintf("swap failure for match %v order %v: %v", mmid.MatchID, oid, misstep)
@@ -1060,11 +1063,13 @@ func (auth *AuthManager) PreimageSuccess(user account.AccountID, epochEnd time.T
 }
 
 // MissedPreimage registers a missed preimage violation by the user.
-func (auth *AuthManager) MissedPreimage(user account.AccountID, epochEnd time.Time, oid order.OrderID) {
+// MissedPreimage does not call the unbookFunc in the case of a suspension.
+func (auth *AuthManager) MissedPreimage(user account.AccountID, epochEnd time.Time, oid order.OrderID) (suspended bool) {
 	score := auth.registerPreimageOutcome(user, true, oid, epochEnd)
 	if score < int32(auth.banScore) {
 		return
 	}
+	suspended = true
 
 	// Recompute tier.
 	tier, bondTier, changed := auth.computeUserTier(user, score)
@@ -1072,23 +1077,27 @@ func (auth *AuthManager) MissedPreimage(user account.AccountID, epochEnd time.Ti
 	// If their tier sinks below 1, unbook their orders and send a note.
 	if tier < 1 {
 		details := fmt.Sprintf("preimage for order %v not provided upon request: new tier = %d", oid, tier)
-		auth.Penalize(user, account.PreimageReveal, details)
+		auth.suspend(user, account.PreimageReveal, details)
 	}
 	if changed {
 		reason := fmt.Sprintf("preimage not provided upon request for order %v", oid)
 		go auth.sendTierChanged(user, tier, reason)
 	}
+	return
 }
 
-// Penalize unbooks all of their orders, and notifies them of this action while
-// citing the provided rule that corresponds to their most recent infraction.
-// This method is to be used when a user's tier drops below 1.
-// NOTE: There is now a 'tierchange' route for *any* tier change, but this
-// method still handles unbooking of the user's orders.
-func (auth *AuthManager) Penalize(user account.AccountID, lastRule account.Rule, extraDetails string) {
+// unbookAndSuspend unbooks all the user's orders and suspends the user.
+func (auth *AuthManager) unbookAndSuspend(user account.AccountID, lastRule account.Rule, extraDetails string) {
 	// Unbook all of the user's orders across all markets.
 	auth.unbookUserOrders(user)
+	auth.suspend(user, lastRule, extraDetails)
+}
 
+// suspend notifies them of this action while citing the provided rule that
+// corresponds to their most recent infraction. This method is to be used when a
+// user's tier drops below 1. NOTE: There is now a 'tierchange' route for *any*
+// tier change, but this method still handles unbooking of the user's orders.
+func (auth *AuthManager) suspend(user account.AccountID, lastRule account.Rule, extraDetails string) {
 	log.Debugf("User %v account penalized. Last rule broken = %v. Detail: %s", user, lastRule, extraDetails)
 
 	// Notify user of penalty.

@@ -34,8 +34,8 @@ type AuthManager interface {
 	Request(account.AccountID, *msgjson.Message, func(comms.Link, *msgjson.Message)) error
 	RequestWithTimeout(account.AccountID, *msgjson.Message, func(comms.Link, *msgjson.Message), time.Duration, func()) error
 	PreimageSuccess(user account.AccountID, refTime time.Time, oid order.OrderID)
-	MissedPreimage(user account.AccountID, refTime time.Time, oid order.OrderID)
-	RecordCancel(user account.AccountID, oid, target order.OrderID, epochGap int32, t time.Time)
+	MissedPreimage(user account.AccountID, refTime time.Time, oid order.OrderID) (suspended bool)
+	RecordCancel(user account.AccountID, oid, target order.OrderID, epochGap int32, t time.Time) (suspended bool)
 	RecordCompletedOrder(user account.AccountID, oid order.OrderID, t time.Time)
 	UserSettlingLimit(user account.AccountID, mkt *dex.MarketInfo) int64
 }

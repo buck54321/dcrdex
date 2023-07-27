@@ -1110,7 +1110,7 @@ func (m *Market) SwapDone(ord order.Order, match *order.Match, fail bool) {
 			m.unlockOrderCoins(lo)
 			if removed {
 				// Lazily update DB and auth, and notify orderbook subscribers.
-				m.lazy(func() { m.unbookedOrder(lo) })
+				m.lazy(func() { m.recordAndNotifyUnbooked(lo) })
 			}
 		}
 		return
@@ -2195,6 +2195,7 @@ func (m *Market) prepEpoch(orders []order.Order, epochEnd time.Time) (cSum []byt
 			len(ordersRevealed), len(misses), cSum)
 	}
 
+	suspendedUsers := make(map[account.AccountID]struct{})
 	for _, ord := range misses {
 		oid, user := ord.ID(), ord.User()
 		log.Infof("No preimage received for order %v from user %v. Recording violation and revoking order.",
@@ -2204,17 +2205,24 @@ func (m *Market) prepEpoch(orders []order.Order, epochEnd time.Time) (cSum []byt
 		// Change the order status from orderStatusEpoch to orderStatusRevoked.
 		coid, revTime, err := m.storage.RevokeOrder(ord)
 		if err == nil {
-			m.auth.RecordCancel(user, coid, oid, db.EpochGapNA, revTime)
+			if suspended := m.auth.RecordCancel(user, coid, oid, db.EpochGapNA, revTime); suspended {
+				suspendedUsers[user] = struct{}{}
+			}
 		} else {
 			log.Errorf("Failed to revoke order %v with a new cancel order: %v",
 				ord.UID(), err)
 		}
 		// Register the preimage miss violation, adjusting the user's score.
-		m.auth.MissedPreimage(user, epochEnd, oid)
+		if suspended := m.auth.MissedPreimage(user, epochEnd, oid); suspended {
+			suspendedUsers[user] = struct{}{}
+		}
 		// The user is most likely offline, but it is possible they have
 		// reconnected too late for the preimage request but after
 		// storage.RevokeOrder updated the order status. Try to notify.
 		go m.sendRevokeOrderNote(oid, user)
+	}
+	for u := range suspendedUsers {
+		m.UnbookUserOrders(u)
 	}
 
 	// Register the preimage collection successes, potentially evicting preimage
@@ -2226,12 +2234,8 @@ func (m *Market) prepEpoch(orders []order.Order, epochEnd time.Time) (cSum []byt
 	return
 }
 
-// UnbookUserOrders unbooks all orders belonging to a user, unlocks the coins
-// that were used to fund the unbooked orders, changes the orders' statuses to
-// revoked in the DB, and notifies orderbook subscribers.
-func (m *Market) UnbookUserOrders(user account.AccountID) {
-	m.bookMtx.Lock()
-	removedBuys, removedSells := m.book.RemoveUserOrders(user)
+func (m *Market) removeUserFromBook(user account.AccountID) (removedBuys, removedSells []*order.LimitOrder) {
+	removedBuys, removedSells = m.book.RemoveUserOrders(user)
 	// No order completion credit in SwapDone for revoked orders:
 	for _, lo := range removedSells {
 		delete(m.settling, lo.ID())
@@ -2239,8 +2243,26 @@ func (m *Market) UnbookUserOrders(user account.AccountID) {
 	for _, lo := range removedBuys {
 		delete(m.settling, lo.ID())
 	}
+	return
+}
+
+func (m *Market) unbookUserWithoutRecord(user account.AccountID) {
+	removedBuys, removedSells := m.removeUserFromBook(user)
+	m.processAndUnlockCoins(user, removedBuys, removedSells, m.notifyUnbooked)
+}
+
+// UnbookUserOrders unbooks all orders belonging to a user, unlocks the coins
+// that were used to fund the unbooked orders, changes the orders' statuses to
+// revoked in the DB, and notifies orderbook subscribers.
+func (m *Market) UnbookUserOrders(user account.AccountID) {
+	m.bookMtx.Lock()
+	removedBuys, removedSells := m.removeUserFromBook(user)
 	m.bookMtx.Unlock()
 
+	m.processAndUnlockCoins(user, removedBuys, removedSells, m.recordAndNotifyUnbooked)
+}
+
+func (m *Market) processAndUnlockCoins(user account.AccountID, removedBuys, removedSells []*order.LimitOrder, process func(*order.LimitOrder)) {
 	total := len(removedBuys) + len(removedSells)
 	if total == 0 {
 		return
@@ -2254,7 +2276,7 @@ func (m *Market) UnbookUserOrders(user account.AccountID) {
 	sellIDs := make([]order.OrderID, 0, len(removedSells))
 	for _, lo := range removedSells {
 		sellIDs = append(sellIDs, lo.ID())
-		m.unbookedOrder(lo)
+		process(lo)
 	}
 	if m.coinLockerBase != nil {
 		m.coinLockerBase.UnlockOrdersCoins(sellIDs)
@@ -2263,7 +2285,7 @@ func (m *Market) UnbookUserOrders(user account.AccountID) {
 	buyIDs := make([]order.OrderID, 0, len(removedBuys))
 	for _, lo := range removedBuys {
 		buyIDs = append(buyIDs, lo.ID())
-		m.unbookedOrder(lo)
+		process(lo)
 	}
 	if m.coinLockerQuote != nil {
 		m.coinLockerQuote.UnlockOrdersCoins(buyIDs)
@@ -2288,23 +2310,32 @@ func (m *Market) Unbook(lo *order.LimitOrder) bool {
 
 	if removed {
 		// Update the order status in DB, and notify orderbook subscribers.
-		m.unbookedOrder(lo)
+		m.recordAndNotifyUnbooked(lo)
 	}
 	return removed
 }
 
-func (m *Market) unbookedOrder(lo *order.LimitOrder) {
+func (m *Market) recordAndNotifyUnbooked(lo *order.LimitOrder) {
+	m.revokeAndNotify(lo, true)
+}
+
+func (m *Market) notifyUnbooked(lo *order.LimitOrder) {
+	m.revokeAndNotify(lo, false)
+}
+
+func (m *Market) revokeAndNotify(lo *order.LimitOrder, record bool) {
 	// Create the server-generated cancel order, and register it with the
 	// AuthManager for cancellation rate computation if still connected.
 	oid, user := lo.ID(), lo.User()
 	coid, revTime, err := m.storage.RevokeOrder(lo)
 	if err == nil {
-		m.auth.RecordCancel(user, coid, oid, db.EpochGapNA, revTime)
+		if record {
+			m.auth.RecordCancel(user, coid, oid, db.EpochGapNA, revTime)
+		}
 	} else {
 		log.Errorf("Failed to revoke order %v with a new cancel order: %v",
 			lo.UID(), err)
 	}
-
 	// Send revoke_order notification to order owner.
 	m.sendRevokeOrderNote(oid, user)
 
@@ -2381,6 +2412,7 @@ func (m *Market) processReadyEpoch(epoch *readyEpoch, notifyChan chan<- *updateS
 	misses := epoch.misses
 
 	// Perform order matching using the preimages to shuffle the queue.
+	suspendedUsers := make(map[account.AccountID]struct{})
 	m.bookMtx.Lock()        // allow a coherent view of book orders with (*Market).Book
 	matchTime := time.Now() // considered as the time at which matched cancel orders are executed
 	seed, matches, _, failed, doneOK, partial, booked, nomatched, unbooked, updates, stats := m.matcher.Match(m.book, ordersRevealed)
@@ -2398,7 +2430,9 @@ func (m *Market) processReadyEpoch(epoch *readyEpoch, notifyChan chan<- *updateS
 		for _, match := range ms.Matches() {
 			if co, ok := match.Taker.(*order.CancelOrder); ok {
 				epochGap := int32((co.ServerTime.UnixMilli() / epochDur) - (match.Maker.ServerTime.UnixMilli() / epochDur))
-				m.auth.RecordCancel(co.User(), co.ID(), co.TargetOrderID, epochGap, matchTime)
+				if suspended := m.auth.RecordCancel(co.User(), co.ID(), co.TargetOrderID, epochGap, matchTime); suspended {
+					suspendedUsers[co.User()] = struct{}{}
+				}
 				canceled = append(canceled, co.TargetOrderID)
 				continue
 			}
@@ -2410,6 +2444,9 @@ func (m *Market) processReadyEpoch(epoch *readyEpoch, notifyChan chan<- *updateS
 		// There may still be swaps settling, but we don't care anymore because
 		// there is no completion credit on a canceled order.
 		delete(m.settling, oid)
+	}
+	for u := range suspendedUsers {
+		m.unbookUserWithoutRecord(u)
 	}
 	m.bookMtx.Unlock()
 
