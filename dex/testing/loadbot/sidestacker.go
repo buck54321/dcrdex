@@ -125,7 +125,7 @@ func (s *sideStacker) HandleNotification(m *Mantle, note core.Notification) {
 				case <-ctx.Done():
 					return
 				}
-				s.stack(m)
+				s.stack(m, n)
 			}()
 			maxActiveOrders := 2 * (s.numStanding + s.ordsPerEpoch)
 			book := m.book()
@@ -146,10 +146,10 @@ func (s *sideStacker) HandleNotification(m *Mantle, note core.Notification) {
 // 	// log.Infof("sideStacker got a book note: %s", mustJSON(note))
 // }
 
-func (s *sideStacker) stack(m *Mantle) {
+func (s *sideStacker) stack(m *Mantle, n *core.EpochNotification) {
 	book := m.book()
 	midGap := midGap(book)
-	worstBuys, worstSells := s.cancellableOrders(m)
+	worstBuys, worstSells := s.cancellableOrders(m, n.Epoch)
 	activeBuys, activeSells := len(worstBuys), len(worstSells)
 	cancelOrds := func(ords []*core.Order) {
 		for _, o := range ords {
@@ -279,13 +279,16 @@ func (s *sideStacker) stack(m *Mantle) {
 	}
 }
 
-func (s *sideStacker) cancellableOrders(m *Mantle) (
+func (s *sideStacker) cancellableOrders(m *Mantle, currentEpoch uint64) (
 	worstBuys, worstSells []*core.Order) {
 
 	xcs := m.Exchanges()
 	xc := xcs[hostAddr]
 	mkt := xc.Markets[market]
 	for _, ord := range mkt.Orders {
+		if ord.Epoch >= currentEpoch-1 {
+			continue
+		}
 		if ord.Status == order.OrderStatusBooked && !ord.Cancelling {
 			if ord.Sell {
 				worstSells = append(worstSells, ord)
