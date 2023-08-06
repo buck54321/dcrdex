@@ -17,6 +17,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"math"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -28,11 +29,13 @@ import (
 	"decred.org/dcrdex/client/asset"
 	"decred.org/dcrdex/dex"
 	"decred.org/dcrdex/dex/config"
+	"decred.org/dcrdex/dex/encode"
 	dexdcr "decred.org/dcrdex/dex/networks/dcr"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrutil/v4"
+	"github.com/decred/dcrd/wire"
 )
 
 const (
@@ -622,10 +625,18 @@ func testTickets(t *testing.T, isInternal bool, ew *ExchangeWallet) {
 	}
 	tLogger.Infof("Purchased the following tickets: %v", tickets)
 
-	// TODO: Work with newer deployment versions automatically.
-	choices := map[string]string{
-		chaincfg.VoteIDBlake3Pow:            "yes",
-		chaincfg.VoteIDChangeSubsidySplitR2: "no",
+	var currentDeployments []chaincfg.ConsensusDeployment
+	var bestVer uint32
+	for ver, deps := range ew.chainParams.Deployments {
+		if bestVer == 0 || ver > bestVer {
+			currentDeployments = deps
+			bestVer = ver
+		}
+	}
+
+	choices := make(map[string]string)
+	for _, d := range currentDeployments {
+		choices[d.Vote.Id] = d.Vote.Choices[rand.Int()%len(d.Vote.Choices)].Id
 	}
 
 	aPubKey := "034a43df1b95bf1b0dd77b53b8d880d4a5f47376fb036a5be5c1f3ba8d12ef65d7"
@@ -636,72 +647,77 @@ func testTickets(t *testing.T, isInternal bool, ew *ExchangeWallet) {
 		bPubKey: "no",
 	}
 
+	var tspendPolicy map[string]string
+	if spvw, is := ew.wallet.(*spvWallet); is {
+		if dcrw, is := spvw.dcrWallet.(*extendedWallet); is {
+			txIn := &wire.TxIn{SignatureScript: encode.RandomBytes(66 + secp256k1.PubKeyBytesLenCompressed)}
+			tspendA := &wire.MsgTx{Expiry: math.MaxUint32 - 1, TxIn: []*wire.TxIn{txIn}}
+			tspendB := &wire.MsgTx{Expiry: math.MaxUint32 - 2, TxIn: []*wire.TxIn{txIn}}
+			txHashA, txHashB := tspendA.TxHash(), tspendB.TxHash()
+			tspendPolicy = map[string]string{
+				txHashA.String(): "yes",
+				txHashB.String(): "no",
+			}
+			for _, tx := range []*wire.MsgTx{tspendA, tspendB} {
+				if err := dcrw.AddTSpend(*tx); err != nil {
+					t.Fatalf("Error adding tspend: %v", err)
+				}
+			}
+		}
+	}
+
 	// Test SetVotingPreferences.
-	if err := ew.SetVotingPreferences(choices, nil, treasuryPolicy); err != nil {
-		t.Fatalf("error setting voting preferences: %v", err)
+	if err := ew.SetVotingPreferences(choices, tspendPolicy, treasuryPolicy); err != nil {
+		t.Fatalf("Error setting voting preferences: %v", err)
 	}
 
 	// Test StakeStatus again.
 	ss, err = ew.StakeStatus()
 	if err != nil {
-		t.Fatalf("unable to get stake status: %v", err)
+		t.Fatalf("Unable to get stake status: %v", err)
 	}
 	tLogger.Info("The following are stake status after setting vsp and purchasing tickets.")
 	spew.Dump(ss)
 
-	var found bool
-	for _, choice := range ss.Stances.VoteChoices {
-		if choice.AgendaID == chaincfg.VoteIDBlake3Pow {
-			if choice.ChoiceID != "yes" {
-				t.Fatal("blake vote should be yes")
-			}
-			found = true
-			break
-		}
+	if len(ss.Stances.VoteChoices) != len(choices) {
+		t.Fatalf("wrong number of vote choices. expected %d, got %d", len(choices), len(ss.Stances.VoteChoices))
 	}
-	if !found {
-		t.Fatal("blake vote choice not found")
-	}
-	found = false
 
-	for _, choice := range ss.Stances.VoteChoices {
-		if choice.AgendaID == chaincfg.VoteIDChangeSubsidySplitR2 {
-			if choice.ChoiceID != "no" {
-				t.Fatal("subsidy change vote should be no")
-			}
-			found = true
-			break
+	for _, reportedChoice := range ss.Stances.VoteChoices {
+		choiceID, found := choices[reportedChoice.AgendaID]
+		if !found {
+			t.Fatalf("unknown agenda %s", reportedChoice.AgendaID)
+		}
+		if reportedChoice.ChoiceID != choiceID {
+			t.Fatalf("wrong choice reported. expected %s, got %s", choiceID, reportedChoice.ChoiceID)
 		}
 	}
-	if !found {
-		t.Fatal("subsidy vote choice not found")
+
+	if len(ss.Stances.TreasuryPolicy) != len(treasuryPolicy) {
+		t.Fatalf("wrong number of treasury keys. expected %d, got %d", len(treasuryPolicy), len(ss.Stances.TreasuryPolicy))
 	}
-	found = false
 
 	for _, tp := range ss.Stances.TreasuryPolicy {
-		if tp.Key == aPubKey {
-			if tp.Policy != "yes" {
-				t.Fatal("treasury policy for pubkey a shoud be yes")
-			}
-			found = true
-			break
+		policy, found := treasuryPolicy[tp.Key]
+		if !found {
+			t.Fatalf("unknown treasury key %s", tp.Key)
+		}
+		if tp.Policy != policy {
+			t.Fatalf("wrong policy reported. expected %s, got %s", policy, tp.Policy)
 		}
 	}
-	if !found {
-		t.Fatal("treasury policy for pubkey a not found")
-	}
-	found = false
 
-	for _, tp := range ss.Stances.TreasuryPolicy {
-		if tp.Key == bPubKey {
-			if tp.Policy != "no" {
-				t.Fatal("treasury policy for pubkey b shoud be no")
-			}
-			found = true
-			break
-		}
+	if len(ss.Stances.TSpendPolicy) != len(tspendPolicy) {
+		t.Fatalf("wrong number of tspends. expected %d, got %d", len(tspendPolicy), len(ss.Stances.TSpendPolicy))
 	}
-	if !found {
-		t.Fatal("treasury policy for pubkey b not found")
+
+	for _, p := range ss.Stances.TSpendPolicy {
+		policy, found := tspendPolicy[p.Hash]
+		if !found {
+			t.Fatalf("unknown tspend tx %s", p.Hash)
+		}
+		if p.Policy != policy {
+			t.Fatalf("wrong policy reported. expected %s, got %s", policy, p.Policy)
+		}
 	}
 }
