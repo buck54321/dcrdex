@@ -2033,10 +2033,10 @@ func testMaxFundingFees(t *testing.T, segwit bool, walletType string) {
 	})
 
 	useSplitOptions := map[string]string{
-		splitKey: "true",
+		multiSplitKey: "true",
 	}
 	noSplitOptions := map[string]string{
-		splitKey: "false",
+		multiSplitKey: "false",
 	}
 
 	var inputSize, outputSize uint64

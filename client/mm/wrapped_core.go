@@ -351,10 +351,10 @@ func (c *wrappedCore) MultiTrade(pw []byte, form *core.MultiTradeForm) ([]*core.
 	return orders, nil
 }
 
-// MayBuy returns the maximum quantity of the base asset that the bot can
+// MaxBuyEstimate returns the maximum quantity of the base asset that the bot can
 // buy for rate using its balance of the quote asset.
-func (c *wrappedCore) MaxBuy(host string, base, quote uint32, rate uint64) (*core.MaxOrderEstimate, error) {
-	maxQty, err := c.maxBuyQty(host, base, quote, rate, nil)
+func (c *wrappedCore) MaxBuyEstimate(host string, base, quote uint32, rate uint64, quoteSettings map[string]string) (*core.MaxOrderEstimate, error) {
+	maxQty, err := c.maxBuyQty(host, base, quote, rate, quoteSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -381,10 +381,10 @@ func (c *wrappedCore) MaxBuy(host string, base, quote uint32, rate uint64) (*cor
 	}, nil
 }
 
-// MaxSell returned the maximum quantity of the base asset that the bot can
-// sell.
-func (c *wrappedCore) MaxSell(host string, base, quote uint32) (*core.MaxOrderEstimate, error) {
-	qty, err := c.maxSellQty(host, base, quote, 1, nil)
+// MaxSellEstimate returned the maximum quantity of the base asset that the bot
+// can sell.
+func (c *wrappedCore) MaxSellEstimate(host string, base, quote uint32, baseSettings map[string]string) (*core.MaxOrderEstimate, error) {
+	qty, err := c.maxSellQty(host, base, quote, 1, baseSettings)
 	if err != nil {
 		return nil, err
 	}

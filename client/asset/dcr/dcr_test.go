@@ -716,10 +716,10 @@ func TestMaxFundingFees(t *testing.T) {
 	})
 
 	useSplitOptions := map[string]string{
-		splitKey: "true",
+		multiSplitKey: "true",
 	}
 	noSplitOptions := map[string]string{
-		splitKey: "false",
+		multiSplitKey: "false",
 	}
 
 	maxFundingFees := wallet.MaxFundingFees(3, useSplitOptions)

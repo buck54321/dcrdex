@@ -84,6 +84,14 @@ type MarketMakingConfig struct {
 	// EmptyMarketRate can be set if there is no market data available, and is
 	// ignored if there is market data available.
 	EmptyMarketRate float64 `json:"manualRate"`
+
+	// BaseSettings are the settings that correspond to the MultiFundingOpts
+	// from the WalletDefinition for the base asset.
+	BaseSettings map[string]string `json:"baseSettings"`
+
+	// QuoteSettings are the settings that correspond to the MultiFundingOpts
+	// from the WalletDefinition for the quote asset.
+	QuoteSettings map[string]string `json:"quoteSettings"`
 }
 
 func (c *MarketMakingConfig) Validate() error {
@@ -133,6 +141,14 @@ func steppedRate(r, step uint64) uint64 {
 	return uint64(math.Round(steps * float64(step)))
 }
 
+// mmCore adds helper methods to clientCore. mmCore is satisfied by
+// *wrappedCore.
+type mmCore interface {
+	clientCore
+	MaxBuyEstimate(host string, base, quote uint32, rate uint64, settings map[string]string) (*core.MaxOrderEstimate, error)
+	MaxSellEstimate(host string, base, quote uint32, settings map[string]string) (*core.MaxOrderEstimate, error)
+}
+
 type basicMarketMaker struct {
 	ctx    context.Context
 	host   string
@@ -141,7 +157,7 @@ type basicMarketMaker struct {
 	cfg    *MarketMakingConfig
 	book   *orderbook.OrderBook
 	log    dex.Logger
-	core   clientCore
+	core   mmCore
 	oracle *priceOracle
 	mkt    *core.Market
 	pw     []byte
@@ -511,7 +527,7 @@ func (m *basicMarketMaker) rebalance(newEpoch uint64) {
 	if newBuyLots > 0 {
 		// TODO: MaxBuy and MaxSell shouldn't error for insufficient funds, but
 		// they do. Maybe consider a constant error asset.InsufficientBalance.
-		maxOrder, err := m.core.MaxBuy(m.host, m.base, m.quote, buyPrice)
+		maxOrder, err := m.core.MaxBuyEstimate(m.host, m.base, m.quote, buyPrice, m.cfg.QuoteSettings)
 		if err != nil {
 			m.log.Errorf("MaxBuy error: %v", err)
 		} else {
@@ -528,7 +544,7 @@ func (m *basicMarketMaker) rebalance(newEpoch uint64) {
 
 	if newSellLots > 0 {
 		var maxLots int
-		maxOrder, err := m.core.MaxSell(m.host, m.base, m.quote)
+		maxOrder, err := m.core.MaxSellEstimate(m.host, m.base, m.quote, m.cfg.BaseSettings)
 		if err != nil {
 			m.log.Errorf("MaxSell error: %v", err)
 		} else {
@@ -644,7 +660,7 @@ func (m *basicMarketMaker) run() {
 }
 
 // RunBasicMarketMaker starts a basic market maker bot.
-func RunBasicMarketMaker(ctx context.Context, cfg *BotConfig, c clientCore, oracle *priceOracle, pw []byte, log dex.Logger) {
+func RunBasicMarketMaker(ctx context.Context, cfg *BotConfig, c mmCore, oracle *priceOracle, pw []byte, log dex.Logger) {
 	if cfg.MMCfg == nil {
 		// implies bug in caller
 		log.Errorf("No market making config provided. Exiting.")
