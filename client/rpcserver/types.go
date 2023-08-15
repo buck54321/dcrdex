@@ -632,13 +632,13 @@ func parseMultiTradeArgs(params *RawParams) (*multiTradeForm, error) {
 	return &multiTradeForm{
 		appPass: params.PWArgs[0],
 		srvForm: &core.MultiTradeForm{
-			Host:       params.Args[0],
-			Sell:       sell,
-			Base:       uint32(base),
-			Quote:      uint32(quote),
-			Placements: placements,
-			Options:    options,
-			MaxLock:    maxLock,
+			Host:         params.Args[0],
+			Sell:         sell,
+			Base:         uint32(base),
+			Quote:        uint32(quote),
+			Placements:   placements,
+			FromSettings: options,
+			MaxLock:      maxLock,
 		},
 	}, nil
 }

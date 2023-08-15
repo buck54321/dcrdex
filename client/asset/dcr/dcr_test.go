@@ -1289,7 +1289,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					"swapsplit": "false",
 				},
 			},
@@ -1340,7 +1340,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					"swapsplit": "false",
 				},
 			},
@@ -1406,7 +1406,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					"swapsplit": "false",
 				},
 			},
@@ -1469,7 +1469,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "false",
 				},
 			},
@@ -1537,7 +1537,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "false",
 				},
 			},
@@ -1606,7 +1606,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1673,7 +1673,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1741,7 +1741,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1786,7 +1786,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1839,7 +1839,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1874,7 +1874,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1928,7 +1928,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1964,7 +1964,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey:       "true",
 					multiSplitBufferKey: "10",
 				},
@@ -2017,7 +2017,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey:       "true",
 					multiSplitBufferKey: "10",
 				},
@@ -2057,7 +2057,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -2139,7 +2139,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -2222,7 +2222,7 @@ func TestFundMultiOrder(t *testing.T) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},

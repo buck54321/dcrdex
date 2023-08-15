@@ -28,7 +28,7 @@ type wrappedCore struct {
 
 var _ clientCore = (*wrappedCore)(nil)
 
-func (c *wrappedCore) maxBuyQty(host string, base, quote uint32, rate uint64, options map[string]string) (uint64, error) {
+func (c *wrappedCore) maxBuyQty(host string, base, quote uint32, rate uint64, baseSettings map[string]string) (uint64, error) {
 	baseBalance := c.mm.botBalance(c.botID, base)
 	quoteBalance := c.mm.botBalance(c.botID, quote)
 
@@ -37,7 +37,7 @@ func (c *wrappedCore) maxBuyQty(host string, base, quote uint32, rate uint64, op
 		return 0, err
 	}
 
-	fundingFees, err := c.MaxFundingFees(quote, 1, options)
+	fundingFees, err := c.MaxFundingFees(quote, 1, baseSettings)
 	if err != nil {
 		return 0, err
 	}
@@ -71,7 +71,7 @@ func (c *wrappedCore) maxBuyQty(host string, base, quote uint32, rate uint64, op
 	return maxLots * mkt.LotSize, nil
 }
 
-func (c *wrappedCore) maxSellQty(host string, base, quote, numTrades uint32, options map[string]string) (uint64, error) {
+func (c *wrappedCore) maxSellQty(host string, base, quote, numTrades uint32, baseSettings map[string]string) (uint64, error) {
 	baseBalance := c.mm.botBalance(c.botID, base)
 	quoteBalance := c.mm.botBalance(c.botID, quote)
 
@@ -80,7 +80,7 @@ func (c *wrappedCore) maxSellQty(host string, base, quote, numTrades uint32, opt
 		return 0, err
 	}
 
-	fundingFees, err := c.MaxFundingFees(base, numTrades, options)
+	fundingFees, err := c.MaxFundingFees(base, numTrades, baseSettings)
 	if err != nil {
 		return 0, err
 	}
@@ -108,17 +108,17 @@ func (c *wrappedCore) maxSellQty(host string, base, quote, numTrades uint32, opt
 	return maxLots * mkt.LotSize, nil
 }
 
-func (c *wrappedCore) sufficientBalanceForTrade(host string, base, quote uint32, sell bool, rate, qty uint64, options map[string]string) (bool, error) {
+func (c *wrappedCore) sufficientBalanceForTrade(host string, base, quote uint32, sell bool, rate, qty uint64, settings map[string]string) (bool, error) {
 	var maxQty uint64
 	if sell {
 		var err error
-		maxQty, err = c.maxSellQty(host, base, quote, 1, options)
+		maxQty, err = c.maxSellQty(host, base, quote, 1, settings)
 		if err != nil {
 			return false, err
 		}
 	} else {
 		var err error
-		maxQty, err = c.maxBuyQty(host, base, quote, rate, options)
+		maxQty, err = c.maxBuyQty(host, base, quote, rate, settings)
 		if err != nil {
 			return false, err
 		}
@@ -127,19 +127,19 @@ func (c *wrappedCore) sufficientBalanceForTrade(host string, base, quote uint32,
 	return maxQty >= qty, nil
 }
 
-func (c *wrappedCore) sufficientBalanceForMultiSell(host string, base, quote uint32, placements []*core.QtyRate, options map[string]string) (bool, error) {
+func (c *wrappedCore) sufficientBalanceForMultiSell(host string, base, quote uint32, placements []*core.QtyRate, settings map[string]string) (bool, error) {
 	var totalQty uint64
 	for _, placement := range placements {
 		totalQty += placement.Qty
 	}
-	maxQty, err := c.maxSellQty(host, base, quote, uint32(len(placements)), options)
+	maxQty, err := c.maxSellQty(host, base, quote, uint32(len(placements)), settings)
 	if err != nil {
 		return false, err
 	}
 	return maxQty >= totalQty, nil
 }
 
-func (c *wrappedCore) sufficientBalanceForMultiBuy(host string, base, quote uint32, placements []*core.QtyRate, options map[string]string) (bool, error) {
+func (c *wrappedCore) sufficientBalanceForMultiBuy(host string, base, quote uint32, placements []*core.QtyRate, settings map[string]string) (bool, error) {
 	baseBalance := c.mm.botBalance(c.botID, base)
 	quoteBalance := c.mm.botBalance(c.botID, quote)
 
@@ -158,7 +158,7 @@ func (c *wrappedCore) sufficientBalanceForMultiBuy(host string, base, quote uint
 		return false, err
 	}
 
-	fundingFees, err := c.MaxFundingFees(quote, uint32(len(placements)), options)
+	fundingFees, err := c.MaxFundingFees(quote, uint32(len(placements)), settings)
 	if err != nil {
 		return false, err
 	}
@@ -186,11 +186,11 @@ func (c *wrappedCore) sufficientBalanceForMultiBuy(host string, base, quote uint
 	return true, nil
 }
 
-func (c *wrappedCore) sufficientBalanceForMultiTrade(host string, base, quote uint32, sell bool, placements []*core.QtyRate, options map[string]string) (bool, error) {
+func (c *wrappedCore) sufficientBalanceForMultiTrade(host string, base, quote uint32, sell bool, placements []*core.QtyRate, settings map[string]string) (bool, error) {
 	if sell {
-		return c.sufficientBalanceForMultiSell(host, base, quote, placements, options)
+		return c.sufficientBalanceForMultiSell(host, base, quote, placements, settings)
 	}
-	return c.sufficientBalanceForMultiBuy(host, base, quote, placements, options)
+	return c.sufficientBalanceForMultiBuy(host, base, quote, placements, settings)
 }
 
 // Trade checks that the bot has enough balance for the trade, and if not,
@@ -274,7 +274,7 @@ func (c *wrappedCore) Trade(pw []byte, form *core.TradeForm) (*core.Order, error
 }
 
 func (c *wrappedCore) MultiTrade(pw []byte, form *core.MultiTradeForm) ([]*core.Order, error) {
-	enough, err := c.sufficientBalanceForMultiTrade(form.Host, form.Base, form.Quote, form.Sell, form.Placements, form.Options)
+	enough, err := c.sufficientBalanceForMultiTrade(form.Host, form.Base, form.Quote, form.Sell, form.Placements, form.FromSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -351,10 +351,10 @@ func (c *wrappedCore) MultiTrade(pw []byte, form *core.MultiTradeForm) ([]*core.
 	return orders, nil
 }
 
-// MayBuy returns the maximum quantity of the base asset that the bot can
+// MaxBuyEstimate returns the maximum quantity of the base asset that the bot can
 // buy for rate using its balance of the quote asset.
-func (c *wrappedCore) MaxBuy(host string, base, quote uint32, rate uint64) (*core.MaxOrderEstimate, error) {
-	maxQty, err := c.maxBuyQty(host, base, quote, rate, nil)
+func (c *wrappedCore) MaxBuyEstimate(host string, base, quote uint32, rate uint64, quoteSettings map[string]string) (*core.MaxOrderEstimate, error) {
+	maxQty, err := c.maxBuyQty(host, base, quote, rate, quoteSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -381,10 +381,10 @@ func (c *wrappedCore) MaxBuy(host string, base, quote uint32, rate uint64) (*cor
 	}, nil
 }
 
-// MaxSell returned the maximum quantity of the base asset that the bot can
-// sell.
-func (c *wrappedCore) MaxSell(host string, base, quote uint32) (*core.MaxOrderEstimate, error) {
-	qty, err := c.maxSellQty(host, base, quote, 1, nil)
+// MaxSellEstimate returned the maximum quantity of the base asset that the bot
+// can sell.
+func (c *wrappedCore) MaxSellEstimate(host string, base, quote uint32, baseSettings map[string]string) (*core.MaxOrderEstimate, error) {
+	qty, err := c.maxSellQty(host, base, quote, 1, baseSettings)
 	if err != nil {
 		return nil, err
 	}

@@ -902,7 +902,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					"swapsplit": "false",
 				},
 			},
@@ -953,7 +953,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					"swapsplit": "false",
 				},
 			},
@@ -1020,7 +1020,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					"swapsplit": "false",
 				},
 			},
@@ -1083,7 +1083,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "false",
 				},
 			},
@@ -1151,7 +1151,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "false",
 				},
 			},
@@ -1220,7 +1220,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1287,7 +1287,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1355,7 +1355,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1400,7 +1400,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1453,7 +1453,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1488,7 +1488,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1542,7 +1542,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1578,7 +1578,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey:       "true",
 					multiSplitBufferKey: "10",
 				},
@@ -1631,7 +1631,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey:       "true",
 					multiSplitBufferKey: "10",
 				},
@@ -1671,7 +1671,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -1753,7 +1753,7 @@ func testFundMultiOrder(t *testing.T, segwit bool, walletType string) {
 				},
 				MaxFeeRate:    maxFeeRate,
 				FeeSuggestion: feeSuggestion,
-				Options: map[string]string{
+				Settings: map[string]string{
 					multiSplitKey: "true",
 				},
 			},
@@ -2033,10 +2033,10 @@ func testMaxFundingFees(t *testing.T, segwit bool, walletType string) {
 	})
 
 	useSplitOptions := map[string]string{
-		splitKey: "true",
+		multiSplitKey: "true",
 	}
 	noSplitOptions := map[string]string{
-		splitKey: "false",
+		multiSplitKey: "false",
 	}
 
 	var inputSize, outputSize uint64

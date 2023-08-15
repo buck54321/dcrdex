@@ -13,6 +13,10 @@
         "driftTolerance": 0.001,
         "oracleWeighting": 0.5,
         "oracleBias": 0,
-        "manualRate": 0
+        "manualRate": 0,
+        "baseSettings": {
+            "multisplit": true,
+            "multisplitbuffer": 1
+        }
     }
 }]

@@ -6224,7 +6224,7 @@ func (c *Core) prepareMultiTradeRequests(pw []byte, form *MultiTradeForm) ([]*tr
 		Values:        orderValues,
 		MaxFeeRate:    assetConfigs.fromAsset.MaxFeeRate,
 		FeeSuggestion: c.feeSuggestion(dc, assetConfigs.fromAsset.ID),
-		Options:       form.Options,
+		Settings:      form.FromSettings,
 		RedeemVersion: assetConfigs.toAsset.Version,
 		RedeemAssetID: assetConfigs.toAsset.ID,
 	}, form.MaxLock)
@@ -6269,7 +6269,7 @@ func (c *Core) prepareMultiTradeRequests(pw []byte, form *MultiTradeForm) ([]*tr
 			Quote:   form.Quote,
 			Qty:     form.Placements[i].Qty,
 			Rate:    form.Placements[i].Rate,
-			Options: form.Options,
+			Options: form.FromSettings,
 		}
 		// Only count the funding fees once.
 		var fees uint64

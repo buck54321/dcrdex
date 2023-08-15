@@ -6,7 +6,7 @@ package rpcserver
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -907,7 +907,7 @@ func handleNotificationsRoute(s *RPCServer, params *RawParams) *msgjson.Response
 // parseMarketMakingConfig takes a path to a json file, parses the contents, and
 // returns a []*mm.BotConfig.
 func parseMarketMakingConfig(path string) ([]*mm.BotConfig, error) {
-	contents, err := ioutil.ReadFile(path)
+	contents, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

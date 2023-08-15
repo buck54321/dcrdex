@@ -244,6 +244,8 @@ type WalletDefinition struct {
 	// description for each option. This can be used to request config info from
 	// users e.g. via dynamically generated GUI forms.
 	ConfigOpts []*ConfigOption `json:"configopts"`
+	// MultiFundingOpts are options related to funding multi-trades.
+	MultiFundingOpts []*ConfigOption `json:"multifundingopts"`
 	// NoAuth indicates that the wallet does not implement the Authenticator
 	// interface. A better way to check is to use the wallet traits but wallet
 	// construction is presently required to discern traits.
@@ -1237,9 +1239,8 @@ type MultiOrder struct {
 	// is used, the fee rate used should be at least the suggested fee, else
 	// zero-conf coins might be rejected.
 	FeeSuggestion uint64
-	// Options are options that corresponds to PreSwap.Options, as well as
-	// their values.
-	Options map[string]string
+
+	Settings map[string]string
 
 	// The following fields are only used for some assets where the redeemed/to
 	// asset may require funds in this "from" asset. For example, buying ERC20

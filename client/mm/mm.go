@@ -18,7 +18,7 @@ import (
 	"decred.org/dcrdex/dex/order"
 )
 
-// clientCore is satisfied by core.Core.
+// clientCore is satisfied by wrappedCore.
 type clientCore interface {
 	NotificationFeed() *core.NoteFeed
 	ExchangeMarket(host string, base, quote uint32) (*core.Market, error)
@@ -33,7 +33,7 @@ type clientCore interface {
 	PreOrder(form *core.TradeForm) (*core.OrderEstimate, error)
 	WalletState(assetID uint32) *core.WalletState
 	MultiTrade(pw []byte, form *core.MultiTradeForm) ([]*core.Order, error)
-	MaxFundingFees(fromAsset uint32, numTrades uint32, options map[string]string) (uint64, error)
+	MaxFundingFees(fromAsset uint32, numTrades uint32, fromSettings map[string]string) (uint64, error)
 	User() *core.User
 	Login(pw []byte) error
 	OpenWallet(assetID uint32, appPW []byte) error

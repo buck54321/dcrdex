@@ -986,7 +986,7 @@ type TradeForm struct {
 	Qty     uint64            `json:"qty"`
 	Rate    uint64            `json:"rate"`
 	TifNow  bool              `json:"tifnow"`
-	Options map[string]string `json:"options"`
+	Options map[string]string `json:"options"` // These are settings, not options.
 }
 
 // QtyRate specifies the quantity and rate of an order placement.
@@ -999,12 +999,12 @@ type QtyRate struct {
 // All orders must be on the same side of the same market, and only standing
 // limit orders are supported.
 type MultiTradeForm struct {
-	Host       string            `json:"host"`
-	Sell       bool              `json:"sell"`
-	Base       uint32            `json:"base"`
-	Quote      uint32            `json:"quote"`
-	Placements []*QtyRate        `json:"placement"`
-	Options    map[string]string `json:"options"`
+	Host         string            `json:"host"`
+	Sell         bool              `json:"sell"`
+	Base         uint32            `json:"base"`
+	Quote        uint32            `json:"quote"`
+	Placements   []*QtyRate        `json:"placement"`
+	FromSettings map[string]string `json:"fromSettings"`
 	// MaxLock is the maximum amount of the "from" asset that the wallet
 	// should lock for the trade.
 	MaxLock uint64 `json:"maxLock"`

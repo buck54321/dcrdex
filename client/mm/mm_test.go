@@ -182,6 +182,13 @@ func (*tCore) MaxBuy(host string, base, quote uint32, rate uint64) (*core.MaxOrd
 func (*tCore) MaxSell(host string, base, quote uint32) (*core.MaxOrderEstimate, error) {
 	return nil, nil
 }
+
+func (*tCore) MaxBuyEstimate(host string, base, quote uint32, rate uint64, settings map[string]string) (*core.MaxOrderEstimate, error) {
+	return nil, nil
+}
+func (*tCore) MaxSellEstimate(host string, base, quote uint32, settings map[string]string) (*core.MaxOrderEstimate, error) {
+	return nil, nil
+}
 func (c *tCore) AssetBalance(assetID uint32) (*core.WalletBalance, error) {
 	return c.assetBalances[assetID], c.assetBalanceErr
 }
@@ -204,7 +211,7 @@ func (c *tCore) WalletState(assetID uint32) *core.WalletState {
 		Traits: traits,
 	}
 }
-func (c *tCore) MaxFundingFees(fromAsset uint32, numTrades uint32, options map[string]string) (uint64, error) {
+func (c *tCore) MaxFundingFees(fromAsset uint32, numTrades uint32, settings map[string]string) (uint64, error) {
 	return c.maxFundingFees, nil
 }
 func (c *tCore) User() *core.User {
@@ -661,7 +668,7 @@ func TestSegregatedCoreMaxSell(t *testing.T) {
 		}
 
 		segregatedCore := mm.wrappedCoreForBot(mkt)
-		res, err := segregatedCore.MaxSell("host1", test.cfg.BaseAsset, test.cfg.QuoteAsset)
+		res, err := segregatedCore.MaxSellEstimate("host1", test.cfg.BaseAsset, test.cfg.QuoteAsset, nil)
 		if test.wantErr {
 			if err == nil {
 				t.Fatalf("%s: expected error but did not get", test.name)
@@ -898,7 +905,7 @@ func TestSegregatedCoreMaxBuy(t *testing.T) {
 			mkt = ethBtcID
 		}
 		segregatedCore := mm.wrappedCoreForBot(mkt)
-		res, err := segregatedCore.MaxBuy("host1", test.cfg.BaseAsset, test.cfg.QuoteAsset, test.rate)
+		res, err := segregatedCore.MaxBuyEstimate("host1", test.cfg.BaseAsset, test.cfg.QuoteAsset, test.rate, nil)
 		if test.wantErr {
 			if err == nil {
 				t.Fatalf("%s: expected error but did not get", test.name)
@@ -2560,7 +2567,7 @@ func testSegregatedCoreTrade(t *testing.T, testMultiTrade bool) {
 							Rate: test.trade.Rate,
 						},
 					},
-					Options: test.trade.Options,
+					FromSettings: test.trade.Options,
 				})
 			}
 		} else {
