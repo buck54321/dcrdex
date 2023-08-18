@@ -7252,7 +7252,7 @@ func TestResetAppPass(t *testing.T) {
 		t.Fatal("App Password recovery seed was not updated for first login")
 	}
 
-	seed, err :=tCore.ExportSeed(tPW)
+	seed, err := tCore.ExportSeed(tPW)
 	if err != nil {
 		t.Fatalf("seed export failed: %v", err)
 	}

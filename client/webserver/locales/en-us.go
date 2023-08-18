@@ -369,6 +369,6 @@ var EnUS = map[string]string{
 	"save_seed_instructions": "Save the following seed somewhere safe. Do not share this with anybody.",
 	"Done":                   "Done",
 	"Reset App Password":     "Reset App Password",
-	"reset_app_pw_msg": "Reset your app password using your app seed. If you provide the correct app seed, you can login again with the new password.",
-	"Forgot Password": "Forgot Password?",
+	"reset_app_pw_msg":       "Reset your app password using your app seed. If you provide the correct app seed, you can login again with the new password.",
+	"Forgot Password":        "Forgot Password?",
 }
