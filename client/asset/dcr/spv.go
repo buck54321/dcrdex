@@ -273,7 +273,11 @@ func (w *spvWallet) Accounts() XCWalletAccounts {
 }
 
 func (w *spvWallet) Reconfigure(ctx context.Context, cfg *asset.WalletConfig, net dex.Network, currentAddress string) (restart bool, err error) {
-	spvCfg, chainParams, err := loadSPVConfig(cfg.Settings, net)
+	if cfg.Type != walletTypeSPV {
+		return true, nil
+	}
+
+	newCfg, chainParams, err := loadSPVConfig(cfg.Settings, net)
 	if err != nil {
 		return false, fmt.Errorf("error parsing config: %w", err)
 	}
@@ -282,15 +286,22 @@ func (w *spvWallet) Reconfigure(ctx context.Context, cfg *asset.WalletConfig, ne
 		return false, errors.New("cannot reconfigure to use different network")
 	}
 
-	startMixer := spvCfg.MixFunds
-	if w.IsMixing() {
-		_ = w.StopFundsMixer() // would only error if mixing wasn't active
-		startMixer = true
+	oldCfg := w.cfgV.Swap(newCfg).(*spvConfig)
+
+	settingsUnchanged := oldCfg.CSPPServer == newCfg.CSPPServer &&
+		oldCfg.CSPPServerCA == newCfg.CSPPServerCA &&
+		oldCfg.MixFunds == newCfg.MixFunds
+
+	if settingsUnchanged {
+		return false, nil
 	}
 
-	w.cfgV.Swap(spvCfg)
+	// Something has changed. Cycle the mixer.
+	if w.IsMixing() {
+		_ = w.StopFundsMixer() // would only error if mixing wasn't active
+	}
 
-	if startMixer {
+	if newCfg.MixFunds {
 		// no password available, wallet must be unlocked else this may error
 		err = w.StartFundsMixer(ctx, nil)
 		if err != nil {
@@ -298,7 +309,7 @@ func (w *spvWallet) Reconfigure(ctx context.Context, cfg *asset.WalletConfig, ne
 		}
 	}
 
-	return cfg.Type != walletTypeSPV, nil
+	return false, nil
 }
 
 func (w *spvWallet) startWallet(ctx context.Context) error {
