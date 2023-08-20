@@ -651,6 +651,10 @@ type ExchangeWallet struct {
 	connected atomic.Bool
 }
 
+type NativeWallet struct {
+	*ExchangeWallet
+}
+
 func (dcr *ExchangeWallet) config() *exchangeWalletConfig {
 	return dcr.cfgV.Load().(*exchangeWalletConfig)
 }
@@ -727,7 +731,7 @@ var _ asset.TxFeeEstimator = (*ExchangeWallet)(nil)
 var _ asset.Bonder = (*ExchangeWallet)(nil)
 var _ asset.Authenticator = (*ExchangeWallet)(nil)
 var _ asset.TicketBuyer = (*ExchangeWallet)(nil)
-var _ asset.FundsMixer = (*ExchangeWallet)(nil)
+var _ asset.FundsMixer = (*NativeWallet)(nil)
 
 type block struct {
 	height int64
@@ -757,7 +761,7 @@ type findRedemptionResult struct {
 
 // NewWallet is the exported constructor by which the DEX will import the
 // exchange wallet.
-func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) (*ExchangeWallet, error) {
+func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) (asset.Wallet, error) {
 	// loadConfig will set fields if defaults are used and set the chainParams
 	// variable.
 	walletCfg := new(walletConfig)
@@ -771,6 +775,8 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) 
 		return nil, err
 	}
 
+	var w asset.Wallet = dcr
+
 	switch cfg.Type {
 	case walletTypeDcrwRPC, walletTypeLegacy:
 		dcr.wallet, err = newRPCWallet(cfg.Settings, logger, network)
@@ -782,6 +788,7 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) 
 		if err != nil {
 			return nil, err
 		}
+		w = &NativeWallet{dcr}
 	default:
 		if makeCustomWallet, ok := customWalletConstructors[cfg.Type]; ok {
 			dcr.wallet, err = makeCustomWallet(cfg.Settings, chainParams, logger)
@@ -793,7 +800,7 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) 
 		}
 	}
 
-	return dcr, nil
+	return w, nil
 }
 
 func getExchangeWalletCfg(dcrCfg *walletConfig, logger dex.Logger) (*exchangeWalletConfig, error) {
@@ -1431,7 +1438,7 @@ func (dcr *ExchangeWallet) feeRateWithFallback(feeSuggestion uint64) uint64 {
 
 // FundsMixingStats returns the current state of the wallet's funds mixer. Part
 // of the asset.FundsMixer interface.
-func (dcr *ExchangeWallet) FundsMixingStats(ctx context.Context) (*asset.FundsMixingStats, error) {
+func (dcr *NativeWallet) FundsMixingStats(ctx context.Context) (*asset.FundsMixingStats, error) {
 	var canControlMixer, isMixing bool
 	if mixer, ok := dcr.wallet.(fundsMixer); ok {
 		canControlMixer = true
@@ -1473,7 +1480,7 @@ func (dcr *ExchangeWallet) FundsMixingStats(ctx context.Context) (*asset.FundsMi
 // StartFundsMixer starts the funds mixer.  This will error if the wallet does
 // not allow starting or stopping the mixer or if the mixer was already
 // started. Part of the asset.FundsMixer interface.
-func (dcr *ExchangeWallet) StartFundsMixer(ctx context.Context, passphrase []byte) error {
+func (dcr *NativeWallet) StartFundsMixer(ctx context.Context, passphrase []byte) error {
 	if mixer, ok := dcr.wallet.(fundsMixer); ok {
 		return mixer.StartFundsMixer(ctx, passphrase)
 	}
@@ -1483,7 +1490,7 @@ func (dcr *ExchangeWallet) StartFundsMixer(ctx context.Context, passphrase []byt
 // StopFundsMixer stops the funds mixer. This will error if the wallet does not
 // allow starting or stopping the mixer or if the mixer is not already running.
 // Part of the asset.FundsMixer interface.
-func (dcr *ExchangeWallet) StopFundsMixer() error {
+func (dcr *NativeWallet) StopFundsMixer() error {
 	if mixer, ok := dcr.wallet.(fundsMixer); ok {
 		return mixer.StopFundsMixer()
 	}
