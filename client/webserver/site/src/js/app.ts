@@ -222,7 +222,6 @@ export default class Application {
         this.walletMap[assetID] = asset.wallet
       }
     }
-
     this.updateMenuItemsDisplay()
     return user
   }

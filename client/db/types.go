@@ -81,11 +81,9 @@ type PrimaryCredentials struct {
 	InnerKeyParams []byte
 	// OuterKeyParams are the key parameters for the outer key.
 	OuterKeyParams []byte
-	// EncRecoverySeed is the app seed and application password encrypted with
-	// some part of the raw seed to support password recovery.
-	EncRecoverySeed []byte
-	// EncRecoverySeedParams are the key parameters for the raw seed/pass encryption.
-	EncRecoverySeedParams []byte
+	// SeedHash is the hash of the seed. SeedHash can be used for lost password
+	// recovery.
+	SeedHash [32]byte
 }
 
 // when updating to bonds, default to 42 (DCR)
