@@ -33,6 +33,7 @@ export interface Exchange {
   tier: number
   bondOptions: BondOptions
   pendingBonds: Record<string, PendingBondState>
+  expiredBonds: number
   candleDurs: string[]
 }
 

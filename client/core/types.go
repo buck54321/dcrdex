@@ -661,6 +661,7 @@ type Exchange struct {
 	Tier             int64                        `json:"tier"`
 	BondOptions      *BondOptions                 `json:"bondOptions"`
 	PendingBonds     map[string]*PendingBondState `json:"pendingBonds"`
+	ExpiredBonds     int                          `json:"expiredBonds"`
 	// TODO: Bonds slice(s) - and a LockedInBonds(assetID) method
 
 	// OLD fields for the legacy registration fee (V0PURGE):

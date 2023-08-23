@@ -465,6 +465,7 @@ func (dc *dexConnection) exchangeInfo() *Exchange {
 			AcctID:           acctID,
 			ConnectionStatus: dc.status(),
 			PendingBonds:     dc.pendingBonds(),
+			ExpiredBonds:     len(dc.acct.expiredBonds),
 			PendingFee:       dc.getPendingFee(), // V0PURGE - deprecated with bonds in v1
 		}
 	}
@@ -519,6 +520,7 @@ func (dc *dexConnection) exchangeInfo() *Exchange {
 			MaxBondedAmt: maxBondedAmt,
 		},
 		PendingBonds: dc.pendingBonds(),
+		ExpiredBonds: len(dc.acct.expiredBonds),
 		// TODO: Bonds
 
 		// Legacy reg fee (V0PURGE)
