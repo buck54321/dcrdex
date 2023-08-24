@@ -42,15 +42,15 @@ type Driver struct{}
 var _ asset.Driver = (*Driver)(nil)
 
 // Setup creates the DCR backend. Start the backend with its Run method.
-func (d *Driver) Setup(configPath string, logger dex.Logger, network dex.Network) (asset.Backend, error) {
+func (d *Driver) Setup(cfg *asset.BackendConfig) (asset.Backend, error) {
 	// With a websocket RPC client with auto-reconnect, setup a logging
 	// subsystem for the rpcclient.
-	logger = logger.SubLogger("RPC")
-	if logger.Level() == dex.LevelTrace {
-		logger.SetLevel(dex.LevelDebug)
+	rpcLogger := cfg.Logger.SubLogger("RPC")
+	if rpcLogger.Level() == dex.LevelTrace {
+		rpcLogger.SetLevel(dex.LevelDebug)
 	}
-	rpcclient.UseLogger(logger)
-	return NewBackend(configPath, logger, network)
+	rpcclient.UseLogger(rpcLogger)
+	return NewBackend(cfg)
 }
 
 // DecodeCoinID creates a human-readable representation of a coin ID for Decred.
@@ -280,11 +280,11 @@ var _ asset.Backend = (*Backend)(nil)
 
 // unconnectedDCR returns a Backend without a node. The node should be set
 // before use.
-func unconnectedDCR(logger dex.Logger, cfg *config) *Backend {
+func unconnectedDCR(cfg *asset.BackendConfig, dcrConfig *config) *Backend {
 	return &Backend{
-		cfg:        cfg,
-		blockCache: newBlockCache(logger),
-		log:        logger,
+		cfg:        dcrConfig,
+		blockCache: newBlockCache(cfg.Logger),
+		log:        cfg.Logger,
 		blockChans: make(map[chan *asset.BlockUpdate]struct{}),
 	}
 }
@@ -293,14 +293,14 @@ func unconnectedDCR(logger dex.Logger, cfg *config) *Backend {
 // Backend. If configPath is an empty string, the backend will attempt to read
 // the settings directly from the dcrd config file in its default system
 // location.
-func NewBackend(configPath string, logger dex.Logger, network dex.Network) (*Backend, error) {
+func NewBackend(cfg *asset.BackendConfig) (*Backend, error) {
 	// loadConfig will set fields if defaults are used and set the chainParams
 	// package variable.
-	cfg, err := loadConfig(configPath, network)
+	dcrConfig, err := loadConfig(cfg.ConfigPath, cfg.Net)
 	if err != nil {
 		return nil, err
 	}
-	return unconnectedDCR(logger, cfg), nil
+	return unconnectedDCR(cfg, dcrConfig), nil
 }
 
 func (dcr *Backend) shutdown() {

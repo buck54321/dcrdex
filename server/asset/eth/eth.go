@@ -139,8 +139,8 @@ type Driver struct {
 }
 
 // Setup creates the ETH backend. Start the backend with its Run method.
-func (d *Driver) Setup(configPath string, logger dex.Logger, network dex.Network) (asset.Backend, error) {
-	return NewEVMBackend(BipID, configPath, logger, dexeth.ContractAddresses, registeredTokens, network)
+func (d *Driver) Setup(cfg *asset.BackendConfig) (asset.Backend, error) {
+	return NewEVMBackend(cfg, BipID, dexeth.ContractAddresses, registeredTokens)
 }
 
 type TokenDriver struct {
@@ -267,15 +267,13 @@ func unconnectedETH(bipID uint32, contractAddr common.Address, vTokens map[uint3
 // NewEVMBackend is the exported constructor by which the DEX will import the
 // Backend.
 func NewEVMBackend(
+	cfg *asset.BackendConfig,
 	baseChainID uint32,
-	configPath string,
-	log dex.Logger,
 	contractAddrs map[uint32]map[dex.Network]common.Address,
 	vTokens map[uint32]*VersionedToken,
-	net dex.Network,
 ) (*ETHBackend, error) {
 
-	file, err := os.Open(configPath)
+	file, err := os.Open(cfg.ConfigPath)
 	if err != nil {
 		return nil, err
 	}
@@ -317,28 +315,28 @@ func NewEVMBackend(
 		})
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading %s config file at %q. %v", assetName, configPath, err)
+		return nil, fmt.Errorf("error reading %s config file at %q. %v", assetName, cfg.ConfigPath, err)
 	}
 	if len(endpoints) == 0 {
-		return nil, fmt.Errorf("no endpoint found in the %s config file at %q", assetName, configPath)
+		return nil, fmt.Errorf("no endpoint found in the %s config file at %q", assetName, cfg.ConfigPath)
 	}
-	log.Debugf("Parsed %d endpoints from the %v config file", assetName, len(endpoints))
+	cfg.Logger.Debugf("Parsed %d endpoints from the %v config file", assetName, len(endpoints))
 
 	netAddrs, found := contractAddrs[ethContractVersion]
 	if !found {
 		return nil, fmt.Errorf("no contract address for %s version %d", assetName, ethContractVersion)
 	}
-	contractAddr, found := netAddrs[net]
+	contractAddr, found := netAddrs[cfg.Net]
 	if !found {
-		return nil, fmt.Errorf("no contract address for %s version %d on %s", assetName, ethContractVersion, net)
+		return nil, fmt.Errorf("no contract address for %s version %d on %s", assetName, ethContractVersion, cfg.Net)
 	}
 
-	eth, err := unconnectedETH(baseChainID, contractAddr, vTokens, log, net)
+	eth, err := unconnectedETH(baseChainID, contractAddr, vTokens, cfg.Logger, cfg.Net)
 	if err != nil {
 		return nil, err
 	}
 
-	eth.node = newRPCClient(baseChainID, net, endpoints, contractAddr, log.SubLogger("RPC"))
+	eth.node = newRPCClient(baseChainID, cfg.Net, endpoints, contractAddr, cfg.Logger.SubLogger("RPC"))
 	return eth, nil
 }
 

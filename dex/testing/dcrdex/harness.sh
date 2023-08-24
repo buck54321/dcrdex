@@ -239,6 +239,18 @@ EOF
 else echo "WARNING: Dash is not running. Configuring dcrdex markets without DASH."
 fi
 
+# run with NODERELAY=1 to use a node relay for the bitcoin node.
+NODERELAY_ID="btc_a21afba3"
+BTC_CONFIG_PATH="${TEST_ROOT}/btc/alpha/alpha.conf"
+if [[ -n ${NODERELAY} ]]; then
+    RELAY_CONF_PATH="${TEST_ROOT}/btc/alpha/alpha_noderelay.conf"
+    if [ ! -f "${RELAY_CONF_PATH}" ]; then
+        cp "${BTC_CONFIG_PATH}" "${RELAY_CONF_PATH}"
+        echo "rpcbind=noderelay:${NODERELAY_ID}" >> "${RELAY_CONF_PATH}"
+    fi
+    BTC_CONFIG_PATH="${RELAY_CONF_PATH}"
+fi
+
 cat << EOF >> "./markets.json"
     }
     ],
@@ -260,7 +272,7 @@ cat << EOF >> "./markets.json"
             "network": "simnet",
             "maxFeeRate": 100,
             "swapConf": 1,
-            "configPath": "${TEST_ROOT}/btc/alpha/alpha.conf",
+            "configPath": "${BTC_CONFIG_PATH}",
             "regConfs": 2,
             "regFee": 20000000,
             "regXPub": "vpub5SLqN2bLY4WeZJ9SmNJHsyzqVKreTXD4ZnPC22MugDNcjhKX5xNX9QiQWcE4SSRzVWyHWUihpKRT7hckDGNzVc69wSX2JPcfGeNiT5c2XZy",
@@ -446,6 +458,11 @@ abstakerlotlimit=1200
 httpprof=1
 EOF
 
+if [ -n "${NODERELAY}" ]; then
+    echo "noderelay=${NODERELAY_ID}" >> ./dcrdex.conf
+    echo "noderelayaddr=127.0.0.1:17537" >> ./dcrdex.conf
+fi
+
 # Set the postgres user pass if provided.
 if [ -n "${PG_PASS}" ]; then
 echo pgpass="${PG_PASS}" >> ./dcrdex.conf
@@ -500,6 +517,10 @@ export SHELL=$(which bash)
 cat > "${DCRDEX_DATA_DIR}/quit" <<EOF
 #!/usr/bin/env bash
 tmux send-keys -t $SESSION:0 C-c
+if [ -n "${NODERELAY}" ] ; then
+  tmux send-keys -t $SESSION:1 C-c
+  tmux wait-for donenoderelay
+fi
 tmux wait-for donedex
 tmux kill-session -t $SESSION
 EOF
@@ -515,5 +536,23 @@ chmod +x "${DCRDEX_DATA_DIR}/run"
 echo "Starting dcrdex"
 tmux new-session -d -s $SESSION $SHELL
 tmux rename-window -t $SESSION:0 'dcrdex'
+
+if [ -n "${NODERELAY}" ]; then
+    NODESOURCE_DIR=$(realpath "${HARNESS_DIR}/../../noderelay/cmd/nodesource/")
+    cd ${NODESOURCE_DIR}
+    go build -o ${DCRDEX_DATA_DIR}/nodesource
+    cd "${DCRDEX_DATA_DIR}"
+
+    ALPHA_RPC_PORT="20556"
+    RELAYFILE="${DCRDEX_DATA_DIR}/data/simnet/noderelay/relay-files/${NODERELAY_ID}.relayfile"
+
+    tmux new-window -t $SESSION:1 -n 'nodesource' $SHELL
+    tmux send-keys -t $SESSION:1 "cd ${NODESOURCE_DIR}" C-m
+    # dcrdex needs to write the relayfiles.
+    tmux send-keys -t $SESSION:1 "sleep 4" C-m
+    tmux send-keys -t $SESSION:1 "./nodesource --port ${ALPHA_RPC_PORT} --relayfile ${RELAYFILE}; tmux wait-for -S donenoderelay" C-m
+fi
+
 tmux send-keys -t $SESSION:0 "${DCRDEX_DATA_DIR}/run" C-m
+tmux select-window -t $SESSION:0
 tmux attach-session -t $SESSION

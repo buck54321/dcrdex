@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"decred.org/dcrdex/dex"
 	"decred.org/dcrdex/dex/candles"
 	"decred.org/dcrdex/dex/msgjson"
+	"decred.org/dcrdex/dex/noderelay"
 	"decred.org/dcrdex/dex/order"
 	"decred.org/dcrdex/server/account"
 	"decred.org/dcrdex/server/apidata"
@@ -88,6 +90,8 @@ type DexConf struct {
 	DEXPrivKey        *secp256k1.PrivateKey
 	CommsCfg          *RPCConfig
 	NoResumeSwaps     bool
+	NodeRelayAddr     string
+	NodeRelays        []string
 }
 
 type signer struct {
@@ -382,6 +386,38 @@ func NewDEX(ctx context.Context, cfg *DexConf) (*DEX, error) {
 		return nil, fmt.Errorf("db.Open: %w", err)
 	}
 
+	var relay *noderelay.Nexus
+	if len(cfg.NodeRelays) > 0 {
+		relayDir := filepath.Join(cfg.DataDir, "noderelay")
+		relay, err = noderelay.NewNexus(&noderelay.NexusConfig{
+			ExternalAddr: cfg.NodeRelayAddr,
+			Dir:          relayDir,
+			// Port: , Using default value of 17537
+			Key:       filepath.Join(relayDir, "relay.key"),
+			Cert:      filepath.Join(relayDir, "relay.cert"),
+			CertHosts: nil,
+			Logger:    dex.StdOutLogger("T", dex.LevelDebug),
+			Relays:    cfg.NodeRelays,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("error creating node relay: %w", err)
+		}
+		if err := startSubSys("Node relay", relay); err != nil {
+			return nil, fmt.Errorf("error starting node relay: %w", err)
+		}
+		select {
+		case <-relay.WaitForSourceNodes():
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	relayAddr := func(relayID string) (string, error) {
+		if relay == nil {
+			return "", fmt.Errorf("noderelay relay ID %q is not valid", relayID)
+		}
+		return relay.RelayAddr(relayID)
+	}
+
 	dataAPI := apidata.NewDataAPI(storage)
 
 	// Create a MasterCoinLocker for each asset.
@@ -431,7 +467,14 @@ func NewDEX(ctx context.Context, cfg *DexConf) (*DEX, error) {
 				return fmt.Errorf("failed to setup token %q: %w", symbol, err)
 			}
 		} else {
-			be, err = asset.Setup(assetID, assetConf.ConfigPath, logger, cfg.Network)
+			cfg := &asset.BackendConfig{
+				AssetID:    assetID,
+				ConfigPath: assetConf.ConfigPath,
+				Logger:     logger,
+				Net:        cfg.Network,
+				RelayAddr:  relayAddr,
+			}
+			be, err = asset.Setup(cfg)
 			if err != nil {
 				return fmt.Errorf("failed to setup asset %q: %w", symbol, err)
 			}
