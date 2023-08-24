@@ -230,6 +230,7 @@ func (conn *wsConn) connect(ctx context.Context) error {
 	} else {
 		dialer.Proxy = http.ProxyFromEnvironment
 	}
+
 	ws, _, err := dialer.DialContext(ctx, conn.cfg.URL, nil)
 	if err != nil {
 		if isErrorInvalidCert(err) {

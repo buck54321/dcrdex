@@ -19,6 +19,7 @@ import (
 
 	"decred.org/dcrdex/dex"
 	dexdcr "decred.org/dcrdex/dex/networks/dcr"
+	"decred.org/dcrdex/dex/noderelay"
 	"decred.org/dcrdex/server/account"
 	"decred.org/dcrdex/server/asset"
 	"github.com/decred/dcrd/blockchain/stake/v5"
@@ -300,6 +301,11 @@ func NewBackend(cfg *asset.BackendConfig) (*Backend, error) {
 	if err != nil {
 		return nil, err
 	}
+	if relayID, is, _ := noderelay.ParseRelayAddr(dcrConfig.RPCListen); is {
+		if dcrConfig.nodeRelay, err = cfg.RelayAddr(relayID); err != nil {
+			return nil, fmt.Errorf("error getting address from node relay with ID %s: %v", relayID, err)
+		}
+	}
 	return unconnectedDCR(cfg, dcrConfig), nil
 }
 
@@ -311,8 +317,13 @@ func (dcr *Backend) shutdown() {
 }
 
 // Connect connects to the node RPC server. A dex.Connector.
-func (dcr *Backend) Connect(ctx context.Context) (*sync.WaitGroup, error) {
-	client, err := connectNodeRPC(dcr.cfg.RPCListen, dcr.cfg.RPCUser, dcr.cfg.RPCPass, dcr.cfg.RPCCert)
+func (dcr *Backend) Connect(ctx context.Context) (_ *sync.WaitGroup, err error) {
+	var client *rpcclient.Client
+	if dcr.cfg.nodeRelay == "" {
+		client, err = connectNodeRPC(dcr.cfg.RPCListen, dcr.cfg.RPCUser, dcr.cfg.RPCPass, dcr.cfg.RPCCert)
+	} else {
+		client, err = connectNodeRelay(dcr.cfg.nodeRelay, dcr.cfg.RPCUser, dcr.cfg.RPCPass)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1313,6 +1324,23 @@ func connectNodeRPC(host, user, pass, cert string) (*rpcclient.Client, error) {
 		User:         user,
 		Pass:         pass,
 		Certificates: dcrdCerts,
+	}
+
+	dcrdClient, err := rpcclient.New(config, nil)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to start dcrd RPC client: %w", err)
+	}
+
+	return dcrdClient, nil
+}
+
+func connectNodeRelay(host, user, pass string) (*rpcclient.Client, error) {
+	config := &rpcclient.ConnConfig{
+		Host:         host,
+		HTTPPostMode: true,
+		DisableTLS:   true,
+		User:         user,
+		Pass:         pass,
 	}
 
 	dcrdClient, err := rpcclient.New(config, nil)

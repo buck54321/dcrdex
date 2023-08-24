@@ -6,12 +6,15 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"sync/atomic"
@@ -35,7 +38,8 @@ func main() {
 func mainErr() (err error) {
 	var (
 		// port is a required argument.
-		port string
+		port          string
+		localNodeCert string
 
 		// User can either provide either
 		// 1) nexus addr, relay ID, and cert path,
@@ -51,12 +55,12 @@ func mainErr() (err error) {
 	flag.StringVar(&certPath, "certpath", "", "The path to a TLS certificate for the server")
 	flag.StringVar(&nexusAddr, "addr", "", "The address to the nexus server")
 	flag.StringVar(&relayFilepath, "relayfile", "", "The path the a relay file provided by the server")
+	flag.StringVar(&localNodeCert, "localcert", "", "The path to a TLS certificate for the local node")
 	flag.Parse()
 
 	if port == "" {
 		return errors.New("no local port provided")
 	}
-	localNodeURL := "http://127.0.0.1" + ":" + port
 
 	var certB []byte
 	if relayFilepath != "" {
@@ -147,6 +151,36 @@ func mainErr() (err error) {
 		}
 	}()
 
+	localNodeURL := "http://127.0.0.1" + ":" + port
+	httpClient := http.DefaultClient
+	if localNodeCert != "" {
+		localNodeURL = "https://127.0.0.1" + ":" + port
+		pem, err := os.ReadFile(localNodeCert)
+		if err != nil {
+			return err
+		}
+
+		uri, err := url.Parse(localNodeURL)
+		if err != nil {
+			return fmt.Errorf("error parsing URL: %v", err)
+		}
+
+		pool := x509.NewCertPool()
+		if ok := pool.AppendCertsFromPEM(pem); !ok {
+			return fmt.Errorf("invalid certificate file: %v", localNodeCert)
+		}
+		tlsConfig := &tls.Config{
+			RootCAs:    pool,
+			ServerName: uri.Hostname(),
+		}
+
+		httpClient = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: tlsConfig,
+			},
+		}
+	}
+
 	cl, err = comms.NewWsConn(&comms.WsCfg{
 		URL:      "wss://" + nexusAddr,
 		PingWait: noderelay.PingPeriod * 2,
@@ -177,7 +211,7 @@ func mainErr() (err error) {
 			}
 			req.Header = msg.Headers
 			// Send request to local service.
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := httpClient.Do(req)
 			if err != nil {
 				atomic.AddUint32(&stats.errors, 1)
 				log.Errorf("error processing request: %v", err)

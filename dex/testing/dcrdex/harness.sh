@@ -240,15 +240,24 @@ else echo "WARNING: Dash is not running. Configuring dcrdex markets without DASH
 fi
 
 # run with NODERELAY=1 to use a node relay for the bitcoin node.
-NODERELAY_ID="btc_a21afba3"
+BTC_NODERELAY_ID="btc_a21afba3"
 BTC_CONFIG_PATH="${TEST_ROOT}/btc/alpha/alpha.conf"
+DCR_NODERELAY_ID="dcr_a21afba3"
+DCR_CONFIG_PATH="${TEST_ROOT}/dcr/alpha/dcrd.conf"
 if [[ -n ${NODERELAY} ]]; then
     RELAY_CONF_PATH="${TEST_ROOT}/btc/alpha/alpha_noderelay.conf"
     if [ ! -f "${RELAY_CONF_PATH}" ]; then
         cp "${BTC_CONFIG_PATH}" "${RELAY_CONF_PATH}"
-        echo "rpcbind=noderelay:${NODERELAY_ID}" >> "${RELAY_CONF_PATH}"
+        echo "rpcbind=noderelay:${BTC_NODERELAY_ID}" >> "${RELAY_CONF_PATH}"
     fi
     BTC_CONFIG_PATH="${RELAY_CONF_PATH}"
+
+    RELAY_CONF_PATH="${TEST_ROOT}/dcr/alpha/dcrd_noderelay.conf"
+    if [ ! -f "${RELAY_CONF_PATH}" ]; then
+        cp "${DCR_CONFIG_PATH}" "${RELAY_CONF_PATH}"
+        echo "rpclisten=noderelay:${DCR_NODERELAY_ID}" >> "${RELAY_CONF_PATH}"
+    fi
+    DCR_CONFIG_PATH="${RELAY_CONF_PATH}"
 fi
 
 cat << EOF >> "./markets.json"
@@ -260,7 +269,7 @@ cat << EOF >> "./markets.json"
             "network": "simnet",
             "maxFeeRate": 10,
             "swapConf": 1,
-            "configPath": "${TEST_ROOT}/dcr/alpha/dcrd.conf",
+            "configPath": "${DCR_CONFIG_PATH}",
             "regConfs": 1,
             "regFee": 100000000,
             "regXPub": "spubVWKGn9TGzyo7M4b5xubB5UV4joZ5HBMNBmMyGvYEaoZMkSxVG4opckpmQ26E85iHg8KQxrSVTdex56biddqtXBerG9xMN8Dvb3eNQVFFwpE",
@@ -459,7 +468,8 @@ httpprof=1
 EOF
 
 if [ -n "${NODERELAY}" ]; then
-    echo "noderelay=${NODERELAY_ID}" >> ./dcrdex.conf
+    echo "noderelay=${BTC_NODERELAY_ID}" >> ./dcrdex.conf
+    echo "noderelay=${DCR_NODERELAY_ID}" >> ./dcrdex.conf
     echo "noderelayaddr=127.0.0.1:17537" >> ./dcrdex.conf
 fi
 
@@ -543,14 +553,22 @@ if [ -n "${NODERELAY}" ]; then
     go build -o ${DCRDEX_DATA_DIR}/nodesource
     cd "${DCRDEX_DATA_DIR}"
 
-    ALPHA_RPC_PORT="20556"
-    RELAYFILE="${DCRDEX_DATA_DIR}/data/simnet/noderelay/relay-files/${NODERELAY_ID}.relayfile"
+    RPC_PORT="20556"
+    RELAYFILE="${DCRDEX_DATA_DIR}/data/simnet/noderelay/relay-files/${BTC_NODERELAY_ID}.relayfile"
 
-    tmux new-window -t $SESSION:1 -n 'nodesource' $SHELL
-    tmux send-keys -t $SESSION:1 "cd ${NODESOURCE_DIR}" C-m
+    tmux new-window -t $SESSION:1 -n 'nodesource_btc' $SHELL
     # dcrdex needs to write the relayfiles.
     tmux send-keys -t $SESSION:1 "sleep 4" C-m
-    tmux send-keys -t $SESSION:1 "./nodesource --port ${ALPHA_RPC_PORT} --relayfile ${RELAYFILE}; tmux wait-for -S donenoderelay" C-m
+    tmux send-keys -t $SESSION:1 "./nodesource --port ${RPC_PORT} --relayfile ${RELAYFILE}; tmux wait-for -S donenoderelay" C-m
+
+    # Decred
+    RPC_PORT="19561"
+    RELAYFILE="${DCRDEX_DATA_DIR}/data/simnet/noderelay/relay-files/${DCR_NODERELAY_ID}.relayfile"
+    DCRD_CERT="${TEST_ROOT}/dcr/alpha/rpc.cert"
+
+    tmux new-window -t $SESSION:2 -n 'nodesource_dcr' $SHELL
+    tmux send-keys -t $SESSION:2 "sleep 4" C-m
+    tmux send-keys -t $SESSION:2 "./nodesource --port ${RPC_PORT} --relayfile ${RELAYFILE} --localcert ${DCRD_CERT}; tmux wait-for -S donenoderelay" C-m
 fi
 
 tmux send-keys -t $SESSION:0 "${DCRDEX_DATA_DIR}/run" C-m

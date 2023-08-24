@@ -179,7 +179,7 @@ func (n *Nexus) Connect(ctx context.Context) (*sync.WaitGroup, error) {
 
 	log, wg := n.cfg.Logger, &n.wg
 
-	inAddr := "localhost:" + n.cfg.Port
+	inAddr := "0.0.0.0:" + n.cfg.Port
 
 	// Create listener.
 	listener, err := tls.Listen("tcp", inAddr, n.tlsConfig)
