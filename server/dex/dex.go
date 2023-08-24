@@ -393,11 +393,10 @@ func NewDEX(ctx context.Context, cfg *DexConf) (*DEX, error) {
 			ExternalAddr: cfg.NodeRelayAddr,
 			Dir:          relayDir,
 			// Port: , Using default value of 17537
-			Key:       filepath.Join(relayDir, "relay.key"),
-			Cert:      filepath.Join(relayDir, "relay.cert"),
-			CertHosts: nil,
-			Logger:    dex.StdOutLogger("T", dex.LevelDebug),
-			Relays:    cfg.NodeRelays,
+			Key:    filepath.Join(relayDir, "relay.key"),
+			Cert:   filepath.Join(relayDir, "relay.cert"),
+			Logger: dex.StdOutLogger("T", dex.LevelDebug),
+			Relays: cfg.NodeRelays,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("error creating node relay: %w", err)

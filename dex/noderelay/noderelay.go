@@ -46,7 +46,6 @@ type NexusConfig struct {
 	Dir          string
 	Key          string
 	Cert         string
-	CertHosts    []string
 	Logger       dex.Logger
 	Relays       []string
 }
@@ -92,7 +91,17 @@ func NewNexus(cfg *NexusConfig) (*Nexus, error) {
 		return nil, fmt.Errorf("missing cert pair file")
 	}
 	if !keyExists && !certExists {
-		err := genCertPair(cfg.Cert, cfg.Key, cfg.CertHosts, cfg.Logger)
+		// certgen will actually ignore the port, but we'll remove it for good
+		// measure.
+		var dnsNames []string
+		if cfg.ExternalAddr != "" {
+			host, _, err := net.SplitHostPort(cfg.ExternalAddr)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing public address: %v", err)
+			}
+			dnsNames = []string{host}
+		}
+		err := genCertPair(cfg.Cert, cfg.Key, dnsNames, cfg.Logger)
 		if err != nil {
 			return nil, err
 		}
