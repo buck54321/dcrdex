@@ -57,6 +57,7 @@ type AssetConf struct {
 	RegXPub     string `json:"regXPub,omitempty"`
 	BondAmt     uint64 `json:"bondAmt,omitempty"`
 	BondConfs   uint32 `json:"bondConfs,omitempty"`
+	Disabled    bool   `json:"disabled"`
 }
 
 // DBConf groups the database configuration parameters.
