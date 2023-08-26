@@ -37,6 +37,7 @@ const (
 	// to facilitate testing.
 	PingPeriod       = 30 * time.Second
 	defaultNexusPort = "17537"
+	expireTime       = time.Second * 30
 )
 
 type NexusConfig struct {
@@ -384,6 +385,7 @@ func (n *Nexus) runRelayServer(nodeID string) (string, error) {
 		recv := make(chan struct{})
 
 		node.logReq(reqID, func(body []byte, hdrs map[string][]string) {
+			defer close(recv)
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			// msg := append(b, byte('\n'))
 			for k, vs := range hdrs {
@@ -396,8 +398,7 @@ func (n *Nexus) runRelayServer(nodeID string) (string, error) {
 			if err != nil {
 				log.Errorf("Write error: %v", err)
 			}
-			close(recv)
-		})
+		}, func() { close(recv) })
 
 		node.cl.SendRaw(reqB)
 		select {
@@ -451,7 +452,7 @@ type sourceNode struct {
 
 // logReq stores the response handler in the respHandlers map. Requests to the
 // client are associated with a response handler.
-func (n *sourceNode) logReq(reqID uint64, respHandler func([]byte, map[string][]string)) {
+func (n *sourceNode) logReq(reqID uint64, respHandler func([]byte, map[string][]string), expire func()) {
 	n.reqMtx.Lock()
 	defer n.reqMtx.Unlock()
 	doExpire := func() {
@@ -459,10 +460,9 @@ func (n *sourceNode) logReq(reqID uint64, respHandler func([]byte, map[string][]
 		// (*wsLink).respHandler has not already retrieved the handler function
 		// for execution.
 		if n.expireRequest(reqID) {
-			// expire()
+			expire()
 		}
 	}
-	const expireTime = time.Second * 30
 	n.respHandlers[reqID] = &responseHandler{
 		f:      respHandler,
 		expire: time.AfterFunc(expireTime, doExpire),
