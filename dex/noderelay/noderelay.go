@@ -16,7 +16,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -490,17 +489,6 @@ func (n *sourceNode) respHandler(reqID uint64) *responseHandler {
 		delete(n.respHandlers, reqID)
 	}
 	return cb
-}
-
-func ParseRelayAddr(encAddr string) (relayID string, is bool, err error) {
-	if !strings.Contains(encAddr, "noderelay") {
-		return "", false, nil
-	}
-	parts := strings.SplitN(encAddr, ":", 2)
-	if len(parts) != 2 {
-		return "", false, fmt.Errorf("invalid relay ID: %s", encAddr)
-	}
-	return parts[1], true, nil
 }
 
 // genCertPair generates a key/cert pair to the paths provided.

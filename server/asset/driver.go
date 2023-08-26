@@ -137,7 +137,7 @@ type BackendConfig struct {
 	ConfigPath string
 	Logger     dex.Logger
 	Net        dex.Network
-	RelayAddr  func(relayID string) (string, error)
+	RelayAddr  string
 }
 
 // Setup sets up the named asset. The RPC connection parameters are obtained

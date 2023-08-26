@@ -19,7 +19,6 @@ import (
 
 	"decred.org/dcrdex/dex"
 	dexdcr "decred.org/dcrdex/dex/networks/dcr"
-	"decred.org/dcrdex/dex/noderelay"
 	"decred.org/dcrdex/server/account"
 	"decred.org/dcrdex/server/asset"
 	"github.com/decred/dcrd/blockchain/stake/v5"
@@ -274,6 +273,8 @@ type Backend struct {
 	// A logger will be provided by the DEX. All logging should use the provided
 	// logger.
 	log dex.Logger
+	// nodeRelay is the NodeRelay address.
+	nodeRelay string
 }
 
 // Check that Backend satisfies the Backend interface.
@@ -287,6 +288,7 @@ func unconnectedDCR(cfg *asset.BackendConfig, dcrConfig *config) *Backend {
 		blockCache: newBlockCache(cfg.Logger),
 		log:        cfg.Logger,
 		blockChans: make(map[chan *asset.BlockUpdate]struct{}),
+		nodeRelay:  cfg.RelayAddr,
 	}
 }
 
@@ -301,11 +303,6 @@ func NewBackend(cfg *asset.BackendConfig) (*Backend, error) {
 	if err != nil {
 		return nil, err
 	}
-	if relayID, is, _ := noderelay.ParseRelayAddr(dcrConfig.RPCListen); is {
-		if dcrConfig.nodeRelay, err = cfg.RelayAddr(relayID); err != nil {
-			return nil, fmt.Errorf("error getting address from node relay with ID %s: %v", relayID, err)
-		}
-	}
 	return unconnectedDCR(cfg, dcrConfig), nil
 }
 
@@ -319,10 +316,10 @@ func (dcr *Backend) shutdown() {
 // Connect connects to the node RPC server. A dex.Connector.
 func (dcr *Backend) Connect(ctx context.Context) (_ *sync.WaitGroup, err error) {
 	var client *rpcclient.Client
-	if dcr.cfg.nodeRelay == "" {
+	if dcr.nodeRelay == "" {
 		client, err = connectNodeRPC(dcr.cfg.RPCListen, dcr.cfg.RPCUser, dcr.cfg.RPCPass, dcr.cfg.RPCCert)
 	} else {
-		client, err = connectNodeRelay(dcr.cfg.nodeRelay, dcr.cfg.RPCUser, dcr.cfg.RPCPass)
+		client, err = connectNodeRelay(dcr.nodeRelay, dcr.cfg.RPCUser, dcr.cfg.RPCPass)
 	}
 	if err != nil {
 		return nil, err
@@ -1345,7 +1342,7 @@ func connectNodeRelay(host, user, pass string) (*rpcclient.Client, error) {
 
 	dcrdClient, err := rpcclient.New(config, nil)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to start dcrd RPC client: %w", err)
+		return nil, fmt.Errorf("failed to start dcrd RPC client: %w", err)
 	}
 
 	return dcrdClient, nil

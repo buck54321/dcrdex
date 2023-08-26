@@ -240,11 +240,13 @@ else echo "WARNING: Dash is not running. Configuring dcrdex markets without DASH
 fi
 
 # run with NODERELAY=1 to use a node relay for the bitcoin node.
-BTC_NODERELAY_ID="btc_a21afba3"
+BTC_NODERELAY_ID=""
+DCR_NODERELAY_ID=""
 BTC_CONFIG_PATH="${TEST_ROOT}/btc/alpha/alpha.conf"
-DCR_NODERELAY_ID="dcr_a21afba3"
 DCR_CONFIG_PATH="${TEST_ROOT}/dcr/alpha/dcrd.conf"
 if [[ -n ${NODERELAY} ]]; then
+    BTC_NODERELAY_ID="btc_a21afba3"
+    DCR_NODERELAY_ID="dcr_a21afba3"
     RELAY_CONF_PATH="${TEST_ROOT}/btc/alpha/alpha_noderelay.conf"
     if [ ! -f "${RELAY_CONF_PATH}" ]; then
         cp "${BTC_CONFIG_PATH}" "${RELAY_CONF_PATH}"
@@ -274,7 +276,8 @@ cat << EOF >> "./markets.json"
             "regFee": 100000000,
             "regXPub": "spubVWKGn9TGzyo7M4b5xubB5UV4joZ5HBMNBmMyGvYEaoZMkSxVG4opckpmQ26E85iHg8KQxrSVTdex56biddqtXBerG9xMN8Dvb3eNQVFFwpE",
             "bondAmt": 1000000000,
-            "bondConfs": 1
+            "bondConfs": 1,
+            "nodeRelayID": "${DCR_NODERELAY_ID}"
         },
         "BTC_simnet": {
             "bip44symbol": "btc",
@@ -286,7 +289,8 @@ cat << EOF >> "./markets.json"
             "regFee": 20000000,
             "regXPub": "vpub5SLqN2bLY4WeZJ9SmNJHsyzqVKreTXD4ZnPC22MugDNcjhKX5xNX9QiQWcE4SSRzVWyHWUihpKRT7hckDGNzVc69wSX2JPcfGeNiT5c2XZy",
             "bondAmt": 10000000,
-            "bondConfs": 1
+            "bondConfs": 1,
+            "nodeRelayID": "${BTC_NODERELAY_ID}"
 
 EOF
 
@@ -465,13 +469,8 @@ maxepochcancels=128
 inittakerlotlimit=40
 abstakerlotlimit=1200
 httpprof=1
+noderelayaddr=127.0.0.1:17537
 EOF
-
-if [ -n "${NODERELAY}" ]; then
-    echo "noderelay=${BTC_NODERELAY_ID}" >> ./dcrdex.conf
-    echo "noderelay=${DCR_NODERELAY_ID}" >> ./dcrdex.conf
-    echo "noderelayaddr=127.0.0.1:17537" >> ./dcrdex.conf
-fi
 
 # Set the postgres user pass if provided.
 if [ -n "${PG_PASS}" ]; then

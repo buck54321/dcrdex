@@ -99,7 +99,6 @@ type dexConf struct {
 	NoResumeSwaps     bool
 	DisableDataAPI    bool
 	NodeRelayAddr     string
-	NodeRelays        []string
 }
 
 type flagsData struct {
@@ -151,8 +150,7 @@ type flagsData struct {
 
 	DisableDataAPI bool `long:"nodata" description:"Disable the HTTP data API."`
 
-	NodeRelayAddr string   `long:"noderelayaddr" description:"The public address by which node sources should connect to the node relay"`
-	NodeRelays    []string `long:"noderelay" description:"Create a node relay with the specified IDs"`
+	NodeRelayAddr string `long:"noderelayaddr" description:"The public address by which node sources should connect to the node relay"`
 }
 
 // supportedSubsystems returns a sorted slice of the supported subsystems for
@@ -560,7 +558,6 @@ func loadConfig() (*dexConf, *procOpts, error) {
 		NoResumeSwaps:     cfg.NoResumeSwaps,
 		DisableDataAPI:    cfg.DisableDataAPI,
 		NodeRelayAddr:     cfg.NodeRelayAddr,
-		NodeRelays:        cfg.NodeRelays,
 	}
 
 	opts := &procOpts{

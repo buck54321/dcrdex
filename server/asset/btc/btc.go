@@ -19,7 +19,6 @@ import (
 	"decred.org/dcrdex/dex"
 	"decred.org/dcrdex/dex/config"
 	dexbtc "decred.org/dcrdex/dex/networks/btc"
-	"decred.org/dcrdex/dex/noderelay"
 	"decred.org/dcrdex/server/account"
 	"decred.org/dcrdex/server/asset"
 	srvdex "decred.org/dcrdex/server/dex"
@@ -322,7 +321,7 @@ type BackendCloneConfig struct {
 	InitTxSize     uint32
 	InitTxSizeBase uint32
 	// RelayAddr is a source of node relayu addresses.
-	RelayAddr func(relayID string) (relayAddr string, err error)
+	RelayAddr string
 }
 
 // NewBTCClone creates a BTC backend for a set of network parameters and default
@@ -336,14 +335,8 @@ func NewBTCClone(cloneCfg *BackendCloneConfig) (*Backend, error) {
 	if err != nil {
 		return nil, err
 	}
-	if relayID, is, err := noderelay.ParseRelayAddr(rpcConfig.RPCBind); err != nil {
-		return nil, fmt.Errorf("error parsing node relay address %q: %v", rpcConfig.RPCBind, err)
-	} else if is {
-		relayAddr, err := cloneCfg.RelayAddr(relayID)
-		if err != nil {
-			return nil, fmt.Errorf("error getting relay address for ID %s", relayID)
-		}
-		rpcConfig.RPCBind = relayAddr
+	if cloneCfg.RelayAddr != "" {
+		rpcConfig.RPCBind = cloneCfg.RelayAddr
 	}
 
 	err = dexbtc.CheckRPCConfig(rpcConfig, cloneCfg.Name, cloneCfg.Net, cloneCfg.Ports)

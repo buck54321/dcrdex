@@ -152,7 +152,6 @@ func mainCore(ctx context.Context) error {
 		},
 		NoResumeSwaps: cfg.NoResumeSwaps,
 		NodeRelayAddr: cfg.NodeRelayAddr,
-		NodeRelays:    cfg.NodeRelays,
 	}
 	dexMan, err := dexsrv.NewDEX(ctx, dexConf) // ctx cancel just aborts setup; Stop does normal shutdown
 	if err != nil {

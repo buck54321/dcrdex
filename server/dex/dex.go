@@ -58,6 +58,7 @@ type AssetConf struct {
 	BondAmt     uint64 `json:"bondAmt,omitempty"`
 	BondConfs   uint32 `json:"bondConfs,omitempty"`
 	Disabled    bool   `json:"disabled"`
+	NodeRelayID string `json:"nodeRelayID,omitempty"`
 }
 
 // DBConf groups the database configuration parameters.
@@ -92,7 +93,6 @@ type DexConf struct {
 	CommsCfg          *RPCConfig
 	NoResumeSwaps     bool
 	NodeRelayAddr     string
-	NodeRelays        []string
 }
 
 type signer struct {
@@ -304,6 +304,7 @@ func NewDEX(ctx context.Context, cfg *DexConf) (*DEX, error) {
 
 	// Check each configured asset.
 	assetIDs := make([]uint32, len(cfg.Assets))
+	var nodeRelayIDs []string
 	for i, assetConf := range cfg.Assets {
 		symbol := strings.ToLower(assetConf.Symbol)
 
@@ -326,6 +327,10 @@ func NewDEX(ctx context.Context, cfg *DexConf) (*DEX, error) {
 
 		if assetConf.MaxFeeRate == 0 {
 			return nil, fmt.Errorf("max fee rate of 0 is invalid for asset %q", symbol)
+		}
+
+		if assetConf.NodeRelayID != "" {
+			nodeRelayIDs = append(nodeRelayIDs, assetConf.NodeRelayID)
 		}
 
 		assetIDs[i] = assetID
@@ -387,17 +392,17 @@ func NewDEX(ctx context.Context, cfg *DexConf) (*DEX, error) {
 		return nil, fmt.Errorf("db.Open: %w", err)
 	}
 
-	var relay *noderelay.Nexus
-	if len(cfg.NodeRelays) > 0 {
+	relayAddrs := make(map[string]string, len(nodeRelayIDs))
+	if len(nodeRelayIDs) > 0 {
 		relayDir := filepath.Join(cfg.DataDir, "noderelay")
-		relay, err = noderelay.NewNexus(&noderelay.NexusConfig{
+		relay, err := noderelay.NewNexus(&noderelay.NexusConfig{
 			ExternalAddr: cfg.NodeRelayAddr,
 			Dir:          relayDir,
 			// Port: , Using default value of 17537
 			Key:    filepath.Join(relayDir, "relay.key"),
 			Cert:   filepath.Join(relayDir, "relay.cert"),
 			Logger: dex.StdOutLogger("T", dex.LevelDebug),
-			Relays: cfg.NodeRelays,
+			Relays: nodeRelayIDs,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("error creating node relay: %w", err)
@@ -410,12 +415,11 @@ func NewDEX(ctx context.Context, cfg *DexConf) (*DEX, error) {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
-	}
-	relayAddr := func(relayID string) (string, error) {
-		if relay == nil {
-			return "", fmt.Errorf("noderelay relay ID %q is not valid", relayID)
+		for _, relayID := range nodeRelayIDs {
+			if relayAddrs[relayID], err = relay.RelayAddr(relayID); err != nil {
+				return nil, fmt.Errorf("error getting relay address for ID %s: %w", relayID, err)
+			}
 		}
-		return relay.RelayAddr(relayID)
 	}
 
 	dataAPI := apidata.NewDataAPI(storage)
@@ -472,7 +476,7 @@ func NewDEX(ctx context.Context, cfg *DexConf) (*DEX, error) {
 				ConfigPath: assetConf.ConfigPath,
 				Logger:     logger,
 				Net:        cfg.Network,
-				RelayAddr:  relayAddr,
+				RelayAddr:  relayAddrs[assetConf.NodeRelayID],
 			}
 			be, err = asset.Setup(cfg)
 			if err != nil {

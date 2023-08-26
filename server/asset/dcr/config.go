@@ -44,8 +44,6 @@ type config struct {
 	// RPCCert is the filepath to the dcrd TLS certificate. If it is not
 	// provided, the default dcrd location will be assumed.
 	RPCCert string `long:"rpccert" description:"File containing the certificate file"`
-	// nodeRelay is the address for a node relay parsed from RPCListen.
-	nodeRelay string
 }
 
 // loadConfig loads the config from file. If no values are found for
