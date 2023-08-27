@@ -274,6 +274,9 @@ func (n *Nexus) Connect(ctx context.Context) (*sync.WaitGroup, error) {
 				return
 			}
 
+			const readLimit = 2_097_152 // MiB
+			cl.SetReadLimit(readLimit)
+
 			select {
 			case nodeID := <-nodeChan:
 				node.id = nodeID

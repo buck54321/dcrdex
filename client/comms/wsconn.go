@@ -297,6 +297,15 @@ func (conn *wsConn) connect(ctx context.Context) error {
 	return nil
 }
 
+func (conn *wsConn) SetReadLimit(limit int64) {
+	conn.wsMtx.Lock()
+	ws := conn.ws
+	conn.wsMtx.Unlock()
+	if ws != nil {
+		ws.SetReadLimit(limit)
+	}
+}
+
 func (conn *wsConn) handleReadError(err error) {
 	reconnect := func() {
 		conn.setConnectionStatus(Disconnected)

@@ -248,6 +248,13 @@ func mainErr() (err error) {
 		return fmt.Errorf("websocketHandler client connect: %v", err)
 	}
 
+	if ws, is := cl.(interface {
+		SetReadLimit(limit int64)
+	}); is {
+		const readLimit = 2_097_152 // MiB
+		ws.SetReadLimit(readLimit)
+	}
+
 	register()
 
 	cm.Wait()
