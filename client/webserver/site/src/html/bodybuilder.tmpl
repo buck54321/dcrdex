@@ -9,7 +9,7 @@
   <link rel="icon" href="/img/favicon.png?v=AK4XS4">
   <meta name="description" content="Decred DEX Client Web Portal">
   <title>{{.Title}}</title>
-  <link href="/css/style.css?v=ad9487a2|0e20c206" rel="stylesheet">
+  <link href="/css/style.css?v=740b833a|5ecc5bec" rel="stylesheet">
 </head>
 <body {{if .UserInfo.DarkMode}} class="dark"{{end}}>
   <div class="popup-notes" id="popupNotes">
@@ -88,7 +88,7 @@
       [[[Order History]]]
     </a>
     {{if .Experimental}}
-    <a href="/markets" class="demi hoverbright plainlink d-flex align-items-center py-1 authed-only">
+    <a href="/mm" class="demi hoverbright plainlink d-flex align-items-center py-1 authed-only">
       <span class="ico-barchart fs16 me-2"></span>
       [[[Market Making]]]
     </a>
@@ -103,7 +103,7 @@
 {{end}}
 
 {{define "bottom"}}
-<script src="/js/entry.js?v=8d7378ec|0b9ceffb"></script>
+<script src="/js/entry.js?v=dbd741df|56c846c9"></script>
 </body>
 </html>
 {{end}}
