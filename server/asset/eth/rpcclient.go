@@ -81,6 +81,7 @@ func (ec *ethConn) monitorBlocks(ctx context.Context, log dex.Logger) {
 	}()
 
 	h := make(chan *types.Header, 8)
+	fmt.Println("--SubscribeNewHead 2")
 	sub, err := ec.SubscribeNewHead(ctx, h)
 	if err != nil {
 		log.Errorf("Error connecting to Websockets headers: %w", err)

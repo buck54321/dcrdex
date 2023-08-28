@@ -273,6 +273,7 @@ func (p *provider) subscribeHeaders(ctx context.Context, sub ethereum.Subscripti
 	newSub := func() (ethereum.Subscription, error) {
 		for {
 			var err error
+			fmt.Println("--SubscribeNewHead 1")
 			sub, err = p.ec.SubscribeNewHead(ctx, h)
 			if err == nil {
 				return sub, nil
@@ -492,6 +493,7 @@ func connectProviders(ctx context.Context, endpoints []string, log dex.Logger, c
 			if err == nil {
 				ec = ethclient.NewClient(rpcClient)
 				h = make(chan *types.Header, 8)
+				fmt.Println("--SubscribeNewHead 0")
 				sub, err = ec.SubscribeNewHead(timedCtx, h)
 				if err != nil {
 					rpcClient.Close()
