@@ -143,7 +143,7 @@ type binance struct {
 	tradeUpdateCounter int
 
 	cexUpdatersMtx sync.RWMutex
-	cexUpdaters    map[int]chan interface{}
+	cexUpdaters    map[chan interface{}]struct{}
 }
 
 var _ CEX = (*binance)(nil)
@@ -175,7 +175,7 @@ func newBinance(apiKey, secretKey string, log dex.Logger, net dex.Network, binan
 		net:                net,
 		tradeToUpdater:     make(map[string]int),
 		tradeUpdaters:      make(map[int]chan *TradeUpdate),
-		cexUpdaters:        make(map[int]chan interface{}, 0),
+		cexUpdaters:        make(map[chan interface{}]struct{}, 0),
 		tradeIDNoncePrefix: encode.RandomBytes(10),
 	}
 
@@ -286,13 +286,12 @@ func (bnc *binance) Connect(ctx context.Context) error {
 func (bnc *binance) SubscribeCEXUpdates() (<-chan interface{}, func()) {
 	updater := make(chan interface{}, 128)
 	bnc.cexUpdatersMtx.Lock()
-	id := len(bnc.cexUpdaters)
-	bnc.cexUpdaters[id] = updater
+	bnc.cexUpdaters[updater] = struct{}{}
 	bnc.cexUpdatersMtx.Unlock()
 
 	unsubscribe := func() {
 		bnc.cexUpdatersMtx.Lock()
-		delete(bnc.cexUpdaters, id)
+		delete(bnc.cexUpdaters, updater)
 		bnc.cexUpdatersMtx.Unlock()
 	}
 
@@ -599,7 +598,7 @@ func decodeStreamUpdate(b []byte) (*bncStreamUpdate, error) {
 func (bnc *binance) sendCexUpdateNotes() {
 	bnc.cexUpdatersMtx.RLock()
 	defer bnc.cexUpdatersMtx.RUnlock()
-	for _, updater := range bnc.cexUpdaters {
+	for updater := range bnc.cexUpdaters {
 		updater <- struct{}{}
 	}
 }
