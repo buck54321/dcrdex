@@ -16,5 +16,4 @@ func TestSubscribeCEXUpdates(t *testing.T) {
 	if len(bn.cexUpdaters) != 2 {
 		t.Fatalf("wrong number of updaters. wanted 2, got %d", len(bn.cexUpdaters))
 	}
-
 }

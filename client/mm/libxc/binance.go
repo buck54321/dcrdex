@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -126,7 +127,8 @@ type binance struct {
 	tradeIDNonce       atomic.Uint32
 	tradeIDNoncePrefix dex.Bytes
 
-	markets atomic.Value // map[string]*symbol
+	markets     atomic.Value // map[string]*bnMarket
+	tokenChains atomic.Value // map[string][]uint32
 
 	balanceMtx sync.RWMutex
 	balances   map[string]*bncBalance
@@ -179,7 +181,8 @@ func newBinance(apiKey, secretKey string, log dex.Logger, net dex.Network, binan
 		tradeIDNoncePrefix: encode.RandomBytes(10),
 	}
 
-	bnc.markets.Store(make(map[string]symbol))
+	bnc.markets.Store(make(map[string]*bnMarket))
+	bnc.tokenChains.Store(make(map[uint32]uint32))
 
 	return bnc
 }
@@ -204,17 +207,61 @@ func (bnc *binance) getCoinInfo(ctx context.Context) error {
 	}
 
 	bnc.updateBalances(coins)
+
+	tokenChains := make(map[string][]uint32)
+	for _, nfo := range coins {
+		tokenSymbol := strings.ToLower(nfo.Coin)
+		chainIDs, isToken := dex.TokenChains[tokenSymbol]
+		if !isToken {
+			continue
+		}
+		isSupportedChain := func(assetID uint32) bool {
+			for _, chainID := range chainIDs {
+				if chainID == assetID {
+					return true
+				}
+			}
+			return false
+		}
+		for _, netInfo := range nfo.NetworkList {
+			chainSymbol := strings.ToLower(netInfo.Coin)
+			chainID, found := dex.BipSymbolID(chainSymbol)
+			if !found {
+				continue
+			}
+			if !netInfo.WithdrawEnable || !netInfo.DepositEnable {
+				bnc.log.Tracef("Skipping %s network %s because deposits and/or withdraws are not enabled.", tokenSymbol, chainSymbol)
+				continue
+			}
+			if isSupportedChain(chainID) {
+				tokenChains[tokenSymbol] = append(tokenChains[tokenSymbol], chainID)
+			}
+
+		}
+	}
+	bnc.tokenChains.Store(tokenChains)
+
 	return nil
 }
 
 func (bnc *binance) getMarkets(ctx context.Context) error {
-	exchangeInfo := &exchangeInfo{}
-	err := bnc.getAPI(ctx, "/api/v3/exchangeInfo", nil, false, false, exchangeInfo)
+	var exchangeInfo struct {
+		Timezone   string `json:"timezone"`
+		ServerTime int64  `json:"serverTime"`
+		RateLimits []struct {
+			RateLimitType string `json:"rateLimitType"`
+			Interval      string `json:"interval"`
+			IntervalNum   int64  `json:"intervalNum"`
+			Limit         int64  `json:"limit"`
+		} `json:"rateLimits"`
+		Symbols []*bnMarket `json:"symbols"`
+	}
+	err := bnc.getAPI(ctx, "/api/v3/exchangeInfo", nil, false, false, &exchangeInfo)
 	if err != nil {
 		return fmt.Errorf("error getting markets from Binance: %w", err)
 	}
 
-	marketsMap := make(map[string]symbol, len(exchangeInfo.Symbols))
+	marketsMap := make(map[string]*bnMarket, len(exchangeInfo.Symbols))
 	for _, symbol := range exchangeInfo.Symbols {
 		marketsMap[symbol.Symbol] = symbol
 	}
@@ -314,8 +361,8 @@ func (bnc *binance) Balance(symbol string) (*ExchangeBalance, error) {
 	}
 
 	return &ExchangeBalance{
-		Available: uint64(bal.available * float64(assetConfig.conversionFactor)),
-		Locked:    uint64(bal.locked * float64(assetConfig.conversionFactor)),
+		Available: uint64(math.Round(bal.available * float64(assetConfig.conversionFactor))),
+		Locked:    uint64(math.Round(bal.locked * float64(assetConfig.conversionFactor))),
 	}, nil
 }
 
@@ -350,7 +397,7 @@ func (bnc *binance) Trade(ctx context.Context, baseSymbol, quoteSymbol string, s
 
 	slug := baseCfg.coin + quoteCfg.coin
 
-	marketsMap := bnc.markets.Load().(map[string]symbol)
+	marketsMap := bnc.markets.Load().(map[string]*bnMarket)
 	market, found := marketsMap[slug]
 	if !found {
 		return fmt.Errorf("market not found: %v", slug)
@@ -388,13 +435,14 @@ func (bnc *binance) Trade(ctx context.Context, baseSymbol, quoteSymbol string, s
 func (bnc *binance) SubscribeTradeUpdates() (<-chan *TradeUpdate, func(), int) {
 	bnc.tradeUpdaterMtx.Lock()
 	defer bnc.tradeUpdaterMtx.Unlock()
+	updaterID := bnc.tradeUpdateCounter
 	bnc.tradeUpdateCounter++
 	updater := make(chan *TradeUpdate, 256)
 	bnc.tradeUpdaters[bnc.tradeUpdateCounter] = updater
 
 	unsubscribe := func() {
 		bnc.tradeUpdaterMtx.Lock()
-		delete(bnc.tradeUpdaters, bnc.tradeUpdateCounter)
+		delete(bnc.tradeUpdaters, updaterID)
 		bnc.tradeUpdaterMtx.Unlock()
 	}
 
@@ -449,11 +497,12 @@ func (bnc *binance) Balances() (map[uint32]*ExchangeBalance, error) {
 }
 
 func (bnc *binance) Markets() ([]*Market, error) {
-	symbols := bnc.markets.Load().(map[string]symbol)
+	bnMarkets := bnc.markets.Load().(map[string]*bnMarket)
 
 	markets := make([]*Market, 0, 16)
-	for _, symbol := range symbols {
-		markets = append(markets, symbol.markets()...)
+	tokenChains := bnc.tokenChains.Load().(map[string][]uint32)
+	for _, mkt := range bnMarkets {
+		markets = append(markets, mkt.dexMarkets(tokenChains)...)
 	}
 
 	return markets, nil
@@ -1118,7 +1167,7 @@ type binanceCoinInfo struct {
 	NetworkList       []*binanceNetworkInfo `json:"networkList"`
 }
 
-type symbol struct {
+type bnMarket struct {
 	Symbol              string   `json:"symbol"`
 	Status              string   `json:"status"`
 	BaseAsset           string   `json:"baseAsset"`
@@ -1128,11 +1177,11 @@ type symbol struct {
 	OrderTypes          []string `json:"orderTypes"`
 }
 
-// markets returns all the possible markets for this symbol. A symbol
+// dexMarkets returns all the possible markets for this symbol. A symbol
 // represents a single market on the CEX, but tokens on the DEX have a
 // different assetID for each network they are on, therefore they will
 // match multiple markets as defined using assetID.
-func (s *symbol) markets() []*Market {
+func (s *bnMarket) dexMarkets(tokenChains map[string][]uint32) []*Market {
 	var baseAssetIDs, quoteAssetIDs []uint32
 
 	getAssetIDs := func(coin string) []uint32 {
@@ -1141,12 +1190,8 @@ func (s *symbol) markets() []*Market {
 			return []uint32{assetID}
 		}
 
-		if networks, found := dex.BipTokenSymbolNetworks(symbol); found {
-			ids := make([]uint32, 0, len(networks))
-			for _, assetID := range networks {
-				ids = append(ids, assetID)
-			}
-			return ids
+		if chainIDs, found := tokenChains[symbol]; found {
+			return chainIDs
 		}
 
 		return nil
@@ -1172,18 +1217,4 @@ func (s *symbol) markets() []*Market {
 		}
 	}
 	return markets
-}
-
-type rateLimit struct {
-	RateLimitType string `json:"rateLimitType"`
-	Interval      string `json:"interval"`
-	IntervalNum   int64  `json:"intervalNum"`
-	Limit         int64  `json:"limit"`
-}
-
-type exchangeInfo struct {
-	Timezone   string      `json:"timezone"`
-	ServerTime int64       `json:"serverTime"`
-	RateLimits []rateLimit `json:"rateLimits"`
-	Symbols    []symbol    `json:"symbols"`
 }
