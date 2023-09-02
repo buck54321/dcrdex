@@ -349,10 +349,6 @@ func (conn *wsConn) handleReadError(err error) {
 
 func (conn *wsConn) readRaw(ctx context.Context) {
 	for {
-		if ctx.Err() != nil {
-			return
-		}
-
 		// Lock since conn.ws may be set by connect.
 		conn.wsMtx.Lock()
 		ws := conn.ws
@@ -360,6 +356,10 @@ func (conn *wsConn) readRaw(ctx context.Context) {
 
 		// Block until a message is received or an error occurs.
 		_, msgBytes, err := ws.ReadMessage()
+		// Drop the read error on context cancellation.
+		if ctx.Err() != nil {
+			return
+		}
 		if err != nil {
 			conn.handleReadError(err)
 			return
