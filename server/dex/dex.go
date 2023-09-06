@@ -394,15 +394,22 @@ func NewDEX(ctx context.Context, cfg *DexConf) (*DEX, error) {
 
 	relayAddrs := make(map[string]string, len(nodeRelayIDs))
 	if len(nodeRelayIDs) > 0 {
+		nexusPort := "17537"
+		switch cfg.Network {
+		case dex.Testnet:
+			nexusPort = "17538"
+		case dex.Simnet:
+			nexusPort = "17539"
+		}
 		relayDir := filepath.Join(cfg.DataDir, "noderelay")
 		relay, err := noderelay.NewNexus(&noderelay.NexusConfig{
 			ExternalAddr: cfg.NodeRelayAddr,
 			Dir:          relayDir,
-			// Port: , Using default value of 17537
-			Key:    filepath.Join(relayDir, "relay.key"),
-			Cert:   filepath.Join(relayDir, "relay.cert"),
-			Logger: dex.StdOutLogger("T", dex.LevelDebug),
-			Relays: nodeRelayIDs,
+			Port:         nexusPort,
+			Key:          filepath.Join(relayDir, "relay.key"),
+			Cert:         filepath.Join(relayDir, "relay.cert"),
+			Logger:       dex.StdOutLogger("T", dex.LevelDebug),
+			Relays:       nodeRelayIDs,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("error creating node relay: %w", err)
