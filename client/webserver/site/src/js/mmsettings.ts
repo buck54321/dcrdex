@@ -65,7 +65,7 @@ const oracleWeightRange: XYRange = {
 }
 
 const defaultMarketMakingConfig = {
-  gapStrategy: GapStrategyMultiplier,
+  gapStrategy: GapStrategyPercentPlus,
   sellPlacements: [],
   buyPlacements: [],
   driftTolerance: 0.001,
