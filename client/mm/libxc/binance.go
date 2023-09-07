@@ -328,9 +328,8 @@ func (bnc *binance) Balance(symbol string) (*ExchangeBalance, error) {
 
 // GenerateTradeID returns a trade ID that must be passed as an argument
 // when calling Trade. This ID will be used to identify updates to the
-// trade. It is necessary to pre-generate this because updates to the
-// trade may arrive before the Trade function returns.
-func (bnc *binance) GenerateTradeID() string {
+// trade.
+func (bnc *binance) generateTradeID() string {
 	nonce := bnc.tradeIDNonce.Add(1)
 	nonceB := encode.Uint32Bytes(nonce)
 	return hex.EncodeToString(append(bnc.tradeIDNoncePrefix, nonceB...))
@@ -339,7 +338,9 @@ func (bnc *binance) GenerateTradeID() string {
 // Trade executes a trade on the CEX. updaterID takes an ID returned from
 // SubscribeTradeUpdates, and tradeID takes an ID returned from
 // GenerateTradeID.
-func (bnc *binance) Trade(ctx context.Context, baseSymbol, quoteSymbol string, sell bool, rate, qty uint64, updaterID int, tradeID string) error {
+func (bnc *binance) Trade(ctx context.Context, baseSymbol, quoteSymbol string, sell bool, rate, qty uint64, updaterID int) (tradeID string, err error) {
+	tradeID = bnc.generateTradeID()
+
 	side := "BUY"
 	if sell {
 		side = "SELL"
@@ -347,12 +348,12 @@ func (bnc *binance) Trade(ctx context.Context, baseSymbol, quoteSymbol string, s
 
 	baseCfg, err := bncSymbolData(baseSymbol)
 	if err != nil {
-		return fmt.Errorf("error getting symbol data for %s: %w", baseSymbol, err)
+		return "", fmt.Errorf("error getting symbol data for %s: %w", baseSymbol, err)
 	}
 
 	quoteCfg, err := bncSymbolData(quoteSymbol)
 	if err != nil {
-		return fmt.Errorf("error getting symbol data for %s: %w", quoteSymbol, err)
+		return "", fmt.Errorf("error getting symbol data for %s: %w", quoteSymbol, err)
 	}
 
 	slug := baseCfg.coin + quoteCfg.coin
@@ -360,7 +361,7 @@ func (bnc *binance) Trade(ctx context.Context, baseSymbol, quoteSymbol string, s
 	marketsMap := bnc.markets.Load().(map[string]symbol)
 	market, found := marketsMap[slug]
 	if !found {
-		return fmt.Errorf("market not found: %v", slug)
+		return "", fmt.Errorf("market not found: %v", slug)
 	}
 
 	price := calc.ConventionalRateAlt(rate, baseCfg.conversionFactor, quoteCfg.conversionFactor)
@@ -379,12 +380,12 @@ func (bnc *binance) Trade(ctx context.Context, baseSymbol, quoteSymbol string, s
 	_, found = bnc.tradeUpdaters[updaterID]
 	if !found {
 		bnc.tradeUpdaterMtx.Unlock()
-		return fmt.Errorf("no trade updater with ID %v", updaterID)
+		return "", fmt.Errorf("no trade updater with ID %v", updaterID)
 	}
 	bnc.tradeToUpdater[tradeID] = updaterID
 	bnc.tradeUpdaterMtx.Unlock()
 
-	return bnc.postAPI(ctx, "/api/v3/order", v, nil, true, true, &struct{}{})
+	return tradeID, bnc.postAPI(ctx, "/api/v3/order", v, nil, true, true, &struct{}{})
 }
 
 // SubscribeTradeUpdates returns a channel that the caller can use to

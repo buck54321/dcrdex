@@ -1,9 +1,10 @@
-//go:build bnclive && lgpl
+//go:build bnclive
 
 package libxc
 
 import (
 	"context"
+	"os"
 	"os/user"
 	"sync"
 	"testing"
@@ -14,10 +15,11 @@ import (
 )
 
 var (
-	log       = dex.StdOutLogger("T", dex.LevelTrace)
-	u, _      = user.Current()
-	apiKey    = ""
-	apiSecret = ""
+	log         = dex.StdOutLogger("T", dex.LevelTrace)
+	u, _        = user.Current()
+	ctx, cancel = context.WithCancel(context.Background())
+	apiKey      = ""
+	apiSecret   = ""
 )
 
 func tNewBinance(t *testing.T, network dex.Network) *binance {
@@ -60,6 +62,20 @@ func init() {
 			},
 		},
 	}, &asset.WalletDefinition{}, dex.Mainnet, dex.Testnet, dex.Simnet)
+}
+
+func TestMain(m *testing.M) {
+	if s := os.Getenv("SECRET"); s != "" {
+		apiSecret = s
+	}
+	if k := os.Getenv("KEY"); k != "" {
+		apiKey = k
+	}
+	doIt := func() int {
+		defer cancel()
+		return m.Run()
+	}
+	os.Exit(doIt())
 }
 
 func TestConnect(t *testing.T) {
@@ -115,8 +131,7 @@ func TestTrade(t *testing.T) {
 			}
 		}
 	}()
-	tradeID := bnc.GenerateTradeID()
-	err = bnc.Trade(ctx, "eth", "btc", true, 6327e2, 1e8, updaterID, tradeID)
+	_, err = bnc.Trade(ctx, "eth", "btc", true, 6327e2, 1e8, updaterID)
 	if err != nil {
 		t.Fatalf("trade error: %v", err)
 	}

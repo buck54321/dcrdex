@@ -75,15 +75,12 @@ func (c *tCEX) Markets() ([]*libxc.Market, error) {
 func (c *tCEX) Balance(symbol string) (*libxc.ExchangeBalance, error) {
 	return c.balances[symbol], c.balanceErr
 }
-func (c *tCEX) GenerateTradeID() string {
-	return c.tradeID
-}
-func (c *tCEX) Trade(ctx context.Context, baseSymbol, quoteSymbol string, sell bool, rate, qty uint64, updaterID int, orderID string) error {
+func (c *tCEX) Trade(ctx context.Context, baseSymbol, quoteSymbol string, sell bool, rate, qty uint64, updaterID int) (string, error) {
 	if c.tradeErr != nil {
-		return c.tradeErr
+		return "", c.tradeErr
 	}
 	c.lastTrade = &cexOrder{baseSymbol, quoteSymbol, qty, rate, sell}
-	return nil
+	return c.tradeID, nil
 }
 func (c *tCEX) CancelTrade(ctx context.Context, baseSymbol, quoteSymbol, tradeID string) error {
 	if c.cancelTradeErr != nil {
