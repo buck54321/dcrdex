@@ -4534,7 +4534,11 @@ func getFileCredentials(chain, path string, net dex.Network) (seed []byte, provi
 		return nil, nil, fmt.Errorf("must provide both seeds in credentials file")
 	}
 	seed = p.Seed
-	providers = p.Providers[chain][net.String()]
+	for _, uri := range p.Providers[chain][net.String()] {
+		if !strings.HasPrefix(uri, "#") && !strings.HasPrefix(uri, ";") {
+			providers = append(providers, uri)
+		}
+	}
 	if net == dex.Simnet && len(providers) == 0 {
 		u, _ := user.Current()
 		switch chain {
@@ -5212,7 +5216,7 @@ func getGasEstimates(ctx context.Context, cl, acl ethFetcher, c contractor, ac t
 		copy(randomAddr[:], encode.RandomBytes(20))
 		transferTx, err := tc.transfer(txOpts, randomAddr, big.NewInt(1))
 		if err != nil {
-			return fmt.Errorf("error estimating transfer gas: %w", err)
+			return fmt.Errorf("transfer error: %w", err)
 		}
 		if err = waitForConfirmation(ctx, cl, transferTx.Hash()); err != nil {
 			return fmt.Errorf("error waiting for transfer tx: %w", err)
