@@ -856,8 +856,7 @@ func (m *basicMarketMaker) run() {
 }
 
 // RunBasicMarketMaker starts a basic market maker bot.
-func RunBasicMarketMaker(ctx context.Context, cfg *BotConfig, c clientCore, oracle oracle, baseFiatRate, quoteFiatRate float64, log dex.Logger,
-	notify func(core.Notification)) {
+func RunBasicMarketMaker(ctx context.Context, cfg *BotConfig, c clientCore, oracle oracle, baseFiatRate, quoteFiatRate float64, log dex.Logger) {
 	if cfg.MMCfg == nil {
 		// implies bug in caller
 		log.Errorf("No market making config provided. Exiting.")
@@ -866,7 +865,7 @@ func RunBasicMarketMaker(ctx context.Context, cfg *BotConfig, c clientCore, orac
 
 	err := cfg.MMCfg.Validate()
 	if err != nil {
-		notify(newValidationErrorNote(cfg.Host, cfg.BaseAsset, cfg.QuoteAsset, fmt.Sprintf("invalid market making config: %v", err)))
+		c.Broadcast(newValidationErrorNote(cfg.Host, cfg.BaseAsset, cfg.QuoteAsset, fmt.Sprintf("invalid market making config: %v", err)))
 		return
 	}
 

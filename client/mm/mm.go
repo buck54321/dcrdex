@@ -37,6 +37,7 @@ type clientCore interface {
 	User() *core.User
 	Login(pw []byte) error
 	OpenWallet(assetID uint32, appPW []byte) error
+	Broadcast(core.Notification)
 }
 
 var _ clientCore = (*core.Core)(nil)
@@ -860,7 +861,7 @@ func (m *MarketMaker) Run(ctx context.Context, cfgs []*BotConfig, pw []byte) err
 	user := m.core.User()
 
 	startedMarketMaking = true
-	m.notify(newMMStartStopNote(true))
+	m.core.Broadcast(newMMStartStopNote(true))
 
 	wg := new(sync.WaitGroup)
 
@@ -893,9 +894,9 @@ func (m *MarketMaker) Run(ctx context.Context, cfgs []*BotConfig, pw []byte) err
 					m.markBotAsRunning(mkt, false)
 				}()
 
-				m.notify(newBotStartStopNote(cfg.Host, cfg.BaseAsset, cfg.QuoteAsset, true))
+				m.core.Broadcast(newBotStartStopNote(cfg.Host, cfg.BaseAsset, cfg.QuoteAsset, true))
 				defer func() {
-					m.notify(newBotStartStopNote(cfg.Host, cfg.BaseAsset, cfg.QuoteAsset, false))
+					m.core.Broadcast(newBotStartStopNote(cfg.Host, cfg.BaseAsset, cfg.QuoteAsset, false))
 				}()
 				logger := m.log.SubLogger(fmt.Sprintf("MarketMaker-%s-%d-%d", cfg.Host, cfg.BaseAsset, cfg.QuoteAsset))
 				mktID := dexMarketID(cfg.Host, cfg.BaseAsset, cfg.QuoteAsset)
@@ -904,7 +905,7 @@ func (m *MarketMaker) Run(ctx context.Context, cfgs []*BotConfig, pw []byte) err
 					baseFiatRate = user.FiatRates[cfg.BaseAsset]
 					quoteFiatRate = user.FiatRates[cfg.QuoteAsset]
 				}
-				RunBasicMarketMaker(m.ctx, cfg, m.wrappedCoreForBot(mktID), oracle, baseFiatRate, quoteFiatRate, logger, m.notify)
+				RunBasicMarketMaker(m.ctx, cfg, m.wrappedCoreForBot(mktID), oracle, baseFiatRate, quoteFiatRate, logger)
 				wg.Done()
 			}(cfg)
 		default:
@@ -916,7 +917,7 @@ func (m *MarketMaker) Run(ctx context.Context, cfgs []*BotConfig, pw []byte) err
 		wg.Wait()
 		m.log.Infof("All bots have stopped running.")
 		m.running.Store(false)
-		m.notify(newMMStartStopNote(false))
+		m.core.Broadcast(newMMStartStopNote(false))
 	}()
 
 	return nil

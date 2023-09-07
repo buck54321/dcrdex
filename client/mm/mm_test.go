@@ -236,6 +236,8 @@ func (c *tCore) User() *core.User {
 	return nil
 }
 
+func (c *tCore) Broadcast(core.Notification) {}
+
 var _ clientCore = (*tCore)(nil)
 
 func tMaxOrderEstimate(lots uint64, swapFees, redeemFees uint64) *core.MaxOrderEstimate {
