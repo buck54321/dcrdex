@@ -8,8 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -166,7 +164,7 @@ type MarketMaker struct {
 	unsyncedOracle *priceOracle
 
 	runningBotsMtx sync.RWMutex
-	runningBots    map[string]interface{}
+	runningBots    map[MarketWithHost]interface{}
 
 	noteMtx   sync.RWMutex
 	noteChans map[uint64]chan core.Notification
@@ -182,7 +180,7 @@ func NewMarketMaker(c clientCore, log dex.Logger) (*MarketMaker, error) {
 		log:            log,
 		running:        atomic.Bool{},
 		orders:         make(map[order.OrderID]*orderInfo),
-		runningBots:    make(map[string]interface{}),
+		runningBots:    make(map[MarketWithHost]interface{}),
 		noteChans:      make(map[uint64]chan core.Notification),
 		unsyncedOracle: newUnsyncedPriceOracle(log),
 	}, nil
@@ -204,27 +202,6 @@ func (m *MarketWithHost) String() string {
 	return fmt.Sprintf("%s-%d-%d", m.Host, m.Base, m.Quote)
 }
 
-func parseMarketWithHost(mkt string) (*MarketWithHost, error) {
-	parts := strings.Split(mkt, "-")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid market %s", mkt)
-	}
-	host := parts[0]
-	base64, err := strconv.ParseUint(parts[1], 10, 32)
-	if err != nil {
-		return nil, fmt.Errorf("invalid market %s", mkt)
-	}
-	quote64, err := strconv.ParseUint(parts[2], 10, 32)
-	if err != nil {
-		return nil, fmt.Errorf("invalid market %s", mkt)
-	}
-	return &MarketWithHost{
-		Host:  host,
-		Base:  uint32(base64),
-		Quote: uint32(quote64),
-	}, nil
-}
-
 // RunningBots returns the markets on which a bot is running.
 func (m *MarketMaker) RunningBots() []*MarketWithHost {
 	m.runningBotsMtx.RLock()
@@ -232,12 +209,7 @@ func (m *MarketMaker) RunningBots() []*MarketWithHost {
 
 	mkts := make([]*MarketWithHost, 0, len(m.runningBots))
 	for mkt := range m.runningBots {
-		mktWithHost, err := parseMarketWithHost(mkt)
-		if err != nil {
-			m.log.Errorf("failed to parse market %s: %v", mkt, err)
-			continue
-		}
-		mkts = append(mkts, mktWithHost)
+		mkts = append(mkts, &mkt)
 	}
 
 	return mkts
@@ -285,13 +257,13 @@ func priceOracleFromConfigs(ctx context.Context, cfgs []*BotConfig, log dex.Logg
 	return oracle, nil
 }
 
-func (m *MarketMaker) markBotAsRunning(id string, running bool) {
+func (m *MarketMaker) markBotAsRunning(mkt MarketWithHost, running bool) {
 	m.runningBotsMtx.Lock()
 	defer m.runningBotsMtx.Unlock()
 	if running {
-		m.runningBots[id] = struct{}{}
+		m.runningBots[mkt] = struct{}{}
 	} else {
-		delete(m.runningBots, id)
+		delete(m.runningBots, mkt)
 	}
 
 	if len(m.runningBots) == 0 {
@@ -915,10 +887,10 @@ func (m *MarketMaker) Run(ctx context.Context, cfgs []*BotConfig, pw []byte) err
 		case cfg.MMCfg != nil:
 			wg.Add(1)
 			go func(cfg *BotConfig) {
-				mkt := &MarketWithHost{cfg.Host, cfg.BaseAsset, cfg.QuoteAsset}
-				m.markBotAsRunning(mkt.String(), true)
+				mkt := MarketWithHost{cfg.Host, cfg.BaseAsset, cfg.QuoteAsset}
+				m.markBotAsRunning(mkt, true)
 				defer func() {
-					m.markBotAsRunning(mkt.String(), false)
+					m.markBotAsRunning(mkt, false)
 				}()
 
 				m.notify(newBotStartStopNote(cfg.Host, cfg.BaseAsset, cfg.QuoteAsset, true))
