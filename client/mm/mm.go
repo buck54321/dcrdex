@@ -38,6 +38,7 @@ type clientCore interface {
 	Login(pw []byte) error
 	OpenWallet(assetID uint32, appPW []byte) error
 	Broadcast(core.Notification)
+	FiatConversionRates() map[uint32]float64
 }
 
 var _ clientCore = (*core.Core)(nil)
@@ -275,9 +276,9 @@ func (m *MarketMaker) markBotAsRunning(mkt MarketWithHost, running bool) {
 // MarketReport returns information about the oracle rates on a market
 // pair and the fiat rates of the base and quote assets.
 func (m *MarketMaker) MarketReport(base, quote uint32) (*MarketReport, error) {
-	user := m.core.User()
-	baseFiatRate := user.FiatRates[base]
-	quoteFiatRate := user.FiatRates[quote]
+	fiatRates := m.core.FiatConversionRates()
+	baseFiatRate := fiatRates[base]
+	quoteFiatRate := fiatRates[quote]
 
 	m.syncedOracleMtx.RLock()
 	if m.syncedOracle != nil {

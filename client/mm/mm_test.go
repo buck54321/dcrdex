@@ -238,6 +238,10 @@ func (c *tCore) User() *core.User {
 
 func (c *tCore) Broadcast(core.Notification) {}
 
+func (c *tCore) FiatConversionRates() map[uint32]float64 {
+	return nil
+}
+
 var _ clientCore = (*tCore)(nil)
 
 func tMaxOrderEstimate(lots uint64, swapFees, redeemFees uint64) *core.MaxOrderEstimate {
