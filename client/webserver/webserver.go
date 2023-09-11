@@ -201,7 +201,6 @@ type cachedPassword struct {
 type Config struct {
 	Core          clientCore
 	MarketMaker   *mm.MarketMaker
-	MMCfgPath     string
 	Addr          string
 	CustomSiteDir string
 	Language      string
@@ -233,7 +232,6 @@ type WebServer struct {
 	mux          *chi.Mux
 	core         clientCore
 	mm           *mm.MarketMaker
-	mmCfgPath    string
 	addr         string
 	csp          string
 	srv          *http.Server
@@ -346,7 +344,6 @@ func New(cfg *Config) (*WebServer, error) {
 	s := &WebServer{
 		core:            cfg.Core,
 		mm:              cfg.MarketMaker,
-		mmCfgPath:       cfg.MMCfgPath,
 		mux:             mux,
 		srv:             httpServer,
 		addr:            cfg.Addr,

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -307,6 +309,19 @@ func (o *tOracle) getMarketPrice(base, quote uint32) float64 {
 	return o.marketPrice
 }
 
+func tNewMarketMaker(t *testing.T, c clientCore) (*MarketMaker, func()) {
+	t.Helper()
+	dir, _ := os.MkdirTemp("", "")
+	cfgPath := filepath.Join(dir, "mm.conf")
+	mm, err := NewMarketMaker(c, cfgPath, tLogger)
+	if err != nil {
+		if err != nil {
+			t.Fatalf("constructor error: %v", err)
+		}
+	}
+	return mm, func() { os.RemoveAll(dir) }
+}
+
 var tLogger = dex.StdOutLogger("mm_TEST", dex.LevelTrace)
 
 func TestSetupBalances(t *testing.T) {
@@ -315,14 +330,16 @@ func TestSetupBalances(t *testing.T) {
 	dcrBtcID := fmt.Sprintf("%s-%d-%d", "host1", 42, 0)
 	dcrEthID := fmt.Sprintf("%s-%d-%d", "host1", 42, 60)
 
-	tests := []struct {
+	type ttest struct {
 		name          string
 		cfgs          []*BotConfig
 		assetBalances map[uint32]uint64
 
 		wantReserves map[string]map[uint32]uint64
 		wantErr      bool
-	}{
+	}
+
+	tests := []*ttest{
 		{
 			name: "percentages only, ok",
 			cfgs: []*BotConfig{
@@ -469,20 +486,18 @@ func TestSetupBalances(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
+	runTest := func(test *ttest) {
 		tCore.setAssetBalances(test.assetBalances)
 
-		mm, err := NewMarketMaker(tCore, tLogger)
-		if err != nil {
-			t.Fatalf("%s: unexpected error: %v", test.name, err)
-		}
+		mm, done := tNewMarketMaker(t, tCore)
+		defer done()
 
-		err = mm.setupBalances(test.cfgs)
+		err := mm.setupBalances(test.cfgs)
 		if test.wantErr {
 			if err == nil {
 				t.Fatalf("%s: expected error, got nil", test.name)
 			}
-			continue
+			return
 		}
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", test.name, err)
@@ -498,6 +513,10 @@ func TestSetupBalances(t *testing.T) {
 				}
 			}
 		}
+	}
+
+	for _, test := range tests {
+		runTest(test)
 	}
 }
 
@@ -754,7 +773,7 @@ func TestSegregatedCoreMaxSell(t *testing.T) {
 		tCore.sellRedeemFees = test.redeemFees
 		tCore.sellRefundFees = test.refundFees
 
-		mm, err := NewMarketMaker(tCore, tLogger)
+		mm, err := NewMarketMaker(tCore, "", tLogger)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", test.name, err)
 		}
@@ -1060,7 +1079,7 @@ func TestSegregatedCoreMaxBuy(t *testing.T) {
 		tCore.buySwapFees = test.swapFees
 		tCore.buyRedeemFees = test.redeemFees
 
-		mm, err := NewMarketMaker(tCore, tLogger)
+		mm, err := NewMarketMaker(tCore, "", tLogger)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", test.name, err)
 		}
@@ -4091,14 +4110,13 @@ func testSegregatedCoreTrade(t *testing.T, testMultiTrade bool) {
 		}
 		tCore.noteFeed = make(chan core.Notification)
 
-		mm, err := NewMarketMaker(tCore, tLogger)
-		if err != nil {
-			t.Fatalf("%s: unexpected error: %v", test.name, err)
-		}
+		mm, done := tNewMarketMaker(t, tCore)
+		defer done()
 		mm.doNotKillWhenBotsStop = true
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		err = mm.Run(ctx, []*BotConfig{test.cfg}, []byte{})
+		mm.UpdateMarketMakingConfig(test.cfg)
+		err := mm.Run(ctx, []byte{})
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", test.name, err)
 		}

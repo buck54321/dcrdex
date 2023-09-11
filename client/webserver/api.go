@@ -5,12 +5,9 @@ package webserver
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
-	"os"
 	"time"
 
 	"decred.org/dcrdex/client/asset"
@@ -1651,16 +1648,9 @@ func (s *WebServer) apiStartMarketMaking(w http.ResponseWriter, r *http.Request)
 		s.writeAPIError(w, fmt.Errorf("failed to read form"))
 		return
 	}
-
-	cfg, err := s.getMarketMakingConfig()
+	err := s.mm.Run(s.ctx, form.AppPW)
 	if err != nil {
-		s.writeAPIError(w, fmt.Errorf("error getting market making config: %v", err))
-		return
-	}
-
-	err = s.mm.Run(s.ctx, cfg, form.AppPW)
-	if err != nil {
-		s.writeAPIError(w, fmt.Errorf("Error starting market making: %v", err))
+		s.writeAPIError(w, err)
 		return
 	}
 
@@ -1672,23 +1662,8 @@ func (s *WebServer) apiStopMarketMaking(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, simpleAck(), s.indent)
 }
 
-func (s *WebServer) getMarketMakingConfig() ([]*mm.BotConfig, error) {
-	cfg := []*mm.BotConfig{}
-	if s.mmCfgPath == "" {
-		return cfg, nil
-	}
-	data, err := os.ReadFile(s.mmCfgPath)
-	if err == nil {
-		return cfg, json.Unmarshal(data, &cfg)
-	}
-	if os.IsNotExist(err) {
-		return cfg, nil
-	}
-	return nil, fmt.Errorf("error reading file: %w", err)
-}
-
 func (s *WebServer) apiMarketMakingConfig(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.getMarketMakingConfig()
+	cfg, err := s.mm.GetMarketMakingConfig()
 	if err != nil {
 		s.writeAPIError(w, fmt.Errorf("error getting market making config: %v", err))
 		return
@@ -1710,33 +1685,9 @@ func (s *WebServer) apiUpdateMarketMakingConfig(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	cfg, err := s.getMarketMakingConfig()
+	cfg, err := s.mm.UpdateMarketMakingConfig(updatedCfg)
 	if err != nil {
-		s.writeAPIError(w, fmt.Errorf("error getting market making config: %v", err))
-		return
-	}
-
-	var updated bool
-	for i, c := range cfg {
-		if c.Host == updatedCfg.Host && c.QuoteAsset == updatedCfg.QuoteAsset && c.BaseAsset == updatedCfg.BaseAsset {
-			cfg[i] = updatedCfg
-			updated = true
-			break
-		}
-	}
-	if !updated {
-		cfg = append(cfg, updatedCfg)
-	}
-
-	data, err := json.MarshalIndent(cfg, "", "    ")
-	if err != nil {
-		s.writeAPIError(w, fmt.Errorf("error marshalling market making config: %v", err))
-		return
-	}
-
-	err = ioutil.WriteFile(s.mmCfgPath, data, 0644)
-	if err != nil {
-		s.writeAPIError(w, fmt.Errorf("error writing market making config: %v", err))
+		s.writeAPIError(w, err)
 		return
 	}
 
@@ -1760,34 +1711,9 @@ func (s *WebServer) apiRemoveMarketMakingConfig(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	cfg, err := s.getMarketMakingConfig()
+	cfg, err := s.mm.RemoveConfig(form.Host, form.BaseAsset, form.QuoteAsset)
 	if err != nil {
-		s.writeAPIError(w, fmt.Errorf("error getting market making config: %v", err))
-		return
-	}
-
-	var updated bool
-	for i, c := range cfg {
-		if c.Host == form.Host && c.QuoteAsset == form.QuoteAsset && c.BaseAsset == form.BaseAsset {
-			cfg = append(cfg[:i], cfg[i+1:]...)
-			updated = true
-			break
-		}
-	}
-	if !updated {
-		s.writeAPIError(w, fmt.Errorf("config not found"))
-		return
-	}
-
-	data, err := json.MarshalIndent(cfg, "", "    ")
-	if err != nil {
-		s.writeAPIError(w, fmt.Errorf("error marshalling market making config: %v", err))
-		return
-	}
-
-	err = ioutil.WriteFile(s.mmCfgPath, data, 0644)
-	if err != nil {
-		s.writeAPIError(w, fmt.Errorf("error writing market making config: %v", err))
+		s.writeAPIError(w, err)
 		return
 	}
 

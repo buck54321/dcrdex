@@ -6,8 +6,10 @@ package mm
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 
@@ -156,9 +158,11 @@ type MarketMaker struct {
 	die                   context.CancelFunc
 	running               atomic.Bool
 	log                   dex.Logger
+	dir                   string
 	core                  clientCore
 	doNotKillWhenBotsStop bool // used for testing
 	botBalances           map[string]*botBalances
+	cfgPath               string
 	// syncedOracle is only available while the MarketMaker is running.
 	syncedOracleMtx sync.RWMutex
 	syncedOracle    *priceOracle
@@ -168,22 +172,19 @@ type MarketMaker struct {
 	runningBotsMtx sync.RWMutex
 	runningBots    map[MarketWithHost]interface{}
 
-	noteMtx   sync.RWMutex
-	noteChans map[uint64]chan core.Notification
-
 	ordersMtx sync.RWMutex
 	orders    map[order.OrderID]*orderInfo
 }
 
 // NewMarketMaker creates a new MarketMaker.
-func NewMarketMaker(c clientCore, log dex.Logger) (*MarketMaker, error) {
+func NewMarketMaker(c clientCore, cfgPath string, log dex.Logger) (*MarketMaker, error) {
 	return &MarketMaker{
 		core:           c,
 		log:            log,
+		cfgPath:        cfgPath,
 		running:        atomic.Bool{},
 		orders:         make(map[order.OrderID]*orderInfo),
 		runningBots:    make(map[MarketWithHost]interface{}),
-		noteChans:      make(map[uint64]chan core.Notification),
 		unsyncedOracle: newUnsyncedPriceOracle(log),
 	}, nil
 }
@@ -821,9 +822,13 @@ func (m *MarketMaker) handleNotification(n core.Notification) {
 }
 
 // Run starts the MarketMaker. There can only be one BotConfig per dex market.
-func (m *MarketMaker) Run(ctx context.Context, cfgs []*BotConfig, pw []byte) error {
+func (m *MarketMaker) Run(ctx context.Context, pw []byte) error {
 	if !m.running.CompareAndSwap(false, true) {
 		return errors.New("market making is already running")
+	}
+	cfgs, err := m.GetMarketMakingConfig()
+	if err != nil {
+		return fmt.Errorf("error getting market making config: %v", err)
 	}
 
 	var startedMarketMaking bool
@@ -925,6 +930,81 @@ func (m *MarketMaker) Run(ctx context.Context, cfgs []*BotConfig, pw []byte) err
 	}()
 
 	return nil
+}
+
+func (m *MarketMaker) GetMarketMakingConfig() ([]*BotConfig, error) {
+	cfg := []*BotConfig{}
+	if m.cfgPath == "" {
+		return cfg, nil
+	}
+	data, err := os.ReadFile(m.cfgPath)
+	if err == nil {
+		return cfg, json.Unmarshal(data, &cfg)
+	}
+	if os.IsNotExist(err) {
+		return cfg, nil
+	}
+	return nil, fmt.Errorf("error reading file: %w", err)
+}
+
+func (m *MarketMaker) UpdateMarketMakingConfig(updatedCfg *BotConfig) ([]*BotConfig, error) {
+	cfg, err := m.GetMarketMakingConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error getting market making config: %v", err)
+	}
+
+	var updated bool
+	for i, c := range cfg {
+		if c.Host == updatedCfg.Host && c.QuoteAsset == updatedCfg.QuoteAsset && c.BaseAsset == updatedCfg.BaseAsset {
+			cfg[i] = updatedCfg
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		cfg = append(cfg, updatedCfg)
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "    ")
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling market making config: %v", err)
+	}
+
+	err = os.WriteFile(m.cfgPath, data, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("error writing market making config: %v", err)
+	}
+	return cfg, nil
+}
+
+func (m *MarketMaker) RemoveConfig(host string, baseID, quoteID uint32) ([]*BotConfig, error) {
+	cfg, err := m.GetMarketMakingConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error getting market making config: %v", err)
+	}
+
+	var updated bool
+	for i, c := range cfg {
+		if c.Host == host && c.QuoteAsset == quoteID && c.BaseAsset == baseID {
+			cfg = append(cfg[:i], cfg[i+1:]...)
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		return nil, fmt.Errorf("config not found")
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "    ")
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling market making config: %v", err)
+	}
+
+	err = os.WriteFile(m.cfgPath, data, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("error writing market making config: %v", err)
+	}
+	return cfg, nil
 }
 
 // Stop stops the MarketMaker.
