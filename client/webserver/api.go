@@ -1674,19 +1674,17 @@ func (s *WebServer) apiStopMarketMaking(w http.ResponseWriter, r *http.Request) 
 
 func (s *WebServer) getMarketMakingConfig() ([]*mm.BotConfig, error) {
 	cfg := []*mm.BotConfig{}
-	if s.mmCfgPath != "" {
-		data, err := ioutil.ReadFile(s.mmCfgPath)
-		if err == nil {
-			err = json.Unmarshal(data, &cfg)
-			if err != nil {
-				return nil, fmt.Errorf("error unmarshalling market making config: %v", err)
-			}
-		} else if !os.IsNotExist(err) {
-			return nil, fmt.Errorf("error reading file: %v", err)
-		}
+	if s.mmCfgPath == "" {
+		return cfg, nil
 	}
-
-	return cfg, nil
+	data, err := os.ReadFile(s.mmCfgPath)
+	if err == nil {
+		return cfg, json.Unmarshal(data, &cfg)
+	}
+	if os.IsNotExist(err) {
+		return cfg, nil
+	}
+	return nil, fmt.Errorf("error reading file: %w", err)
 }
 
 func (s *WebServer) apiMarketMakingConfig(w http.ResponseWriter, r *http.Request) {
