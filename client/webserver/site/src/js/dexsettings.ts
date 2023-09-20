@@ -23,6 +23,7 @@ export default class DexSettingsPage extends BasePage {
   host: string
   keyup: (e: KeyboardEvent) => void
   dexAddrForm: forms.DEXAddressForm
+  bondFeeBufferCache: Record<string, number>
 
   constructor (body: HTMLElement) {
     super()
@@ -168,6 +169,7 @@ export default class DexSettingsPage extends BasePage {
     page.currentTier.textContent = `${xc.tier}`
     page.bondTargetTier.setAttribute('placeholder', xc.bondOptions.targetTier.toString())
     page.bondTargetTier.value = ''
+    this.bondFeeBufferCache = {}
     Doc.empty(page.bondAssetSelect)
     for (const [assetSymbol, bondAsset] of Object.entries(xc.bondAssets)) {
       const option = document.createElement('option') as HTMLOptionElement
@@ -200,12 +202,15 @@ export default class DexSettingsPage extends BasePage {
     page.bondCost.textContent = Doc.formatFullPrecision(bondCost, ui)
     Doc.showFiatValue(assetID, bondCost, page.bondCostFiat)
 
-    const feeBuffer = await this.getBondsFeeBuffer(assetID, page.bondDetailsForm)
+    let feeBuffer = this.bondFeeBufferCache[assetInfo.symbol]
+    if (!feeBuffer) {
+      feeBuffer = await this.getBondsFeeBuffer(assetID, page.bondDetailsForm)
+      if (feeBuffer > 0) this.bondFeeBufferCache[assetInfo.symbol] = feeBuffer
+    }
     if (feeBuffer === 0) {
       page.bondReservationAmt.textContent = intl.prep(intl.ID_UNAVAILABLE)
       return
     }
-
     const targetTier = parseInt(page.bondTargetTier.value ?? '')
     let reservation = 0
     if (targetTier > 0) reservation = bondCost * targetTier * bondOverlap + feeBuffer
@@ -286,12 +291,18 @@ export default class DexSettingsPage extends BasePage {
   async updateBondOptions () {
     const page = this.page
     const targetTier = parseInt(page.bondTargetTier.value ?? '')
-    const bondAsset = parseInt(page.bondAssetSelect.value ?? '')
+    const bondAssetID = parseInt(page.bondAssetSelect.value ?? '')
 
-    const bondOptions = {
+    const bondOptions: Record<any, any> = {
       host: this.host,
       targetTier: targetTier,
-      bondAsset: bondAsset
+      bondAsset: bondAssetID
+    }
+
+    const assetInfo = app().assets[bondAssetID]
+    if (assetInfo) {
+      const feeBuffer = this.bondFeeBufferCache[assetInfo.symbol]
+      if (feeBuffer > 0) bondOptions.feeBuffer = feeBuffer
     }
 
     const loaded = app().loading(this.body)
@@ -308,7 +319,7 @@ export default class DexSettingsPage extends BasePage {
       }, 5000)
       // update the in-memory values.
       const xc = app().user.exchanges[this.host]
-      xc.bondOptions.bondAsset = bondAsset
+      xc.bondOptions.bondAsset = bondAssetID
       xc.bondOptions.targetTier = targetTier
       page.currentTargetTier.textContent = `${targetTier}`
     }
