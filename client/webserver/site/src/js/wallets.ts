@@ -1055,6 +1055,7 @@ export default class WalletsPage extends BasePage {
     for (const { tx, status } of pageOfTickets) {
       const tr = page.ticketHistoryRowTmpl.cloneNode(true) as PageElement
       page.ticketHistoryRows.appendChild(tr)
+      app().bindUrlHandlers(tr)
       const tmpl = Doc.parseTemplate(tr)
       tmpl.age.textContent = Doc.timeSince(tx.stamp * 1000)
       tmpl.price.textContent = Doc.formatFullPrecision(tx.ticketPrice, ui)
@@ -1174,6 +1175,7 @@ export default class WalletsPage extends BasePage {
     for (const tspend of stakeStatus.stances.tspends) {
       const div = page.tspendTmpl.cloneNode(true) as PageElement
       page.votingTspends.appendChild(div)
+      app().bindUrlHandlers(div)
       const tmpl = Doc.parseTemplate(div)
       for (const opt of [tmpl.yes, tmpl.no]) {
         opt.name = tspend.hash

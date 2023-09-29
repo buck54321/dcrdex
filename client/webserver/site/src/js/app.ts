@@ -104,7 +104,6 @@ export default class Application {
   popupNotes: HTMLElement
   popupTmpl: HTMLElement
   noteReceivers: Record<string, (n: CoreNote) => void>[]
-  isWebview: boolean
   marketMakingCfg: MarketMakingConfig
   marketMakingStatus: MarketMakingStatus | undefined
 
@@ -160,9 +159,6 @@ export default class Application {
 
     // use user current locale set by backend
     intl.setLocale()
-
-    const w = window as any
-    this.isWebview = (w.isWebview !== undefined)
   }
 
   /**
@@ -290,7 +286,7 @@ export default class Application {
     // Bind the tooltips.
     this.bindTooltips(this.main)
 
-    if (this.isWebview) {
+    if (window.isWebview) {
       // Bind webview URL handlers
       this.bindUrlHandlers(this.main)
     }
@@ -316,16 +312,12 @@ export default class Application {
   }
 
   bindUrlHandlers (ancestor: HTMLElement) {
-    ancestor.addEventListener('click', function (event: MouseEvent) {
-      if (event === null || event.target === null) return
-
-      const target = event.target as HTMLElement
-      if (target.matches('a[target=_blank]')) {
-        const url = target.getAttribute('href')
-        const w = window as any
-        w.openUrl(url)
-      }
-    }, false)
+    for (const link of Doc.applySelector(ancestor, 'a[target=_blank]')) {
+      Doc.bind(link, 'click', (e: MouseEvent) => {
+        e.preventDefault()
+        window.openUrl(link.href ?? '')
+      })
+    }
   }
 
   /* attachHeader attaches the header element, which unlike the main element,
