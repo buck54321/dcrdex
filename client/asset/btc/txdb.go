@@ -21,7 +21,10 @@ import (
 type extendedWalletTx struct {
 	mtx sync.Mutex
 	*asset.WalletTransaction
-	Confirmed bool `json:"confirmed"`
+	// BlockIndex is the index of the transaction in the blocks transaction
+	// list. It is only meaningful if BlockNumber is non-zero.
+	BlockIndex uint64 `json:"blockIndex"`
+	Confirmed  bool   `json:"confirmed"`
 	// Create bond transactions are added to the store before
 	// they are submitted.
 	Submitted bool `json:"submitted"`
@@ -129,27 +132,6 @@ func newBadgerTxDB(filePath string, log dex.Logger) (*badgerTxDB, error) {
 		DB:  db,
 		log: log}, nil
 }
-
-func (db *badgerTxDB) findFreeBlockKey(txn *badger.Txn, blockNumber uint64) ([]byte, error) {
-	getKey := func(i uint64) []byte {
-		if blockNumber == 0 {
-			return pendingKey(i)
-		}
-		return blockKey(blockNumber, i)
-	}
-
-	for i := uint64(0); ; i++ {
-		key := getKey(i)
-		_, err := txn.Get(key)
-		if errors.Is(err, badger.ErrKeyNotFound) {
-			return key, nil
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-}
-
 func (db *badgerTxDB) storeTx(tx *extendedWalletTx) error {
 	return db.Update(func(txn *badger.Txn) error {
 		txKey := txKey(tx.ID)
@@ -189,10 +171,7 @@ func (db *badgerTxDB) storeTx(tx *extendedWalletTx) error {
 		}
 
 		if needNewBlockKey {
-			currBlockKey, err = db.findFreeBlockKey(txn, tx.BlockNumber)
-			if err != nil {
-				return err
-			}
+			currBlockKey := blockKey(tx.BlockNumber, tx.BlockIndex)
 			if err = txn.Set(txKey, currBlockKey); err != nil {
 				return err
 			}

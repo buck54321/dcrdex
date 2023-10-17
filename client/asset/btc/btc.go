@@ -6212,6 +6212,10 @@ func (btc *intermediaryWallet) checkPendingTxs(tip uint64) {
 						fee = toSatoshi(*tx.Fee)
 					}
 				}
+				var blockIndex uint64
+				if tx.BlockIndex != nil {
+					blockIndex = uint64(*tx.BlockIndex)
+				}
 				wt := &extendedWalletTx{
 					WalletTransaction: &asset.WalletTransaction{
 						Type:         asset.Receive,
@@ -6219,7 +6223,8 @@ func (btc *intermediaryWallet) checkPendingTxs(tip uint64) {
 						BalanceDelta: int64(toSatoshi(tx.Amount)),
 						Fees:         fee,
 					},
-					Submitted: true,
+					BlockIndex: blockIndex,
+					Submitted:  true,
 				}
 
 				err = txHistoryDB.storeTx(wt)
