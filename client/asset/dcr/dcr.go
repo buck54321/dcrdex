@@ -354,6 +354,10 @@ func (op *output) ID() dex.Bytes {
 	return toCoinID(op.txHash(), op.vout())
 }
 
+func (op *output) TxID() string {
+	return op.txHash().String()
+}
+
 // String is a string representation of the coin.
 func (op *output) String() string {
 	return op.pt.String()
@@ -4324,7 +4328,7 @@ func (dcr *ExchangeWallet) Withdraw(address string, value, feeRate uint64) (asse
 // Send sends the exact value to the specified address. This is different from
 // Withdraw, which subtracts the tx fees from the amount sent. feeRate is in
 // units of atoms/byte.
-func (dcr *ExchangeWallet) Send(address string, value, feeRate uint64) (asset.Coin, error) {
+func (dcr *ExchangeWallet) Send(address string, value, feeRate uint64) (asset.TxCoin, error) {
 	addr, err := stdaddr.DecodeAddress(address, dcr.chainParams)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address: %s", address)

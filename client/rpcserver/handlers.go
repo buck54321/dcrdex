@@ -630,7 +630,7 @@ func send(s *RPCServer, params *RawParams, route string) *msgjson.ResponsePayloa
 	if route == withdrawRoute {
 		subtract = true
 	}
-	coin, err := s.core.Send(form.appPass, form.assetID, form.value, form.address, subtract)
+	_, coin, err := s.core.Send(form.appPass, form.assetID, form.value, form.address, subtract)
 	if err != nil {
 		errMsg := fmt.Sprintf("unable to %s: %v", err, route)
 		resErr := msgjson.NewError(msgjson.RPCFundTransferError, errMsg)

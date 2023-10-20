@@ -517,7 +517,7 @@ type Wallet interface {
 	RegFeeConfirmations(ctx context.Context, coinID dex.Bytes) (confs uint32, err error)
 	// Send sends the exact value to the specified address. This is different
 	// from Withdraw, which subtracts the tx fees from the amount sent.
-	Send(address string, value, feeRate uint64) (Coin, error)
+	Send(address string, value, feeRate uint64) (TxCoin, error)
 	// EstimateRegistrationTxFee returns an estimate for the tx fee needed to
 	// pay the registration fee using the provided feeRate.
 	EstimateRegistrationTxFee(feeRate uint64) uint64
@@ -1167,6 +1167,11 @@ type Coin interface {
 	String() string
 	// Value is the available quantity, in atoms/satoshi.
 	Value() uint64
+}
+
+type TxCoin interface {
+	Coin
+	TxID() string
 }
 
 type RecoveryCoin interface {

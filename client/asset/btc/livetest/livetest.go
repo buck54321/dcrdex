@@ -561,19 +561,19 @@ func Run(t *testing.T, cfg *Config) {
 
 	// Test Send.
 	tLogger.Info("Testing Send")
-	coin, err := rig.secondWallet.Send(address, cfg.LotSize, defaultFee)
+	sendCoin, err := rig.secondWallet.Send(address, cfg.LotSize, defaultFee)
 	if err != nil {
 		t.Fatalf("error sending: %v", err)
 	}
-	if coin.Value() != cfg.LotSize {
-		t.Fatalf("Expected %d got %d", cfg.LotSize, coin.Value())
+	if sendCoin.Value() != cfg.LotSize {
+		t.Fatalf("Expected %d got %d", cfg.LotSize, sendCoin.Value())
 	}
-	tLogger.Infof("Sent with %s", coin.String())
+	tLogger.Infof("Sent with %s", sendCoin.String())
 
 	// Test Withdraw.
 	withdrawer, _ := rig.secondWallet.Wallet.(asset.Withdrawer)
 	tLogger.Info("Testing Withdraw")
-	coin, err = withdrawer.Withdraw(address, cfg.LotSize, defaultFee)
+	coin, err := withdrawer.Withdraw(address, cfg.LotSize, defaultFee)
 	if err != nil {
 		t.Fatalf("error withdrawing: %v", err)
 	}

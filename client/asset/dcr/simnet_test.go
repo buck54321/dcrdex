@@ -571,14 +571,14 @@ func runTest(t *testing.T, splitTx bool) {
 	}
 
 	// Test Send
-	coin, err := rig.beta().Send(alphaAddress, 1e8, defaultFee)
+	sendCoin, err := rig.beta().Send(alphaAddress, 1e8, defaultFee)
 	if err != nil {
 		t.Fatalf("error sending fees: %v", err)
 	}
-	tLogger.Infof("fee paid with tx %s", coin.String())
+	tLogger.Infof("fee paid with tx %s", sendCoin.String())
 
 	// Test Withdraw
-	coin, err = rig.beta().Withdraw(alphaAddress, 5e7, tDCR.MaxFeeRate/4)
+	coin, err := rig.beta().Withdraw(alphaAddress, 5e7, tDCR.MaxFeeRate/4)
 	if err != nil {
 		t.Fatalf("error withdrawing: %v", err)
 	}

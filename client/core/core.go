@@ -5460,33 +5460,41 @@ func (c *Core) feeSuggestion(dc *dexConnection, assetID uint32) (feeSuggestion u
 // must be provided as an additional verification. This method is DEPRECATED. Use
 // Send with the subtract option instead.
 func (c *Core) Withdraw(pw []byte, assetID uint32, value uint64, address string) (asset.Coin, error) {
-	return c.Send(pw, assetID, value, address, true)
+	_, coin, err := c.Send(pw, assetID, value, address, true)
+	return coin, err
 }
 
 // Send initiates either send or withdraw from an exchange wallet. if subtract
 // is true, fees are subtracted from the value else fees are taken from the
-// exchange wallet. The client password must be provided as an additional
-// verification.
-func (c *Core) Send(pw []byte, assetID uint32, value uint64, address string, subtract bool) (asset.Coin, error) {
-	crypter, err := c.encryptionKey(pw)
-	if err != nil {
-		return nil, fmt.Errorf("password error: %w", err)
+// exchange wallet.
+func (c *Core) Send(pw []byte, assetID uint32, value uint64, address string, subtract bool) (string, asset.Coin, error) {
+	var crypter encrypt.Crypter
+	// Empty password can be provided if wallet is already unlocked. Webserver
+	// and RPCServer should not allow empty password, but this is used for
+	// bots.
+	if len(pw) > 0 {
+		var err error
+		crypter, err = c.encryptionKey(pw)
+		if err != nil {
+			return "", nil, fmt.Errorf("Trade password error: %w", err)
+		}
+		defer crypter.Close()
 	}
-	defer crypter.Close()
+
 	if value == 0 {
-		return nil, fmt.Errorf("cannot send/withdraw zero %s", unbip(assetID))
+		return "", nil, fmt.Errorf("cannot send/withdraw zero %s", unbip(assetID))
 	}
 	wallet, found := c.wallet(assetID)
 	if !found {
-		return nil, newError(missingWalletErr, "no wallet found for %s", unbip(assetID))
+		return "", nil, newError(missingWalletErr, "no wallet found for %s", unbip(assetID))
 	}
-	err = c.connectAndUnlock(crypter, wallet)
+	err := c.connectAndUnlock(crypter, wallet)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
 	if err = wallet.checkPeersAndSyncStatus(); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
 	var coin asset.Coin
@@ -5497,13 +5505,13 @@ func (c *Core) Send(pw []byte, assetID uint32, value uint64, address string, sub
 		if withdrawer, isWithdrawer := wallet.Wallet.(asset.Withdrawer); isWithdrawer {
 			coin, err = withdrawer.Withdraw(address, value, feeSuggestion)
 		} else {
-			return nil, fmt.Errorf("wallet does not support subtracting network fee from withdraw amount")
+			return "", nil, fmt.Errorf("wallet does not support subtracting network fee from withdraw amount")
 		}
 	}
 	if err != nil {
 		subject, details := c.formatDetails(TopicSendError, unbip(assetID), err)
 		c.notify(newSendNote(TopicSendError, subject, details, db.ErrorLevel))
-		return nil, err
+		return "", nil, err
 	}
 
 	sentValue := wallet.Info().UnitInfo.ConventionalString(coin.Value())
@@ -5511,7 +5519,13 @@ func (c *Core) Send(pw []byte, assetID uint32, value uint64, address string, sub
 	c.notify(newSendNote(TopicSendSuccess, subject, details, db.Success))
 
 	c.updateAssetBalance(assetID)
-	return coin, nil
+
+	txCoin, is := coin.(asset.TxCoin)
+	if !is {
+		return "", nil, fmt.Errorf("Send successful, but returned coin is not a TxCoin")
+	}
+
+	return txCoin.TxID(), coin, nil
 }
 
 // ValidateAddress checks that the provided address is valid.

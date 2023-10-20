@@ -605,6 +605,10 @@ func (c *tCoin) ID() dex.Bytes {
 	return c.id
 }
 
+func (c *tCoin) TxID() string {
+	return ""
+}
+
 func (c *tCoin) String() string {
 	return hex.EncodeToString(c.id)
 }
@@ -929,7 +933,7 @@ func (w *TXCWallet) ConfirmTime(id dex.Bytes, nConfs uint32) (time.Time, error) 
 	return time.Time{}, nil
 }
 
-func (w *TXCWallet) Send(address string, value, feeSuggestion uint64) (asset.Coin, error) {
+func (w *TXCWallet) Send(address string, value, feeSuggestion uint64) (asset.TxCoin, error) {
 	w.sendFeeSuggestion = feeSuggestion
 	w.sendCoin.val = value
 	return w.sendCoin, w.sendErr
@@ -2729,7 +2733,7 @@ func TestSend(t *testing.T) {
 	address := "addr"
 
 	// Successful
-	coin, err := tCore.Send(tPW, tUTXOAssetA.ID, 1e8, address, false)
+	_, coin, err := tCore.Send(tPW, tUTXOAssetA.ID, 1e8, address, false)
 	if err != nil {
 		t.Fatalf("Send error: %v", err)
 	}
@@ -2738,13 +2742,13 @@ func TestSend(t *testing.T) {
 	}
 
 	// 0 value
-	_, err = tCore.Send(tPW, tUTXOAssetA.ID, 0, address, false)
+	_, _, err = tCore.Send(tPW, tUTXOAssetA.ID, 0, address, false)
 	if err == nil {
 		t.Fatalf("no error for zero value send")
 	}
 
 	// no wallet
-	_, err = tCore.Send(tPW, 12345, 1e8, address, false)
+	_, _, err = tCore.Send(tPW, 12345, 1e8, address, false)
 	if err == nil {
 		t.Fatalf("no error for unknown wallet")
 	}
@@ -2752,7 +2756,7 @@ func TestSend(t *testing.T) {
 	// connect error
 	wallet.hookedUp = false
 	tWallet.connectErr = tErr
-	_, err = tCore.Send(tPW, tUTXOAssetA.ID, 1e8, address, false)
+	_, _, err = tCore.Send(tPW, tUTXOAssetA.ID, 1e8, address, false)
 	if err == nil {
 		t.Fatalf("no error for wallet connect error")
 	}
@@ -2760,7 +2764,7 @@ func TestSend(t *testing.T) {
 
 	// Send error
 	tWallet.sendErr = tErr
-	_, err = tCore.Send(tPW, tUTXOAssetA.ID, 1e8, address, false)
+	_, _, err = tCore.Send(tPW, tUTXOAssetA.ID, 1e8, address, false)
 	if err == nil {
 		t.Fatalf("no error for wallet send error")
 	}
@@ -2768,7 +2772,7 @@ func TestSend(t *testing.T) {
 
 	// Check the coin.
 	tWallet.sendCoin = &tCoin{id: []byte{'a'}}
-	coin, err = tCore.Send(tPW, tUTXOAssetA.ID, 3e8, address, false)
+	_, coin, err = tCore.Send(tPW, tUTXOAssetA.ID, 3e8, address, false)
 	if err != nil {
 		t.Fatalf("coin check error: %v", err)
 	}
@@ -2794,7 +2798,7 @@ func TestSend(t *testing.T) {
 
 	wallet.Wallet = feeRater
 
-	coin, err = tCore.Send(tPW, tUTXOAssetA.ID, 2e8, address, false)
+	_, coin, err = tCore.Send(tPW, tUTXOAssetA.ID, 2e8, address, false)
 	if err != nil {
 		t.Fatalf("FeeRater Withdraw/send error: %v", err)
 	}
@@ -2808,7 +2812,7 @@ func TestSend(t *testing.T) {
 
 	// wallet is not synced
 	wallet.synced = false
-	_, err = tCore.Send(tPW, tUTXOAssetA.ID, 1e8, address, false)
+	_, _, err = tCore.Send(tPW, tUTXOAssetA.ID, 1e8, address, false)
 	if err == nil {
 		t.Fatalf("Expected error for a non-synchronized wallet")
 	}
