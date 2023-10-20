@@ -780,6 +780,7 @@ func testBackend(segwit bool) (*Backend, func()) {
 		Logger:         logger,
 		ChainParams:    testParams,
 	}, nil)
+	btc.lastBlock.Store(time.Now())
 	btc.node = &RPCClient{
 		requester: &testNode{},
 	}

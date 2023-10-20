@@ -170,6 +170,8 @@ type Market struct {
 	lastRate      uint64
 
 	checkParcelLimit func(user account.AccountID, calcParcels MarketParcelCalculator) bool
+
+	selfSuspended atomic.Bool
 }
 
 // Storage is the DB interface required by Market.
@@ -1521,30 +1523,31 @@ func (m *Market) Run(ctx context.Context) {
 		nextEpochIdx = currentEpoch.Epoch + 1
 		m.activeEpochIdx = currentEpoch.Epoch
 
-		if !running {
-			// Check that both blockchains are synced before actually starting.
-			synced, err := m.swapper.ChainsSynced(m.marketInfo.Base, m.marketInfo.Quote)
-			if err != nil {
-				log.Errorf("Not starting %s market because of ChainsSynced error: %v", m.marketInfo.Name, err)
-			} else if !synced {
-				log.Debugf("Delaying start of %s market because chains aren't synced", m.marketInfo.Name)
-			} else {
-				// Open up SubmitOrderAsync.
-				close(m.running)
-				running = true
-				log.Infof("Market %s now accepting orders, epoch %d:%d", m.marketInfo.Name,
-					currentEpoch.Epoch, epochDuration)
-				// Signal to the book router if this is a resume.
-				if m.suspendEpochIdx != 0 {
-					notifyChan <- &updateSignal{
-						action: resumeAction,
-						data: sigDataResume{
-							epochIdx: currentEpoch.Epoch,
-							// TODO: signal config or new config
-						},
-					}
+		synced, err := m.swapper.ChainsSynced(m.marketInfo.Base, m.marketInfo.Quote)
+		if err != nil {
+			log.Errorf("ChainsSynced error: %v", m.marketInfo.Name, err)
+			// shutdown?
+		} else if synced && !running {
+			// Open up SubmitOrderAsync.
+			close(m.running)
+			running = true
+			log.Infof("Market %s now accepting orders, epoch %d:%d", m.marketInfo.Name,
+				currentEpoch.Epoch, epochDuration)
+			// Signal to the book router if this is a resume.
+			if m.suspendEpochIdx != 0 {
+				notifyChan <- &updateSignal{
+					action: resumeAction,
+					data: sigDataResume{
+						epochIdx: currentEpoch.Epoch,
+						// TODO: signal config or new config
+					},
 				}
 			}
+		} else if !synced && running {
+			log.Errorf("Chains no longer synced. Self-suspending")
+			currentEpoch = nil
+			cancel() // graceful market shutdown
+			return
 		}
 
 		// Replace the next epoch and set the cycle Timer.

@@ -743,6 +743,7 @@ func testMsgTxRevocation() *testMsgTx {
 // Make a backend that logs to stdout.
 func testBackend() (*Backend, func()) {
 	dcr := unconnectedDCR(&asset.BackendConfig{Logger: tLogger}, nil) // never actually Connect, so no rpc config
+	dcr.lastBlock.Store(time.Now())
 	dcr.node = &testNode{}
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -14,6 +14,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"decred.org/dcrdex/dex"
@@ -141,6 +142,7 @@ type Backend struct {
 	// method. signalMtx locks the blockChans array.
 	signalMtx   sync.RWMutex
 	blockChans  map[chan *asset.BlockUpdate]struct{}
+	lastBlock   atomic.Value
 	chainParams *chaincfg.Params
 	// A logger will be provided by the dex for this backend. All logging should
 	// use the provided logger.
@@ -366,6 +368,8 @@ func (btc *Backend) Connect(ctx context.Context) (*sync.WaitGroup, error) {
 		return nil, fmt.Errorf("error creating %q RPC client: %w", btc.name, err)
 	}
 
+	btc.lastBlock.Store(time.Now())
+
 	maxFeeBlocks := btc.cfg.MaxFeeBlocks
 	if maxFeeBlocks == 0 {
 		maxFeeBlocks = defaultMaxFeeBlocks
@@ -473,7 +477,10 @@ func (btc *Backend) Synced() (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("GetBlockChainInfo error: %w", err)
 	}
-	return !chainInfo.InitialBlockDownload && chainInfo.Headers-chainInfo.Blocks <= 1, nil
+	if chainInfo.InitialBlockDownload || chainInfo.Headers-chainInfo.Blocks > 1 {
+		return false, nil
+	}
+	return time.Since(btc.lastBlock.Load().(time.Time)) < time.Hour, nil
 }
 
 // Redemption is an input that redeems a swap contract.
@@ -1319,6 +1326,7 @@ func (btc *Backend) run(ctx context.Context) {
 	blockPoll := time.NewTicker(blockPollInterval)
 	defer blockPoll.Stop()
 	addBlock := func(block *GetBlockVerboseResult, reorg bool) {
+		btc.lastBlock.Store(time.Now())
 		_, err := btc.blockCache.add(block)
 		if err != nil {
 			btc.log.Errorf("error adding new best block to cache: %v", err)

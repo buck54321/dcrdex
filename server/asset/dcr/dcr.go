@@ -15,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"decred.org/dcrdex/dex"
@@ -267,6 +268,7 @@ type Backend struct {
 	// method. signalMtx locks the blockChans array.
 	signalMtx  sync.RWMutex
 	blockChans map[chan *asset.BlockUpdate]struct{}
+	lastBlock  atomic.Value // time.Time
 	// The block cache stores just enough info about the blocks to prevent future
 	// calls to GetBlockVerbose.
 	blockCache *blockCache
@@ -325,6 +327,8 @@ func (dcr *Backend) Connect(ctx context.Context) (_ *sync.WaitGroup, err error) 
 		return nil, err
 	}
 	dcr.client = client
+
+	dcr.lastBlock.Store(time.Now())
 
 	// Ensure the network of the connected node is correct for the expected
 	// dex.Network.
@@ -519,7 +523,10 @@ func (dcr *Backend) Synced() (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("GetBlockChainInfo error: %w", translateRPCCancelErr(err))
 	}
-	return !chainInfo.InitialBlockDownload && chainInfo.Headers-chainInfo.Blocks <= 1, nil
+	if chainInfo.InitialBlockDownload || chainInfo.Headers-chainInfo.Blocks > 1 {
+		return false, nil
+	}
+	return time.Since(dcr.lastBlock.Load().(time.Time)) < time.Hour, nil
 }
 
 // Redemption is an input that redeems a swap contract.
@@ -882,6 +889,7 @@ func (dcr *Backend) run(ctx context.Context) {
 	blockPoll := time.NewTicker(blockPollInterval)
 	defer blockPoll.Stop()
 	addBlock := func(block *chainjson.GetBlockVerboseResult, reorg bool) {
+		dcr.lastBlock.Store(time.Now())
 		_, err := dcr.blockCache.add(block)
 		if err != nil {
 			dcr.log.Errorf("error adding new best block to cache: %v", err)
