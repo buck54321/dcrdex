@@ -22,7 +22,7 @@ ALPHA_WALLET_HTTPPROF_PORT="19563"
 ALPHA_WALLET_CLONE_RPC_PORT="19564"
 
 BETA_WALLET_SEED="3285a47d6a59f9c548b2a72c2c34a2de97967bede3844090102bbba76707fe9d"
-BETA_MINING_ADDR="Ssge52jCzbixgFC736RSTrwAnvH3a4hcPRX"
+BETA_ADDR="Ssge52jCzbixgFC736RSTrwAnvH3a4hcPRX"
 BETA_WALLET_RPC_PORT="19572"
 BETA_WALLET_HTTPPROF_PORT="19573"
 
@@ -41,6 +41,13 @@ export VSPD_WALLET_RPC_PORT="19590"
 VSP_HARNESS_TEST_ADDR="SsXsicdfL1jB2Rzu2UA7P2B9gnpqA9YGypw"
 
 VSPD_PORT="19591"
+
+# If using mixer, send to unmixed account.
+if [ -z "$NOMIXER" ] ; then
+  BETA_ADDR="SsjYmbNGs9DMy2TMyUSG65ga6HuY5RiuJeb"
+  TRADING_WALLET1_ADDRESS="Ssh2tAzP9tVkZTGV6zAzY6v7HkuN8iosznX"
+  TRADING_WALLET2_ADDRESS="SsoELStS6mcnWuiYgZhpno3ZXtLP9m4FJEn"
+fi
 
 # WAIT can be used in a send-keys call along with a `wait-for donedcr` command to
 # wait for process termination.
@@ -240,11 +247,13 @@ echo "Writing node config files"
 # Configuration Files
 ################################################################################
 
+EVERY_CERT="${NODES_ROOT}/alpha/rpc.cert"
+
 # Alpha node config. Not used here, but added for use in dcrdex's markets.json
 cat > "${NODES_ROOT}/alpha/dcrd.conf" <<EOF
 rpcuser=${RPC_USER}
 rpcpass=${RPC_PASS}
-rpccert="${NODES_ROOT}/alpha/rpc.cert"
+rpccert="${EVERY_CERT}"
 rpclisten=127.0.0.1:${ALPHA_NODE_RPC_PORT}
 EOF
 
@@ -284,7 +293,7 @@ echo "Starting simnet beta node (no txindex for a typical client)"
 tmux send-keys -t $SESSION:2 "dcrd --appdata=${NODES_ROOT}/beta \
 --rpcuser=${RPC_USER} --rpcpass=${RPC_PASS} \
 --listen=:${BETA_NODE_PORT} --rpclisten=:${BETA_NODE_RPC_PORT} \
---miningaddr=${BETA_MINING_ADDR} \
+--miningaddr=${BETA_ADDR} \
 --connect=127.0.0.1:${ALPHA_NODE_PORT} \
 --debuglevel=debug \
 --whitelist=127.0.0.0/8 --whitelist=::1 \
@@ -381,18 +390,18 @@ if [ "$MINE" = "1" ]; then
   tmux send-keys -t $SESSION:0 "./mine-alpha 100${WAIT}" C-m\; wait-for donedcr
 
   # Send beta some dough while we're here.
-  tmux send-keys -t $SESSION:0 "./alpha sendtoaddress ${BETA_MINING_ADDR} 1000${WAIT}" C-m\; wait-for donedcr
+  tmux send-keys -t $SESSION:0 "./alpha sendtoaddress ${BETA_ADDR} 1000${WAIT}" C-m\; wait-for donedcr
 
   # Have alpha send some credits to the other wallets
   for i in 10 18 5 7 1 15 3 25
   do
-    RECIPIENTS="{\"${TRADING_WALLET1_ADDRESS}\":${i},\"${TRADING_WALLET2_ADDRESS}\":${i},\"${BETA_MINING_ADDR}\":${i},\"${VSP_HARNESS_TEST_ADDR}\":${i}}"
+    RECIPIENTS="{\"${TRADING_WALLET1_ADDRESS}\":${i},\"${TRADING_WALLET2_ADDRESS}\":${i},\"${BETA_ADDR}\":${i},\"${VSP_HARNESS_TEST_ADDR}\":${i}}"
     tmux send-keys -t $SESSION:0 "./alpha sendmany default '${RECIPIENTS}'${WAIT}" C-m\; wait-for donedcr
   done
 fi
 
 # Have alpha share a little more wealth, esp. for trade_simnet_test.go
-RECIPIENTS="{\"${TRADING_WALLET1_ADDRESS}\":24,\"${TRADING_WALLET2_ADDRESS}\":24,\"${BETA_MINING_ADDR}\":24,\"${VSP_HARNESS_TEST_ADDR}\":24}"
+RECIPIENTS="{\"${TRADING_WALLET1_ADDRESS}\":24,\"${TRADING_WALLET2_ADDRESS}\":24,\"${BETA_ADDR}\":24,\"${VSP_HARNESS_TEST_ADDR}\":24}"
 for i in {1..60}; do
   tmux send-keys -t $SESSION:0 "./alpha sendmany default '${RECIPIENTS}'${WAIT}" C-m\; wait-for donedcr
 done
@@ -400,11 +409,49 @@ done
 sleep 0.5
 tmux send-keys -t $SESSION:0 "./mine-alpha 2${WAIT}" C-m\; wait-for donedcr
 
+cat > "${NODES_ROOT}/harness-ctl/mine" <<EOF
+./mine-alpha 1
+EOF
+chmod +x "${NODES_ROOT}/harness-ctl/mine"
+# If the mixer is running, send something to the mixing wallets to keep the
+# mixer supplied.
+if [ -z "$NOMIXER" ] ; then
+cat > "${NODES_ROOT}/harness-ctl/mine" <<EOF
+./alpha sendtoaddress ${BETA_ADDR} 1
+./alpha sendtoaddress ${TRADING_WALLET1_ADDRESS} 1
+./alpha sendtoaddress ${TRADING_WALLET2_ADDRESS} 1
+EOF
+fi
+
 # Watch Miner
 if [ -z "$NOMINER" ] ; then
   tmux new-window -t $SESSION:9 -n "miner" $SHELL
   tmux send-keys -t $SESSION:9 "cd ${NODES_ROOT}/harness-ctl" C-m
-  tmux send-keys -t $SESSION:9 "watch -n 15 ./mine-alpha 1" C-m
+  tmux send-keys -t $SESSION:9 "watch -n 15 ./mine" C-m
+fi
+
+cat > "${NODES_ROOT}/harness-ctl/runmixer" <<EOF
+csppserver --dcrd.ws=wss://localhost:${ALPHA_NODE_RPC_PORT}/ws --dcrd.user=user \
+--dcrd.pass=pass -dcrd.ca=${EVERY_CERT} -epoch=1m --https=:33457 --lis=0.0.0.0:33456 \
+--tls="manual=${EVERY_CERT},${NODES_ROOT}/alpha/rpc.key"
+EOF
+chmod +x "${NODES_ROOT}/harness-ctl/runmixer"
+
+if [ -z "$NOMIXER" ] ; then
+  tmux new-window -t $SESSION:10 -n "mixer" $SHELL
+  tmux send-keys -t $SESSION:10 "cd ${NODES_ROOT}/harness-ctl" C-m
+  # tmux send-keys -t $SESSION:10 "./beta " C-m
+  tmux send-keys -t $SESSION:10 "./runmixer" C-m
+  sleep 3
+  tmux send-keys -t $SESSION:0 "./beta walletpassphrase ${WALLET_PASS} 100000000${WAIT}" C-m\; wait-for donedcr
+  tmux send-keys -t $SESSION:0 "./trading1 walletpassphrase ${WALLET_PASS} 100000000${WAIT}" C-m\; wait-for donedcr
+  tmux send-keys -t $SESSION:0 "./trading2 walletpassphrase ${WALLET_PASS} 100000000${WAIT}" C-m\; wait-for donedcr
+  # TODO: Not running mixaccount here, because apparently mixaccount hangs while
+  # it runs, so we would need to run 3 (= minpeers) new tmux windows.
+  # Also saw some errors about fees, so might need to settxfee or something.
+  # tmux send-keys -t $SESSION:0 "./beta mixaccount${WAIT}" C-m\; wait-for donedcr
+  # tmux send-keys -t $SESSION:0 "./trading1 mixaccount${WAIT}" C-m\; wait-for donedcr
+  # tmux send-keys -t $SESSION:0 "./trading2 mixaccount${WAIT}" C-m\; wait-for donedcr
 fi
 
 tmux select-window -t $SESSION:0

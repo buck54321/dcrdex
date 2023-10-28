@@ -28,7 +28,7 @@ if [ "${NAME}" = "beta" ] || [ "${NAME}" = "alpha-clone" ]; then
 fi
 
 # wallet config
-cat > "${WALLET_DIR}/${NAME}.conf" <<EOF
+cat > "${WALLET_DIR}/dcrd.conf" <<EOF
 simnet=1
 nogrpc=1
 appdata=${WALLET_DIR}
@@ -42,31 +42,31 @@ pass=${WALLET_PASS}
 EOF
 
 if [ "${USE_SPV}" = "1" ]; then
-  cat >> "${WALLET_DIR}/${NAME}.conf" <<EOF
+  cat >> "${WALLET_DIR}/dcrd.conf" <<EOF
 spvconnect=127.0.0.1:${DCRD_SPV_PORT}
 spv=1
 EOF
 else
-  cat >> "${WALLET_DIR}/${NAME}.conf" <<EOF
+  cat >> "${WALLET_DIR}/dcrd.conf" <<EOF
 rpcconnect=127.0.0.1:${DCRD_RPC_PORT}
 cafile=${DCRD_RPC_CERT}
 EOF
 fi
 
 if [ "${ENABLE_VOTING}" = "1" ]; then
-cat >> "${WALLET_DIR}/${NAME}.conf" <<EOF
+cat >> "${WALLET_DIR}/dcrd.conf" <<EOF
 enablevoting=1
 EOF
 fi
 
 if [ "${MANUAL_TICKETS}" = "1" ]; then
-cat >> "${WALLET_DIR}/${NAME}.conf" <<EOF
+cat >> "${WALLET_DIR}/dcrd.conf" <<EOF
 manualtickets=1
 EOF
 fi
 
 if [ "${ENABLE_VOTING}" = "2" ]; then
-cat >> "${WALLET_DIR}/${NAME}.conf" <<EOF
+cat >> "${WALLET_DIR}/dcrd.conf" <<EOF
 enablevoting=1
 enableticketbuyer=1
 ticketbuyer.limit=6
@@ -76,7 +76,21 @@ EOF
 fi
 
 if [ "${HTTPPROF_PORT}" != "_" ]; then
-echo "profile=127.0.0.1:${HTTPPROF_PORT}" >> "${WALLET_DIR}/${NAME}.conf"
+echo "profile=127.0.0.1:${HTTPPROF_PORT}" >> "${WALLET_DIR}/dcrd.conf"
+fi
+
+cat >> "${WALLET_DIR}/${NAME}.conf" <<EOF
+username=${RPC_USER}
+password=${RPC_PASS}
+rpclisten=127.0.0.1:${RPC_PORT}
+rpccert=${WALLET_DIR}/rpc.cert
+EOF
+
+if [ -z "$NOMIXER" ] && [ "${ENABLE_VOTING}" != "2" ] ; then
+cat >> "${WALLET_DIR}/${NAME}.conf" <<EOF
+unmixedaccount=unmixed
+tradingaccount=trading
+EOF
 fi
 
 # wallet ctl config
@@ -108,8 +122,26 @@ tmux send-keys -t $TMUX_WIN_ID "set +o history" C-m
 tmux send-keys -t $TMUX_WIN_ID "cd ${WALLET_DIR}" C-m
 
 echo "Creating simnet ${NAME} wallet"
-tmux send-keys -t $TMUX_WIN_ID "dcrwallet -C ${NAME}.conf --create < wallet.answers; tmux wait-for -S ${NAME}" C-m
+tmux send-keys -t $TMUX_WIN_ID "dcrwallet -C dcrd.conf --create < wallet.answers; tmux wait-for -S ${NAME}" C-m
 tmux wait-for ${NAME}
 
 echo "Starting simnet ${NAME} wallet"
-tmux send-keys -t $TMUX_WIN_ID "dcrwallet -C ${NAME}.conf" C-m
+tmux send-keys -t $TMUX_WIN_ID "dcrwallet -C dcrd.conf" C-m
+
+if [ -z "$NOMIXER" ] && [ "${ENABLE_VOTING}" != "2" ] ; then
+echo "Preparing mixing account and restarting"
+sleep 3
+cd "${NODES_ROOT}/harness-ctl"
+./${NAME} createnewaccount unmixed
+./${NAME} createnewaccount trading
+tmux send-keys -t $TMUX_WIN_ID C-c
+sleep 3
+cat >> "${WALLET_DIR}/dcrd.conf" <<EOF
+csppserver=127.0.0.1:33456
+csppserver.ca=${NODES_ROOT}/alpha/rpc.cert
+mixedaccount=default/1
+changeaccount=unmixed
+mixchange=true
+EOF
+tmux send-keys -t $TMUX_WIN_ID "dcrwallet -C dcrd.conf" C-m
+fi
