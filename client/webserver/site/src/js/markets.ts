@@ -3291,7 +3291,6 @@ class BalanceWidget {
         side.parentBal = balTmpl.bal
       }
     }
-
     addRow(intl.prep(intl.ID_AVAILABLE), bal.available, asset.unitInfo)
     addRow(intl.prep(intl.ID_LOCKED), bal.locked + bal.contractlocked + bal.bondlocked, asset.unitInfo)
     addRow(intl.prep(intl.ID_IMMATURE), bal.immature, asset.unitInfo)
