@@ -1796,3 +1796,21 @@ func Test_checkSigS256(t *testing.T) {
 	sig = []byte{0x30, 1, 0x02, 0x01, 9, 0x2, 0x01, 10}
 	ecdsa.ParseDERSignature(sig) // panic on line 139: rLen := int(sigStr[index]) with index=3 and len = 3
 }
+
+func TestForgivenessLimits(t *testing.T) {
+	var bondTier int64 = maxForgivenPenalties
+	rig.mgr.banScore = 20
+	banScore := int32(rig.mgr.banScore)
+	var score int32 = banScore * maxForgivenPenalties
+	tier := rig.mgr.tier(bondTier, score, false)
+	if tier != 0 {
+		t.Fatalf("expected tier zero, got %d", tier)
+	}
+	// Adding a tier won't help with forgiveness of another ban score increment.
+	score += banScore
+	bondTier += 1
+	tier = rig.mgr.tier(bondTier, score, false)
+	if tier != -1 {
+		t.Fatalf("expected tier -1, got %d", tier)
+	}
+}

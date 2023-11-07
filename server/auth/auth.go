@@ -32,6 +32,7 @@ const (
 	scoringOrderLimit  = 40  // last N orders to be considered in preimage miss scoring
 
 	maxIDsPerOrderStatusRequest = 10_000
+	maxForgivenPenalties        = 10
 )
 
 var (
@@ -900,6 +901,20 @@ func (auth *AuthManager) tier(bondTier int64, score int32, legacyFeePaid bool) i
 	}
 	if legacyFeePaid {
 		bondTier++
+	}
+	// Because we only consider a constant number of outcomes in the user's
+	// score, with a high enough tier, a user could never be suspended.
+	// The maximum score is
+	//   noSwapAsTakerScore * scoringMatchLimit + preimageMissScore * scoringOrderLimit
+	//   = 11 * 60 + 2 * 40 = 740.
+	// Each tier provides cushion against 1 banScore = 20. So an account with
+	// bond tier > 740 / 20 = 37 would be un-sunspendable. But we also don't
+	// want user's playing games with lesser penalties, e.g.
+	// noRedeemAsMakerScore = 7. So we'll set a reasonably low limit of
+	// maxForgivenPenalties = 10.
+	if penalties > maxForgivenPenalties {
+		adj := penalties - maxForgivenPenalties
+		bondTier -= adj
 	}
 	return bondTier - penalties
 }
