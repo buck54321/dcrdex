@@ -69,11 +69,9 @@ func newBNCBook() *bncBook {
 
 type bncAssetConfig struct {
 	// symbol is the DEX asset symbol, always lower case
-	symbol string
-	// coin is the asset symbol on binance, always upper case.
-	// For a token like USDC, the coin field will be USDC, but
-	// symbol field will be usdc.eth.
-	coin string
+	assetID uint32
+	// ticker is the asset's ticker, or conventional unit in all caps.
+	ticker string
 	// chain will be the same as coin for the base assets of
 	// a blockchain, but for tokens it will be the chain
 	// that the token is hosted such as "ETH".
@@ -81,41 +79,38 @@ type bncAssetConfig struct {
 	conversionFactor uint64
 }
 
-// TODO: check all symbols
-var dexToBinanceSymbol = map[string]string{
-	"POLYGON": "MATIC",
-	"WETH":    "ETH",
-}
+// MATIC networks: [BSC ETH MATIC]
+// BCH networks: [BCH BNB BSC]
+// BTC networks: [BNB BSC BTC]
+// WBTC networks: [ETH]
+// ETH networks: [ARBITRUM BNB BSC ETH OPTIMISM]
+// - ETH on network BNB not withdrawing and/or depositing. withdraw = false, deposit = true
+// ZEC networks: [BSC ZEC]
+// - ZEC on network BSC not withdrawing and/or depositing. withdraw = false, deposit = true
+// DOGE networks: [BSC DOGE]
+// USDT networks: [AVAXC BNB BSC ETH MATIC SOL TRX]
+// - USDT on network BNB not withdrawing and/or depositing. withdraw = false, deposit = true
+// - USDT on network MATIC not withdrawing and/or depositing. withdraw = false, deposit = true
+// DASH networks: [DASH]
+// USDC networks: [AVAXC BSC ETH MATIC SOL TRX]
+// - USDC on network MATIC not withdrawing and/or depositing. withdraw = false, deposit = false
+// LTC networks: [BNB BSC LTC]
+// - LTC on network BNB not withdrawing and/or depositing. withdraw = false, deposit = true
 
-var binanceToDexSymbol = make(map[string]string)
-
-func init() {
-	for key, value := range dexToBinanceSymbol {
-		binanceToDexSymbol[value] = key
-	}
-}
-
-func mapDexToBinanceSymbol(symbol string) string {
-	if binanceSymbol, found := dexToBinanceSymbol[symbol]; found {
-		return binanceSymbol
-	}
-	return symbol
+var binanceCoinToDexSymbol = map[string]string{
+	"MATIC": "polygon",
 }
 
 func binanceCoinNetworkToDexSymbol(coin, network string) string {
-	if coin == "ETH" && network == "ETH" {
-		return "eth"
-	}
-
 	var dexSymbol, dexNetwork string
-	if symbol, found := binanceToDexSymbol[coin]; found {
-		dexSymbol = strings.ToLower(symbol)
+	if symbol, found := binanceCoinToDexSymbol[coin]; found {
+		dexSymbol = symbol
 	} else {
 		dexSymbol = strings.ToLower(coin)
 	}
 
-	if symbol, found := binanceToDexSymbol[network]; found && network != "ETH" {
-		dexNetwork = strings.ToLower(symbol)
+	if symbol, found := binanceCoinToDexSymbol[network]; found {
+		dexNetwork = symbol
 	} else {
 		dexNetwork = strings.ToLower(network)
 	}
@@ -127,28 +122,26 @@ func binanceCoinNetworkToDexSymbol(coin, network string) string {
 	return fmt.Sprintf("%s.%s", dexSymbol, dexNetwork)
 }
 
-func bncAssetCfg(assetID uint32) (*bncAssetConfig, error) {
-	symbol := dex.BipIDSymbol(assetID)
-	if symbol == "" {
-		return nil, fmt.Errorf("no symbol found for %d", assetID)
-	}
-
-	coin := strings.ToUpper(symbol)
-	chain := strings.ToUpper(symbol)
-	if parts := strings.Split(symbol, "."); len(parts) > 1 {
-		coin = strings.ToUpper(parts[0])
-		chain = strings.ToUpper(parts[1])
-	}
-
-	ui, err := asset.UnitInfo(assetID)
-	if err != nil {
-		return nil, fmt.Errorf("no unit info found for %d", assetID)
+func bncAssetCfg(assetID uint32) (_ *bncAssetConfig, err error) {
+	var chain string
+	var ui dex.UnitInfo
+	if tkn := asset.TokenInfo(assetID); tkn != nil {
+		ui = tkn.UnitInfo
+		pui, err := asset.UnitInfo(tkn.ParentID)
+		if err != nil {
+			return nil, fmt.Errorf("no parent unit info found for token %s", tkn.Name)
+		}
+		chain = pui.Conventional.Unit
+	} else if ui, err = asset.UnitInfo(assetID); err != nil {
+		return nil, fmt.Errorf("no unit info for apparent base chain asset %d", assetID)
+	} else {
+		chain = ui.Conventional.Unit
 	}
 
 	return &bncAssetConfig{
-		symbol:           symbol,
-		coin:             mapDexToBinanceSymbol(coin),
-		chain:            mapDexToBinanceSymbol(chain),
+		assetID:          assetID,
+		ticker:           ui.Conventional.Unit,
+		chain:            chain,
 		conversionFactor: ui.Conventional.ConversionFactor,
 	}, nil
 }
@@ -419,9 +412,9 @@ func (bnc *binance) Balance(assetID uint32) (*ExchangeBalance, error) {
 	bnc.balanceMtx.RLock()
 	defer bnc.balanceMtx.RUnlock()
 
-	bal, found := bnc.balances[assetConfig.coin]
+	bal, found := bnc.balances[assetConfig.ticker]
 	if !found {
-		return nil, fmt.Errorf("no %q balance found", assetConfig.coin)
+		return nil, fmt.Errorf("no %q balance found", assetConfig.ticker)
 	}
 
 	return &ExchangeBalance{
@@ -454,7 +447,7 @@ func (bnc *binance) Trade(ctx context.Context, baseID, quoteID uint32, sell bool
 		return "", fmt.Errorf("error getting asset cfg for %d: %w", quoteID, err)
 	}
 
-	slug := baseCfg.coin + quoteCfg.coin
+	slug := baseCfg.ticker + quoteCfg.ticker
 
 	marketsMap := bnc.markets.Load().(map[string]*bnMarket)
 	market, found := marketsMap[slug]
@@ -520,14 +513,14 @@ func (bnc *binance) Withdraw(ctx context.Context, assetID uint32, qty uint64, ad
 		return fmt.Errorf("error getting symbol data for %d: %w", assetID, err)
 	}
 
-	precision, err := bnc.assetPrecision(assetCfg.coin)
+	precision, err := bnc.assetPrecision(assetCfg.ticker)
 	if err != nil {
-		return fmt.Errorf("error getting precision for %s: %w", assetCfg.coin, err)
+		return fmt.Errorf("error getting precision for %s: %w", assetCfg.ticker, err)
 	}
 
 	amt := float64(qty) / float64(assetCfg.conversionFactor)
 	v := make(url.Values)
-	v.Add("coin", assetCfg.coin)
+	v.Add("coin", assetCfg.ticker)
 	v.Add("network", assetCfg.chain)
 	v.Add("address", address)
 	v.Add("amount", strconv.FormatFloat(amt, 'f', precision, 64))
@@ -551,7 +544,7 @@ func (bnc *binance) Withdraw(ctx context.Context, assetID uint32, qty uint64, ad
 
 			withdrawHistoryResponse := []*withdrawalHistoryStatus{}
 			v := make(url.Values)
-			v.Add("coin", assetCfg.coin)
+			v.Add("coin", assetCfg.ticker)
 			err = bnc.getAPI(ctx, "/sapi/v1/capital/withdraw/history", v, true, true, &withdrawHistoryResponse)
 			if err != nil {
 				bnc.log.Errorf("Error getting withdrawal status: %v", err)
@@ -603,7 +596,7 @@ func (bnc *binance) GetDepositAddress(ctx context.Context, assetID uint32) (stri
 	}
 
 	v := make(url.Values)
-	v.Add("coin", assetCfg.coin)
+	v.Add("coin", assetCfg.ticker)
 	v.Add("network", assetCfg.chain)
 
 	resp := struct {
@@ -729,7 +722,7 @@ func (bnc *binance) CancelTrade(ctx context.Context, baseID, quoteID uint32, tra
 		return fmt.Errorf("error getting asset cfg for %d: %w", quoteID, err)
 	}
 
-	slug := baseCfg.coin + quoteCfg.coin
+	slug := baseCfg.ticker + quoteCfg.ticker
 
 	v := make(url.Values)
 	v.Add("symbol", slug)
@@ -1346,7 +1339,7 @@ func (bnc *binance) UnsubscribeMarket(baseID, quoteID uint32) (err error) {
 		return fmt.Errorf("error getting asset cfg for %d: %w", quoteID, err)
 	}
 
-	bnc.stopMarketDataStream(strings.ToLower(baseCfg.coin + quoteCfg.coin))
+	bnc.stopMarketDataStream(strings.ToLower(baseCfg.ticker + quoteCfg.ticker))
 	return nil
 }
 
@@ -1363,7 +1356,7 @@ func (bnc *binance) SubscribeMarket(ctx context.Context, baseID, quoteID uint32)
 		return fmt.Errorf("error getting asset cfg for %d: %w", quoteID, err)
 	}
 
-	return bnc.startMarketDataStream(ctx, baseCfg.coin, quoteCfg.coin)
+	return bnc.startMarketDataStream(ctx, baseCfg.ticker, quoteCfg.ticker)
 }
 
 // VWAP returns the volume weighted average price for a certain quantity
@@ -1383,7 +1376,7 @@ func (bnc *binance) VWAP(baseID, quoteID uint32, sell bool, qty uint64) (avgPric
 		return fail(fmt.Errorf("error getting asset cfg for %d: %w", quoteID, err))
 	}
 
-	slug := strings.ToLower(baseCfg.coin + quoteCfg.coin)
+	slug := strings.ToLower(baseCfg.ticker + quoteCfg.ticker)
 	var side []*bookBin
 	var latestUpdate int64
 	bnc.booksMtx.RLock()
