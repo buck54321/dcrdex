@@ -205,9 +205,6 @@ export default class Application {
     this.updateMenuItemsDisplay()
     // initialize browser notifications
     ntfn.fetchBrowserNtfnSettings()
-    // Load recent notifications from Window.localStorage.
-    const notes = State.fetchLocal(State.notificationsLK)
-    this.setNotes(notes || [])
     // Connect the websocket and register the notification route.
     ws.connect(getSocketURI(), this.reconnected)
     ws.registerRoute(notificationRoute, (note: CoreNote) => {
@@ -396,6 +393,19 @@ export default class Application {
       Doc.show(page.noteList)
       this.ackNotes()
     })
+
+    // event handler for external links in notifications.  This is a delegated handler
+    // in order to avoid rebinding click handlers if bindUrlHandlers() were to be called
+    // after prepend*Element()
+    if (window.openUrl) {
+      bind(page.noteBox, 'click', (e: MouseEvent) => {
+        const link = e.target as HTMLElement
+        if (link.tagName === 'A' && link.getAttribute('target') === '_blank') {
+          e.preventDefault()
+          window.openUrl(link.getAttribute('href') ?? '')
+        }
+      })
+    }
   }
 
   /*
@@ -502,6 +512,10 @@ export default class Application {
     }
     page.profileBox.classList.add('authed')
     Doc.show(page.noteBell, page.walletsMenuEntry, page.marketsMenuEntry)
+
+    // Load recent notifications from Window.localStorage.
+    const notes = State.fetchLocal(State.notificationsLK)
+    this.setNotes(notes || [])
   }
 
   /* attachCommon scans the provided node and handles some common bindings. */
@@ -695,7 +709,7 @@ export default class Application {
     const { popupTmpl, popupNotes, showPopups } = this
     if (showPopups) {
       const span = popupTmpl.cloneNode(true) as HTMLElement
-      Doc.tmplElement(span, 'text').textContent = `${note.subject}: ${note.details}`
+      Doc.tmplElement(span, 'text').textContent = `${note.subject}: ${ntfn.plainNote(note.details)}`
       const indicator = Doc.tmplElement(span, 'indicator')
       if (note.severity === ntfn.POKE) {
         Doc.hide(indicator)
@@ -799,7 +813,7 @@ export default class Application {
     }
 
     Doc.safeSelector(el, 'div.note-subject').textContent = note.subject
-    Doc.safeSelector(el, 'div.note-details').textContent = note.details
+    Doc.safeSelector(el, 'div.note-details').innerHTML = ntfn.richNote(note.details)
     const np: CoreNotePlus = { el, ...note }
     return [el, np]
   }
@@ -808,7 +822,7 @@ export default class Application {
     const el = this.page.pokeTmpl.cloneNode(true) as NoteElement
     const d = new Date(note.stamp)
     Doc.tmplElement(el, 'dateTime').textContent = `${d.toLocaleDateString()}, ${d.toLocaleTimeString()}`
-    Doc.tmplElement(el, 'details').textContent = `${note.subject}: ${note.details}`
+    Doc.tmplElement(el, 'details').innerHTML = `${note.subject}: ${ntfn.richNote(note.details)}`
     const np: CoreNotePlus = { el, ...note }
     return [el, np]
   }

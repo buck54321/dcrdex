@@ -1,6 +1,7 @@
 import { CoreNote } from './registry'
 import * as intl from './locales'
 import State from './state'
+import { setCoinHref } from './coinexplorers'
 
 export const IGNORE = 0
 export const DATA = 1
@@ -94,7 +95,7 @@ export function showBrowserNtfn (title: string, body?: string) {
 
 export function browserNotify (note: CoreNote) {
   if (!browserNtfnSettings[note.type]) return
-  showBrowserNtfn(note.subject, note.details)
+  showBrowserNtfn(note.subject, plainNote(note.details))
 }
 
 export async function fetchBrowserNtfnSettings (): Promise<BrowserNtfnSetting> {
@@ -110,4 +111,42 @@ export async function updateNtfnSetting (noteType: string, enabled: boolean) {
   await fetchBrowserNtfnSettings()
   browserNtfnSettings[noteType] = enabled
   State.storeLocal(browserNotificationsSettingsKey(), browserNtfnSettings)
+}
+
+const coinExplorerTokenRe = /\{\{\{([^|]+)\|([^}]+)\}\}\}/g
+const orderTokenRe = /\{\{\{order\|([^}]+)\}\}\}/g
+
+/*
+ * richNote replaces tx and order hash tokens in the input string with
+ * <a> elements that link to the asset's chain explorer and order details
+ * view, for rendering in the notification/poke lists.
+ */
+export function richNote (inputString: string): string {
+  let replacedString = inputString.replace(orderTokenRe, (_match, orderToken) => {
+    const linkElement = document.createElement('a')
+    linkElement.setAttribute('href', '/order/' + orderToken)
+    linkElement.setAttribute('class', 'subtlelink')
+    linkElement.textContent = orderToken.slice(0, 8)
+    return linkElement.outerHTML
+  })
+  replacedString = replacedString.replace(coinExplorerTokenRe, (_match, assetID, hash) => {
+    const linkElement = document.createElement('a')
+    linkElement.setAttribute('data-explorer-coin', hash)
+    linkElement.setAttribute('target', '_blank')
+    linkElement.textContent = hash.slice(0, 8)
+    setCoinHref(assetID, linkElement)
+    return linkElement.outerHTML
+  })
+  return replacedString
+}
+
+/*
+ * plainNote replaces tx and order hash tokens tokens in the input string with
+ * shortened hashes, for rendering in browser notifications and popups.
+ */
+export function plainNote (inputString: string): string {
+  const replacedString = inputString.replace(coinExplorerTokenRe, (_match, _assetID, hash) => {
+    return hash.slice(0, 8)
+  })
+  return replacedString
 }

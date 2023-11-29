@@ -729,7 +729,7 @@ func (c *Core) tryCancelTrade(dc *dexConnection, tracker *trackedTrade) error {
 	c.log.Infof("Cancel order %s targeting order %s at %s has been placed",
 		co.ID(), oid, dc.acct.host)
 
-	subject, details := c.formatDetails(TopicCancellingOrder, tracker.token())
+	subject, details := c.formatDetails(TopicCancellingOrder, makeOrderToken(tracker.orderID()))
 	c.notify(newOrderNote(TopicCancellingOrder, subject, details, db.Poke, tracker.coreOrderInternal()))
 
 	return nil
@@ -6557,7 +6557,7 @@ func (c *Core) sendTradeRequest(tr *tradeRequest) (*Order, error) {
 	if !form.IsLimit && !form.Sell {
 		ui := wallets.quoteWallet.Info().UnitInfo
 		subject, details := c.formatDetails(TopicYoloPlaced,
-			ui.ConventionalString(corder.Qty), ui.Conventional.Unit, tracker.token())
+			ui.ConventionalString(corder.Qty), ui.Conventional.Unit, makeOrderToken(tracker.orderID()))
 		c.notify(newOrderNoteWithTempID(TopicYoloPlaced, subject, details, db.Poke, corder, tr.tempID))
 	} else {
 		rateString := "market"
@@ -6569,7 +6569,7 @@ func (c *Core) sendTradeRequest(tr *tradeRequest) (*Order, error) {
 		if corder.Sell {
 			topic = TopicSellOrderPlaced
 		}
-		subject, details := c.formatDetails(topic, ui.ConventionalString(corder.Qty), ui.Conventional.Unit, rateString, tracker.token())
+		subject, details := c.formatDetails(topic, ui.ConventionalString(corder.Qty), ui.Conventional.Unit, rateString, makeOrderToken(tracker.orderID()))
 		c.notify(newOrderNoteWithTempID(topic, subject, details, db.Poke, corder, tr.tempID))
 	}
 
