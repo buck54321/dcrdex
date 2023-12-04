@@ -1,7 +1,8 @@
-import { CoreNote } from './registry'
+import { CoreNote, PageElement } from './registry'
 import * as intl from './locales'
 import State from './state'
 import { setCoinHref } from './coinexplorers'
+import Doc from './doc'
 
 export const IGNORE = 0
 export const DATA = 1
@@ -117,27 +118,27 @@ const coinExplorerTokenRe = /\{\{\{([^|]+)\|([^}]+)\}\}\}/g
 const orderTokenRe = /\{\{\{order\|([^}]+)\}\}\}/g
 
 /*
- * richNote replaces tx and order hash tokens in the input string with
+ * insertRichNote replaces tx and order hash tokens in the input string with
  * <a> elements that link to the asset's chain explorer and order details
- * view, for rendering in the notification/poke lists.
+ * view, and inserts the resulting HTML into the supplied parent element.
  */
-export function richNote (inputString: string): string {
-  let replacedString = inputString.replace(orderTokenRe, (_match, orderToken) => {
-    const linkElement = document.createElement('a')
-    linkElement.setAttribute('href', '/order/' + orderToken)
-    linkElement.setAttribute('class', 'subtlelink')
-    linkElement.textContent = orderToken.slice(0, 8)
-    return linkElement.outerHTML
+export function insertRichNote (parent: PageElement, inputString: string) {
+  const s = inputString.replace(orderTokenRe, (_match, orderToken) => {
+    const link = document.createElement('a')
+    link.setAttribute('href', '/order/' + orderToken)
+    link.setAttribute('class', 'subtlelink')
+    link.textContent = orderToken.slice(0, 8)
+    return link.outerHTML
+  }).replace(coinExplorerTokenRe, (_match, assetID, hash) => {
+    const link = document.createElement('a')
+    link.setAttribute('data-explorer-coin', hash)
+    link.setAttribute('target', '_blank')
+    link.textContent = hash.slice(0, 8)
+    setCoinHref(assetID, link)
+    return link.outerHTML
   })
-  replacedString = replacedString.replace(coinExplorerTokenRe, (_match, assetID, hash) => {
-    const linkElement = document.createElement('a')
-    linkElement.setAttribute('data-explorer-coin', hash)
-    linkElement.setAttribute('target', '_blank')
-    linkElement.textContent = hash.slice(0, 8)
-    setCoinHref(assetID, linkElement)
-    return linkElement.outerHTML
-  })
-  return replacedString
+  const els = Doc.noderize(s).body
+  while (els.firstChild) parent.appendChild(els.firstChild)
 }
 
 /*

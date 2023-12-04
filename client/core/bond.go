@@ -565,8 +565,8 @@ func (c *Core) refundExpiredBonds(ctx context.Context, acct *dexAccount, cfg *de
 			c.log.Warnf("Bond output not found, possibly already spent or never mined! "+
 				"Marking refunded. Backup refund transaction: %x", bond.RefundTx)
 		} else {
-			subject, details := c.formatDetails(TopicBondRefunded, makeTxToken(bond.CoinID.String(), bond.AssetID), acct.host,
-				makeTxToken(refundCoinStr, bond.AssetID), wallet.amtString(refundVal), wallet.amtString(bond.Amount))
+			subject, details := c.formatDetails(TopicBondRefunded, makeCoinIDToken(bond.CoinID.String(), bond.AssetID), acct.host,
+				makeCoinIDToken(refundCoinStr, bond.AssetID), wallet.amtString(refundVal), wallet.amtString(bond.Amount))
 			c.notify(newBondRefundNote(TopicBondRefunded, subject, details, db.Success))
 		}
 
@@ -1534,7 +1534,7 @@ func (c *Core) makeAndPostBond(dc *dexConnection, acctExists bool, wallet *xcWal
 	c.updateAssetBalance(bond.AssetID)
 
 	// Start waiting for reqConfs.
-	subject, details := c.formatDetails(TopicBondConfirming, reqConfs, makeTxToken(bondCoinStr, bond.AssetID), unbip(bond.AssetID), dc.acct.host)
+	subject, details := c.formatDetails(TopicBondConfirming, reqConfs, makeCoinIDToken(bondCoinStr, bond.AssetID), unbip(bond.AssetID), dc.acct.host)
 	c.notify(newBondPostNoteWithConfirmations(TopicBondConfirming, subject,
 		details, db.Success, bond.AssetID, bondCoinStr, 0, dc.acct.host, c.exchangeAuth(dc)))
 	// Set up the coin waiter, which watches confirmations so the user knows
