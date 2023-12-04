@@ -157,7 +157,7 @@ func (c *Core) formatDetails(topic Topic, args ...any) (translatedSubject, detai
 	return trans.subject, c.localePrinter.Sprintf(string(topic), args...)
 }
 
-func makeTxToken(txHash string, assetID uint32) string {
+func makeCoinIDToken(txHash string, assetID uint32) string {
 	return fmt.Sprintf("{{{%d|%s}}}", assetID, txHash)
 }
 

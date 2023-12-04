@@ -394,7 +394,7 @@ export default class Application {
       this.ackNotes()
     })
 
-    // event handler for external links in notifications.  This is a delegated handler
+    // Event handler for external links in notifications.  This is a delegated handler
     // in order to avoid rebinding click handlers if bindUrlHandlers() were to be called
     // after prepend*Element()
     if (window.openUrl) {
@@ -813,7 +813,7 @@ export default class Application {
     }
 
     Doc.safeSelector(el, 'div.note-subject').textContent = note.subject
-    Doc.safeSelector(el, 'div.note-details').innerHTML = ntfn.richNote(note.details)
+    ntfn.insertRichNote(Doc.safeSelector(el, 'div.note-details'), note.details)
     const np: CoreNotePlus = { el, ...note }
     return [el, np]
   }
@@ -822,7 +822,8 @@ export default class Application {
     const el = this.page.pokeTmpl.cloneNode(true) as NoteElement
     const d = new Date(note.stamp)
     Doc.tmplElement(el, 'dateTime').textContent = `${d.toLocaleDateString()}, ${d.toLocaleTimeString()}`
-    Doc.tmplElement(el, 'details').innerHTML = `${note.subject}: ${ntfn.richNote(note.details)}`
+    Doc.tmplElement(el, 'subject').textContent = `${note.subject}:`
+    ntfn.insertRichNote(Doc.tmplElement(el, 'details'), note.details)
     const np: CoreNotePlus = { el, ...note }
     return [el, np]
   }

@@ -135,11 +135,11 @@ function baseChainID (assetID: number) {
  * assetID and data-explorer-coin value present on supplied link element.
  */
 export function setCoinHref (assetID: number, link: PageElement) {
-  // setCoinHref may get called from `richNote()` earlier than the user
+  // setCoinHref may get called from `insertRichNote()` earlier than the user
   // data is fetched, therefore we need to check if the user
   // object is available.
   // If it is not then we return early.  This does no harm except
-  // the tx hash in the notification will not be clickable.
+  // the coin ID in the notification will not be clickable.
   // The order details screen is unaffected because user data
   // is guaranteed to be available at the time of rendering.
   if (!app().user) return
