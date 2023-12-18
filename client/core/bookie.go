@@ -734,7 +734,7 @@ func handleTradeSuspensionMsg(c *Core, dc *dexConnection, msg *msgjson.Message) 
 			tracker.metaData.Host == dc.acct.host && tracker.status() == order.OrderStatusBooked {
 			// Locally revoke the purged book order.
 			tracker.revoke()
-			subject, details := c.formatDetails(TopicOrderAutoRevoked, tracker.token(), sp.MarketID, dc.acct.host)
+			subject, details := c.formatDetails(TopicOrderAutoRevoked, tracker.noteToken(), sp.MarketID, dc.acct.host)
 			c.notify(newOrderNote(TopicOrderAutoRevoked, subject, details, db.WarningLevel, tracker.coreOrder()))
 			updatedAssets.count(tracker.fromAssetID)
 		}

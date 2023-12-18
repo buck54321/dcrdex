@@ -237,6 +237,7 @@ type WebServer struct {
 	wsServer     *websocket.Server
 	mux          *chi.Mux
 	core         clientCore
+	net          dex.Network
 	mm           *mm.MarketMaker
 	mmCfgPath    string
 	addr         string
@@ -350,6 +351,7 @@ func New(cfg *Config) (*WebServer, error) {
 	// Make the server here so its methods can be registered.
 	s := &WebServer{
 		core:            cfg.Core,
+		net:             cfg.Core.Network(),
 		mm:              cfg.MarketMaker,
 		mmCfgPath:       cfg.MMCfgPath,
 		mux:             mux,

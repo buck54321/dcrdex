@@ -87,6 +87,7 @@ export default class Application {
   notes: CoreNotePlus[]
   pokes: CoreNotePlus[]
   user: User
+  net: number
   seedGenTime: number
   commitHash: string
   showPopups: boolean
@@ -186,6 +187,7 @@ export default class Application {
     // include the header. Main should define a data-handler attribute
     // associated with one of the available constructors.
     this.main = idel(document, 'main')
+    this.net = parseInt(document.body.dataset.net ?? '')
     const handler = this.main.dataset.handler
     // Don't fetch the user until we know what page we're on.
     await this.fetchUser()
@@ -205,6 +207,9 @@ export default class Application {
     this.updateMenuItemsDisplay()
     // initialize browser notifications
     ntfn.fetchBrowserNtfnSettings()
+    // Load recent notifications from Window.localStorage.
+    const notes = State.fetchLocal(State.notificationsLK)
+    this.setNotes(notes || [])
     // Connect the websocket and register the notification route.
     ws.connect(getSocketURI(), this.reconnected)
     ws.registerRoute(notificationRoute, (note: CoreNote) => {
@@ -393,19 +398,6 @@ export default class Application {
       Doc.show(page.noteList)
       this.ackNotes()
     })
-
-    // Event handler for external links in notifications.  This is a delegated handler
-    // in order to avoid rebinding click handlers if bindUrlHandlers() were to be called
-    // after prepend*Element()
-    if (window.openUrl) {
-      bind(page.noteBox, 'click', (e: MouseEvent) => {
-        const link = e.target as HTMLElement
-        if (link.tagName === 'A' && link.getAttribute('target') === '_blank') {
-          e.preventDefault()
-          window.openUrl(link.getAttribute('href') ?? '')
-        }
-      })
-    }
   }
 
   /*
@@ -513,10 +505,6 @@ export default class Application {
     page.profileBox.classList.add('authed')
     Doc.show(page.noteBell, page.walletsMenuEntry)
     Doc.setVis(Object.keys(user.exchanges).length > 0, page.marketsMenuEntry)
-
-    // Load recent notifications from Window.localStorage.
-    const notes = State.fetchLocal(State.notificationsLK)
-    this.setNotes(notes || [])
   }
 
   /* attachCommon scans the provided node and handles some common bindings. */
@@ -797,6 +785,7 @@ export default class Application {
 
   prependListElement (noteList: HTMLElement, note: CoreNotePlus, el: NoteElement) {
     el.note = note
+    this.bindUrlHandlers(el)
     noteList.prepend(el)
     while (noteList.children.length > noteCacheSize) noteList.removeChild(noteList.lastChild as Node)
     this.setNoteTimes(noteList)

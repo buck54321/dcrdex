@@ -157,12 +157,8 @@ func (c *Core) formatDetails(topic Topic, args ...any) (translatedSubject, detai
 	return trans.subject, c.localePrinter.Sprintf(string(topic), args...)
 }
 
-func makeCoinIDToken(txHash string, assetID uint32) string {
-	return fmt.Sprintf("{{{%d|%s}}}", assetID, txHash)
-}
-
-func makeOrderToken(orderToken string) string {
-	return fmt.Sprintf("{{{order|%s}}}", orderToken)
+func makeCoinIDToken(coinID string, assetID uint32) string {
+	return fmt.Sprintf("{{{%d|%s}}}", assetID, coinID)
 }
 
 // Notification is an interface for a user notification. Notification is

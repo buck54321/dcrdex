@@ -729,7 +729,7 @@ func (c *Core) tryCancelTrade(dc *dexConnection, tracker *trackedTrade) error {
 	c.log.Infof("Cancel order %s targeting order %s at %s has been placed",
 		co.ID(), oid, dc.acct.host)
 
-	subject, details := c.formatDetails(TopicCancellingOrder, makeOrderToken(tracker.token()))
+	subject, details := c.formatDetails(TopicCancellingOrder, tracker.noteToken())
 	c.notify(newOrderNote(TopicCancellingOrder, subject, details, db.Poke, tracker.coreOrderInternal()))
 
 	return nil
@@ -1024,7 +1024,7 @@ func (dc *dexConnection) updateOrderStatus(trade *trackedTrade, newStatus order.
 			oid, previousStatus, newStatus, dc.acct.host)
 	}
 
-	subject, details := trade.formatDetails(TopicOrderStatusUpdate, makeOrderToken(trade.token()), previousStatus, newStatus)
+	subject, details := trade.formatDetails(TopicOrderStatusUpdate, trade.noteToken(), previousStatus, newStatus)
 	dc.notify(newOrderNote(TopicOrderStatusUpdate, subject, details, db.WarningLevel, trade.coreOrderInternal()))
 }
 
@@ -6537,7 +6537,7 @@ func (c *Core) sendTradeRequest(tr *tradeRequest) (*Order, error) {
 	if !form.IsLimit && !form.Sell {
 		ui := wallets.quoteWallet.Info().UnitInfo
 		subject, details := c.formatDetails(TopicYoloPlaced,
-			ui.ConventionalString(corder.Qty), ui.Conventional.Unit, makeOrderToken(tracker.token()))
+			ui.ConventionalString(corder.Qty), ui.Conventional.Unit, tracker.noteToken())
 		c.notify(newOrderNoteWithTempID(TopicYoloPlaced, subject, details, db.Poke, corder, tr.tempID))
 	} else {
 		rateString := "market"
@@ -6549,7 +6549,7 @@ func (c *Core) sendTradeRequest(tr *tradeRequest) (*Order, error) {
 		if corder.Sell {
 			topic = TopicSellOrderPlaced
 		}
-		subject, details := c.formatDetails(topic, ui.ConventionalString(corder.Qty), ui.Conventional.Unit, rateString, makeOrderToken(tracker.token()))
+		subject, details := c.formatDetails(topic, ui.ConventionalString(corder.Qty), ui.Conventional.Unit, rateString, tracker.noteToken())
 		c.notify(newOrderNoteWithTempID(topic, subject, details, db.Poke, corder, tr.tempID))
 	}
 
@@ -7027,7 +7027,7 @@ func (c *Core) authDEX(dc *dexConnection) error {
 			}
 
 			subject, details := c.formatDetails(TopicMissingMatches,
-				len(missing), makeOrderToken(trade.token()), dc.acct.host)
+				len(missing), trade.noteToken(), dc.acct.host)
 			c.notify(newOrderNote(TopicMissingMatches, subject, details, db.ErrorLevel, trade.coreOrderInternal()))
 		}
 
@@ -7037,7 +7037,7 @@ func (c *Core) authDEX(dc *dexConnection) error {
 			if err != nil {
 				c.log.Errorf("Error negotiating one or more previously unknown matches for order %s reported by %s on connect: %v",
 					oid, dc.acct.host, err)
-				subject, details := c.formatDetails(TopicMatchResolutionError, len(extras), dc.acct.host, makeOrderToken(trade.token()))
+				subject, details := c.formatDetails(TopicMatchResolutionError, len(extras), dc.acct.host, trade.noteToken())
 				c.notify(newOrderNote(TopicMatchResolutionError, subject, details, db.ErrorLevel, trade.coreOrderInternal()))
 			} else {
 				// For taker matches in MakerSwapCast, queue up match status
@@ -7778,13 +7778,13 @@ func (c *Core) resumeTrade(tracker *trackedTrade, crypter encrypt.Crypter, faile
 				// Check for unresolvable states.
 				if len(counterSwap) == 0 {
 					match.swapErr = fmt.Errorf("missing counter-swap, order %s, match %s", tracker.ID(), match)
-					notifyErr(tracker, TopicMatchErrorCoin, match.Side, tracker.token(), match.Status)
+					notifyErr(tracker, TopicMatchErrorCoin, match.Side, tracker.ID(), match.Status)
 					continue
 				}
 				counterContract := match.MetaData.Proof.CounterContract
 				if len(counterContract) == 0 {
 					match.swapErr = fmt.Errorf("missing counter-contract, order %s, match %s", tracker.ID(), match)
-					notifyErr(tracker, TopicMatchErrorContract, match.Side, tracker.token(), match.Status)
+					notifyErr(tracker, TopicMatchErrorContract, match.Side, tracker.ID(), match.Status)
 					continue
 				}
 				counterTxData := match.MetaData.Proof.CounterTxData
@@ -7821,7 +7821,7 @@ func (c *Core) resumeTrade(tracker *trackedTrade, crypter encrypt.Crypter, faile
 								match, match.Status, len(match.MetaData.Proof.RefundCoin) > 0,
 								match.MetaData.Proof.IsRevoked(), err)
 							subject, detail := c.formatDetails(TopicMatchRecoveryError,
-								unbip(toAssetID), contractStr, tracker.token(), err)
+								unbip(toAssetID), contractStr, tracker.noteToken(), err)
 							c.notify(newOrderNote(TopicMatchRecoveryError, subject, detail,
 								db.ErrorLevel, tracker.coreOrderInternal())) // tracker.mtx already locked
 							// The match may be revoked by server. Only refund possible now.
@@ -7858,7 +7858,7 @@ func (c *Core) resumeTrade(tracker *trackedTrade, crypter encrypt.Crypter, faile
 			}
 			tracker.coins = map[string]asset.Coin{} // should already be
 			if len(coinIDs) == 0 {
-				notifyErr(tracker, TopicOrderCoinError, tracker.token())
+				notifyErr(tracker, TopicOrderCoinError, tracker.noteToken())
 				markUnfunded(tracker, matchesNeedingCoins) // bug - no user resolution
 			} else {
 				byteIDs := make([]dex.Bytes, 0, len(coinIDs))
@@ -7867,7 +7867,7 @@ func (c *Core) resumeTrade(tracker *trackedTrade, crypter encrypt.Crypter, faile
 				}
 				coins, err := wallets.fromWallet.FundingCoins(byteIDs)
 				if err != nil || len(coins) == 0 {
-					notifyErr(tracker, TopicOrderCoinFetchError, tracker.token(), unbip(wallets.fromWallet.AssetID), err)
+					notifyErr(tracker, TopicOrderCoinFetchError, tracker.noteToken(), unbip(wallets.fromWallet.AssetID), err)
 					// Block matches needing funding coins.
 					markUnfunded(tracker, matchesNeedingCoins)
 					// Note: tracker is still added to trades map for (1) status
@@ -8068,7 +8068,7 @@ func (c *Core) reReserveFunding(w *xcWallet) {
 					coinIDs = []order.CoinID{tracker.metaData.ChangeCoin}
 				}
 				if len(coinIDs) == 0 {
-					notifyErr(TopicOrderCoinError, tracker.token())
+					notifyErr(TopicOrderCoinError, tracker.noteToken())
 					markUnfunded(tracker, matchesNeedingCoins) // bug - no user resolution
 				} else {
 					byteIDs := make([]dex.Bytes, 0, len(coinIDs))
@@ -8078,7 +8078,7 @@ func (c *Core) reReserveFunding(w *xcWallet) {
 					var err error
 					coins, err = w.FundingCoins(byteIDs)
 					if err != nil || len(coins) == 0 {
-						notifyErr(TopicOrderCoinFetchError, tracker.token(), unbip(fromID), err)
+						notifyErr(TopicOrderCoinFetchError, tracker.noteToken(), unbip(fromID), err)
 						c.log.Warnf("(re-reserve) Check the status of your %s wallet and the coins logged above! "+
 							"Resolve the wallet issue if possible and restart the DEX client.",
 							strings.ToUpper(unbip(fromID)))
@@ -8725,7 +8725,7 @@ func handleRevokeOrderMsg(c *Core, dc *dexConnection, msg *msgjson.Message) erro
 		// revoke the targeted order, just unlink the cancel order.
 		c.log.Warnf("Deleting failed cancel order %v that targeted trade order %v", oid, tracker.ID())
 		tracker.deleteCancelOrder()
-		subject, details := c.formatDetails(TopicFailedCancel, tracker.token())
+		subject, details := c.formatDetails(TopicFailedCancel, tracker.noteToken())
 		c.notify(newOrderNote(TopicFailedCancel, subject, details, db.WarningLevel, tracker.coreOrder()))
 		return nil
 	}
@@ -8738,7 +8738,7 @@ func handleRevokeOrderMsg(c *Core, dc *dexConnection, msg *msgjson.Message) erro
 	}
 	tracker.revoke()
 
-	subject, details := c.formatDetails(TopicOrderRevoked, tracker.token(), tracker.mktID, dc.acct.host)
+	subject, details := c.formatDetails(TopicOrderRevoked, tracker.noteToken(), tracker.mktID, dc.acct.host)
 	c.notify(newOrderNote(TopicOrderRevoked, subject, details, db.ErrorLevel, tracker.coreOrder()))
 
 	// Update market orders, and the balance to account for unlocked coins.

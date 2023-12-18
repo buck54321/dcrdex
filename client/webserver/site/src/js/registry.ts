@@ -806,6 +806,7 @@ export interface Application {
   assets: Record<number, SupportedAsset>
   seedGenTime: number
   user: User
+  net: number
   header: HTMLElement
   headerSpace: HTMLElement
   walletMap: Record<number, WalletState>

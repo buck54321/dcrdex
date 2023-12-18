@@ -142,11 +142,9 @@ export function setCoinHref (assetID: number, link: PageElement) {
   // the coin ID in the notification will not be clickable.
   // The order details screen is unaffected because user data
   // is guaranteed to be available at the time of rendering.
-  if (!app().user) return
-  const net = app().user.net
   const assetExplorer = CoinExplorers[baseChainID(assetID)]
   if (!assetExplorer) return
-  const formatter = assetExplorer[net]
+  const formatter = assetExplorer[app().net]
   if (!formatter) return
   link.classList.remove('plainlink')
   link.classList.add('subtlelink')

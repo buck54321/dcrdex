@@ -55,6 +55,7 @@ type CommonArguments struct {
 	UserInfo     *userInfo
 	Title        string
 	Experimental bool
+	Network      uint8
 }
 
 // Create the CommonArguments for the request.
@@ -63,6 +64,7 @@ func (s *WebServer) commonArgs(r *http.Request, title string) *CommonArguments {
 		UserInfo:     extractUserInfo(r),
 		Title:        title,
 		Experimental: s.experimental,
+		Network:      uint8(s.net),
 	}
 }
 

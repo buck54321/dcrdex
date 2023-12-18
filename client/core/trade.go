@@ -691,9 +691,8 @@ func (t *trackedTrade) lockedAmount() (locked uint64) {
 	return
 }
 
-// token is a string representation of the order ID.
-func (t *trackedTrade) token() string {
-	return (t.ID().String())
+func (t *trackedTrade) noteToken() string {
+	return fmt.Sprintf("{{{order|%s}}}", t.ID().String())
 }
 
 // cancelTrade sets the cancellation data with the order and its preimage.
@@ -734,7 +733,7 @@ func (t *trackedTrade) nomatch(oid order.OrderID) (assetMap, error) {
 		t.cancel = nil
 		t.metaData.LinkedOrder = order.OrderID{}
 
-		subject, details := t.formatDetails(TopicMissedCancel, makeOrderToken(t.token()))
+		subject, details := t.formatDetails(TopicMissedCancel, t.noteToken())
 		t.notify(newOrderNote(TopicMissedCancel, subject, details, db.WarningLevel, t.coreOrderInternal()))
 		return assets, t.db.UpdateOrderStatus(oid, order.OrderStatusExecuted)
 	}
@@ -745,7 +744,7 @@ func (t *trackedTrade) nomatch(oid order.OrderID) (assetMap, error) {
 		return assets, fmt.Errorf("nomatch sent for non-epoch order %s", oid)
 	}
 	if lo, ok := t.Order.(*order.LimitOrder); ok && lo.Force == order.StandingTiF {
-		t.dc.log.Infof("Standing order %s did not match and is now booked.", t.token())
+		t.dc.log.Infof("Standing order %s did not match and is now booked.", t.ID())
 		t.metaData.Status = order.OrderStatusBooked
 		t.notify(newOrderNote(TopicOrderBooked, "", "", db.Data, t.coreOrderInternal()))
 	} else {
@@ -753,7 +752,7 @@ func (t *trackedTrade) nomatch(oid order.OrderID) (assetMap, error) {
 		t.unlockRedemptionFraction(1, 1)
 		t.unlockRefundFraction(1, 1)
 		assets.count(t.wallets.fromWallet.AssetID)
-		t.dc.log.Infof("Non-standing order %s did not match.", t.token())
+		t.dc.log.Infof("Non-standing order %s did not match.", t.ID())
 		t.metaData.Status = order.OrderStatusExecuted
 		t.notify(newOrderNote(TopicNoMatch, "", "", db.Data, t.coreOrderInternal()))
 	}
@@ -937,7 +936,7 @@ func (t *trackedTrade) negotiate(msgMatches []*msgjson.Match) error {
 		if trade.Sell {
 			topic = TopicSellOrderCanceled
 		}
-		subject, details := t.formatDetails(topic, unbip(t.Base()), unbip(t.Quote()), t.dc.acct.host, makeOrderToken(t.token()))
+		subject, details := t.formatDetails(topic, unbip(t.Base()), unbip(t.Quote()), t.dc.acct.host, t.noteToken())
 
 		t.notify(newOrderNote(topic, subject, details, db.Poke, corder))
 		// Also send out a data notification with the cancel order information.
@@ -963,7 +962,7 @@ func (t *trackedTrade) negotiate(msgMatches []*msgjson.Match) error {
 		if trade.Sell {
 			topic = TopicSellMatchesMade
 		}
-		subject, details := t.formatDetails(topic, unbip(t.Base()), unbip(t.Quote()), fillPct, makeOrderToken(t.token()))
+		subject, details := t.formatDetails(topic, unbip(t.Base()), unbip(t.Quote()), fillPct, t.noteToken())
 		t.notify(newOrderNote(topic, subject, details, db.Poke, corder))
 	}
 
@@ -1191,7 +1190,7 @@ func (t *trackedTrade) deleteStaleCancelOrder() {
 		t.dc.log.Errorf("DB error unlinking cancel order %s for trade %s: %v", t.cancel.ID(), t.ID(), err)
 	}
 
-	subject, details := t.formatDetails(TopicFailedCancel, makeOrderToken(t.token()))
+	subject, details := t.formatDetails(TopicFailedCancel, t.noteToken())
 	t.notify(newOrderNote(TopicFailedCancel, subject, details, db.WarningLevel, t.coreOrderInternal()))
 }
 
@@ -2000,10 +1999,10 @@ func (c *Core) tick(t *trackedTrade) (assetMap, error) {
 		ui := t.wallets.fromWallet.Info().UnitInfo
 		if err != nil {
 			errs.addErr(err)
-			subject, details := c.formatDetails(TopicSwapSendError, ui.ConventionalString(qty), ui.Conventional.Unit, makeOrderToken(t.token()))
+			subject, details := c.formatDetails(TopicSwapSendError, ui.ConventionalString(qty), ui.Conventional.Unit, t.noteToken())
 			t.notify(newOrderNote(TopicSwapSendError, subject, details, db.ErrorLevel, corder))
 		} else {
-			subject, details := c.formatDetails(TopicSwapsInitiated, ui.ConventionalString(qty), ui.Conventional.Unit, makeOrderToken(t.token()))
+			subject, details := c.formatDetails(TopicSwapsInitiated, ui.ConventionalString(qty), ui.Conventional.Unit, t.noteToken())
 			t.notify(newOrderNote(TopicSwapsInitiated, subject, details, db.Poke, corder))
 		}
 	}
@@ -2026,11 +2025,11 @@ func (c *Core) tick(t *trackedTrade) (assetMap, error) {
 		if err != nil {
 			errs.addErr(err)
 			subject, details := c.formatDetails(TopicRedemptionError,
-				ui.ConventionalString(qty), ui.Conventional.Unit, makeOrderToken(t.token()))
+				ui.ConventionalString(qty), ui.Conventional.Unit, t.noteToken())
 			t.notify(newOrderNote(TopicRedemptionError, subject, details, db.ErrorLevel, corder))
 		} else {
 			subject, details := c.formatDetails(TopicMatchComplete,
-				ui.ConventionalString(qty), ui.Conventional.Unit, makeOrderToken(t.token()))
+				ui.ConventionalString(qty), ui.Conventional.Unit, t.noteToken())
 			t.notify(newOrderNote(TopicMatchComplete, subject, details, db.Poke, corder))
 		}
 	}
@@ -2049,11 +2048,11 @@ func (c *Core) tick(t *trackedTrade) (assetMap, error) {
 		if err != nil {
 			errs.addErr(err)
 			subject, details := c.formatDetails(TopicRefundFailure,
-				ui.ConventionalString(refunded), ui.Conventional.Unit, makeOrderToken(t.token()))
+				ui.ConventionalString(refunded), ui.Conventional.Unit, t.noteToken())
 			t.notify(newOrderNote(TopicRefundFailure, subject, details, db.ErrorLevel, corder))
 		} else {
 			subject, details := c.formatDetails(TopicMatchesRefunded,
-				ui.ConventionalString(refunded), ui.Conventional.Unit, makeOrderToken(t.token()))
+				ui.ConventionalString(refunded), ui.Conventional.Unit, t.noteToken())
 			t.notify(newOrderNote(TopicMatchesRefunded, subject, details, db.WarningLevel, corder))
 		}
 	}
@@ -2839,7 +2838,7 @@ func (c *Core) sendRedeemAsync(t *trackedTrade, match *matchTracker, coinID, sec
 			err = fmt.Errorf("error storing redeem ack sig in database: %v", err)
 		}
 		if match.Status == order.MatchConfirmed {
-			subject, details := t.formatDetails(TopicRedemptionConfirmed, match.token(), makeOrderToken(t.token()))
+			subject, details := t.formatDetails(TopicRedemptionConfirmed, match.token(), t.noteToken())
 			note := newMatchNote(TopicRedemptionConfirmed, subject, details, db.Success, t, match)
 			t.notify(note)
 		}
@@ -2902,7 +2901,7 @@ func (t *trackedTrade) confirmRedemption(match *matchTracker) (bool, error) {
 		if err != nil {
 			t.dc.log.Errorf("failed to update match in db: %v", err)
 		}
-		subject, details := t.formatDetails(TopicRedemptionConfirmed, match.token(), makeOrderToken(t.token()))
+		subject, details := t.formatDetails(TopicRedemptionConfirmed, match.token(), t.noteToken())
 		note := newMatchNote(TopicRedemptionConfirmed, subject, details, db.Success, t, match)
 		t.notify(note)
 		return true, nil
@@ -2938,7 +2937,7 @@ func (t *trackedTrade) confirmRedemption(match *matchTracker) (bool, error) {
 		Secret: proof.Secret,
 	}, t.redeemFee())
 	if errors.Is(asset.ErrSwapRefunded, err) {
-		subject, details := t.formatDetails(TopicSwapRefunded, match.token(), makeOrderToken(t.token()))
+		subject, details := t.formatDetails(TopicSwapRefunded, match.token(), t.noteToken())
 		note := newMatchNote(TopicSwapRefunded, subject, details, db.ErrorLevel, t, match)
 		t.notify(note)
 		match.Status = order.MatchConfirmed
@@ -2979,13 +2978,13 @@ func (t *trackedTrade) confirmRedemption(match *matchTracker) (bool, error) {
 	}
 
 	if redemptionResubmitted {
-		subject, details := t.formatDetails(TopicRedemptionResubmitted, match.token(), makeOrderToken(t.token()))
+		subject, details := t.formatDetails(TopicRedemptionResubmitted, match.token(), t.noteToken())
 		note := newMatchNote(TopicRedemptionResubmitted, subject, details, db.WarningLevel, t, match)
 		t.notify(note)
 	}
 
 	if redemptionConfirmed {
-		subject, details := t.formatDetails(TopicRedemptionConfirmed, match.token(), makeOrderToken(t.token()))
+		subject, details := t.formatDetails(TopicRedemptionConfirmed, match.token(), t.noteToken())
 		note := newMatchNote(TopicRedemptionConfirmed, subject, details, db.Success, t, match)
 		t.notify(note)
 	} else {
