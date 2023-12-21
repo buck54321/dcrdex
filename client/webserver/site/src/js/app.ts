@@ -393,19 +393,6 @@ export default class Application {
       Doc.show(page.noteList)
       this.ackNotes()
     })
-
-    // Event handler for external links in notifications.  This is a delegated handler
-    // in order to avoid rebinding click handlers if bindUrlHandlers() were to be called
-    // after prepend*Element()
-    if (window.openUrl) {
-      bind(page.noteBox, 'click', (e: MouseEvent) => {
-        const link = e.target as HTMLElement
-        if (link.tagName === 'A' && link.getAttribute('target') === '_blank') {
-          e.preventDefault()
-          window.openUrl(link.getAttribute('href') ?? '')
-        }
-      })
-    }
   }
 
   /*
@@ -777,6 +764,7 @@ export default class Application {
     while (this.notes.length > noteCacheSize) this.notes.shift()
     const noteList = this.page.noteList
     this.prependListElement(noteList, note, el)
+    this.bindUrlHandlers(el)
     if (!skipSave) this.storeNotes()
     // Set the indicator color.
     if (this.notes.length === 0 || (Doc.isDisplayed(this.page.noteBox) && Doc.isDisplayed(noteList))) return
