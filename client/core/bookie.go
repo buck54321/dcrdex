@@ -564,8 +564,13 @@ func (c *Core) Book(dex string, base, quote uint32) (*OrderBook, error) {
 		if err != nil {
 			c.log.Errorf("Failed to unsubscribe to %q book: %v", mkt, err)
 		}
-		ob = orderbook.NewOrderBook(c.log.SubLogger(mkt))
-		if err = ob.Sync(snap); err != nil {
+
+		dc.cfgMtx.RLock()
+		cfg := dc.cfg
+		dc.cfgMtx.RUnlock()
+
+		book = newBookie(dc, base, quote, cfg.BinSizes, dc.log.SubLogger(mkt))
+		if err = book.OrderBook.Sync(snap); err != nil {
 			return nil, fmt.Errorf("unable to sync book: %w", err)
 		}
 	} else {
