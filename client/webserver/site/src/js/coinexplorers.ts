@@ -144,7 +144,9 @@ export function setCoinHref (assetID: number, link: PageElement) {
   // is guaranteed to be available at the time of rendering.
   if (!app().user) return
   const net = app().user.net
-  const assetExplorer = CoinExplorers[baseChainID(assetID)]
+  const asset = app().user.assets[assetID]
+  if (!asset) return
+  const assetExplorer = CoinExplorers[baseChainID(asset.token ? asset.token.parentID : assetID)]
   if (!assetExplorer) return
   const formatter = assetExplorer[net]
   if (!formatter) return
