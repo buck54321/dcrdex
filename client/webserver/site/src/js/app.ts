@@ -202,6 +202,9 @@ export default class Application {
     this.attachHeader()
     this.attachCommon(this.header)
     this.attach({})
+    // If we are authed, populate notes, otherwise get we'll them from the login
+    // response.
+    if (this.user && this.user.authed) await this.fetchNotes()
     this.updateMenuItemsDisplay()
     // initialize browser notifications
     ntfn.fetchBrowserNtfnSettings()
@@ -363,7 +366,6 @@ export default class Application {
       }
       this.setNoteTimes(page.noteList)
       this.setNoteTimes(page.pokeList)
-      this.storeNotes()
     })
 
     bind(page.burgerIcon, 'click', () => {
@@ -464,23 +466,6 @@ export default class Application {
   }
 
   /*
-   * storeNotes stores the list of notifications in Window.localStorage. The
-   * actual stored list is stripped of information not necessary for display.
-   */
-  storeNotes () {
-    State.storeLocal(State.notificationsLK, this.notes.map(n => {
-      return {
-        subject: n.subject,
-        details: n.details,
-        severity: n.severity,
-        stamp: n.stamp,
-        id: n.id,
-        acked: n.acked
-      }
-    }))
-  }
-
-  /*
    * updateMenuItemsDisplay should be called when the user has signed in or out,
    * and when the user registers a DEX.
    */
@@ -497,12 +482,15 @@ export default class Application {
       Doc.hide(page.noteBell, page.walletsMenuEntry, page.marketsMenuEntry)
       return
     }
+
     page.profileBox.classList.add('authed')
     Doc.show(page.noteBell, page.walletsMenuEntry, page.marketsMenuEntry)
+  }
 
-    // Load recent notifications from Window.localStorage.
-    const notes = State.fetchLocal(State.notificationsLK)
-    this.setNotes(notes || [])
+  async fetchNotes () {
+    const res = await getJSON('/api/notes')
+    if (!this.checkResponse(res)) return console.error('failed to fetch notes:', res?.msg || String(res))
+    this.setNotes(res.notes)
   }
 
   /* attachCommon scans the provided node and handles some common bindings. */
@@ -553,9 +541,8 @@ export default class Application {
     this.notes = []
     Doc.empty(this.page.noteList)
     for (let i = 0; i < notes.length; i++) {
-      this.prependNoteElement(notes[i], true)
+      this.prependNoteElement(notes[i])
     }
-    this.storeNotes()
   }
 
   updateUser (note: CoreNote) {
@@ -758,14 +745,13 @@ export default class Application {
     this.prependListElement(this.page.pokeList, note, el)
   }
 
-  prependNoteElement (cn: CoreNote, skipSave?: boolean) {
+  prependNoteElement (cn: CoreNote) {
     const [el, note] = this.makeNote(cn)
     this.notes.push(note)
     while (this.notes.length > noteCacheSize) this.notes.shift()
     const noteList = this.page.noteList
     this.prependListElement(noteList, note, el)
     this.bindUrlHandlers(el)
-    if (!skipSave) this.storeNotes()
     // Set the indicator color.
     if (this.notes.length === 0 || (Doc.isDisplayed(this.page.noteBox) && Doc.isDisplayed(noteList))) return
     let unacked = 0
@@ -971,7 +957,7 @@ export default class Application {
     }
     State.removeCookie(State.authCK)
     State.removeCookie(State.pwKeyCK)
-    State.removeLocal(State.notificationsLK)
+    State.removeLocal(State.notificationsLK) // Notification storage was DEPRECATED pre-v1.
     window.location.href = '/login'
   }
 
