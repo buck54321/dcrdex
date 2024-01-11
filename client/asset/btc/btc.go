@@ -1024,22 +1024,7 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, net dex.Network) (ass
 		cloneCFG.Ports = dexbtc.NetPorts{} // no default ports
 		return ElectrumWallet(cloneCFG)
 	default:
-		makeCustomWallet, ok := customSPVWalletConstructors[cfg.Type]
-		if !ok {
-			return nil, fmt.Errorf("unknown wallet type %q", cfg.Type)
-		}
-
-		// Create custom wallet first and return early if we encounter any
-		// error.
-		btcWallet, err := makeCustomWallet(cfg.Settings, cloneCFG.ChainParams)
-		if err != nil {
-			return nil, fmt.Errorf("btc custom wallet setup error: %v", err)
-		}
-
-		walletConstructor := func(_ string, _ *WalletConfig, _ *chaincfg.Params, _ dex.Logger) BTCWallet {
-			return btcWallet
-		}
-		return OpenSPVWallet(cloneCFG, walletConstructor)
+		return OpenCustomWallet(cfg, cloneCFG)
 	}
 }
 
@@ -1266,6 +1251,26 @@ func newUnconnectedWallet(cfg *BTCCloneCFG, walletCfg *WalletConfig) (*baseWalle
 // fee rate source.
 func noLocalFeeRate(ctx context.Context, rr RawRequester, u uint64) (uint64, error) {
 	return 0, errors.New("no local fee rate estimate possible")
+}
+
+// Open the custom wallet registered with RegisterCustomSPVWallet.
+func OpenCustomWallet(cfg *asset.WalletConfig, cloneCfg *BTCCloneCFG) (*ExchangeWalletSPV, error) {
+	makeCustomWallet, ok := customSPVWalletConstructors[cfg.Type]
+	if !ok {
+		return nil, fmt.Errorf("unknown wallet type %q", cfg.Type)
+	}
+
+	// Create custom wallet first and return early if we encounter any
+	// error.
+	btcWallet, err := makeCustomWallet(cfg.Settings, cloneCfg.ChainParams)
+	if err != nil {
+		return nil, fmt.Errorf("btc custom wallet setup error: %v", err)
+	}
+
+	walletConstructor := func(_ string, _ *WalletConfig, _ *chaincfg.Params, _ dex.Logger) BTCWallet {
+		return btcWallet
+	}
+	return OpenSPVWallet(cloneCfg, walletConstructor)
 }
 
 // OpenSPVWallet opens the previously created native SPV wallet.
