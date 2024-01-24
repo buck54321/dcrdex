@@ -255,6 +255,27 @@ type Match struct {
 	IsCancel      bool              `json:"isCancel"`
 }
 
+// IsActive blah blah blah... copied from db.MatchIsActive.
+func (m *Match) IsActive() bool {
+	if m.Status == order.MatchConfirmed {
+		return false
+	}
+	if m.Status == order.MatchComplete && m.Swap == nil {
+		return false
+	}
+	if m.Refund != nil {
+		return false
+	}
+	if m.Revoked {
+		status, side := m.Status, m.Side
+		if status == order.NewlyMatched ||
+			(status == order.MakerSwapCast && side == order.Taker) {
+			return false
+		}
+	}
+	return true
+}
+
 // Coin encodes both the coin ID and the asset-dependent string representation
 // of the coin ID.
 type Coin struct {
@@ -412,6 +433,19 @@ type Order struct {
 	TimeInForce       order.TimeInForce `json:"tif"`           // limit only
 	TargetOrderID     dex.Bytes         `json:"targetOrderID"` // cancel only
 	ReadyToTick       bool              `json:"readyToTick"`
+}
+
+func (ord *Order) IsActive() bool {
+	if ord.Status == order.OrderStatusBooked ||
+		ord.Status == order.OrderStatusEpoch {
+		return true
+	}
+	for _, m := range ord.Matches {
+		if m.IsActive() {
+			return true
+		}
+	}
+	return false
 }
 
 // InFlightOrder is an Order that is not stamped yet, but has a temporary ID
