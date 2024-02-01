@@ -43,3 +43,4 @@ client/cmd/testbinance/testbinance
 server/noderelay/cmd/sourcenode/sourcenode
 tatanka/cmd/demo/demo
 server/cmd/validatemarkets
+client/tor/build
