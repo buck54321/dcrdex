@@ -1,4 +1,4 @@
-//go:build !harness && !botlive
+// !harness && !botlive
 
 package mm
 
@@ -27,13 +27,6 @@ func (r *tBasicMMCalculator) halfSpread(basisPrice uint64) (uint64, error) {
 }
 
 func TestBasisPrice(t *testing.T) {
-	mkt := &core.Market{
-		RateStep:   1,
-		BaseID:     42,
-		QuoteID:    0,
-		AtomToConv: 1,
-	}
-
 	tests := []*struct {
 		name         string
 		midGap       uint64
@@ -96,8 +89,10 @@ func TestBasisPrice(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tCore := newTCore()
+
 		oracle := &tOracle{
-			marketPrice: mkt.MsgRateToConventional(tt.oraclePrice),
+			marketPrice: tCore.market.MsgRateToConventional(tt.oraclePrice),
 		}
 		ob := &tOrderBook{
 			midGap: tt.midGap,
@@ -107,17 +102,28 @@ func TestBasisPrice(t *testing.T) {
 			OracleBias:      tt.oracleBias,
 		}
 
-		tCore := newTCore()
-		adaptor := newTBotCoreAdaptor(tCore)
-		adaptor.fiatExchangeRate = tt.fiatRate
+		ua := unifiedExchangeAdaptorForBot(&exchangeAdaptorCfg{
+			market: &MarketWithHost{
+				BaseID:  42,
+				QuoteID: 0,
+				Host:    "bison.exchange",
+			},
+			core: tCore,
+			cex:  nil,
+			log:  tLogger,
+		})
+		ua.fiatRates.Store(map[uint32]float64{
+			0:  1,
+			42: float64(tt.fiatRate) / 1e8,
+		})
 
 		calculator := &basicMMCalculatorImpl{
 			book:   ob,
 			oracle: oracle,
-			mkt:    mkt,
+			mkt:    tCore.market,
 			cfg:    cfg,
 			log:    tLogger,
-			core:   adaptor,
+			core:   ua,
 		}
 
 		rate := calculator.basisPrice()
@@ -364,8 +370,8 @@ func TestBasicMMRebalance(t *testing.T) {
 			mm := &basicMarketMaker{
 				cfg:        cfg,
 				calculator: calculator,
-				core:       adaptor,
-				log:        tLogger,
+				// core:       adaptor,
+				log: tLogger,
 				mkt: &core.Market{
 					RateStep:   rateStep,
 					AtomToConv: atomToConv,

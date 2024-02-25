@@ -17,7 +17,6 @@ import (
 	"decred.org/dcrdex/client/asset"
 	"decred.org/dcrdex/client/core"
 	"decred.org/dcrdex/client/mm/libxc"
-	"decred.org/dcrdex/client/orderbook"
 	"decred.org/dcrdex/dex"
 	"decred.org/dcrdex/dex/calc"
 	"decred.org/dcrdex/dex/order"
@@ -50,42 +49,6 @@ type orderFees struct {
 	redemption uint64
 	refund     uint64
 	funding    uint64
-}
-
-// botCoreAdaptor is an interface used by bots to access DEX related
-// functions. Common functionality used by multiple market making
-// strategies is implemented here. The functions in this interface
-// do not need to take assetID parameters, as the bot will only be
-// trading on a single DEX market.
-type botCoreAdaptor interface {
-	SyncBook(host string, base, quote uint32) (*orderbook.OrderBook, core.BookFeed, error)
-	Cancel(oidB dex.Bytes) error
-	DEXTrade(rate, qty uint64, sell bool) (*core.Order, error)
-	ExchangeMarket(host string, base, quote uint32) (*core.Market, error)
-	MultiTrade(placements []*multiTradePlacement, sell bool, driftTolerance float64, currEpoch uint64, dexReserves, cexReserves map[uint32]uint64) []*order.OrderID
-	CancelAllOrders() bool
-	ExchangeRateFromFiatSources() uint64
-	OrderFeesInUnits(sell, base bool, rate uint64) (uint64, error)
-	SubscribeOrderUpdates() (updates <-chan *core.Order)
-	SufficientBalanceForDEXTrade(rate, qty uint64, sell bool) (bool, error)
-}
-
-// botCexAdaptor is an interface used by bots to access CEX related
-// functions. Common functionality used by multiple market making
-// strategies is implemented here. The functions in this interface
-// take assetID parameters, unlike botCoreAdaptor, to support a
-// multi-hop strategy.
-type botCexAdaptor interface {
-	CancelTrade(ctx context.Context, baseID, quoteID uint32, tradeID string) error
-	SubscribeMarket(ctx context.Context, baseID, quoteID uint32) error
-	SubscribeTradeUpdates() (updates <-chan *libxc.Trade, unsubscribe func())
-	CEXTrade(ctx context.Context, baseID, quoteID uint32, sell bool, rate, qty uint64) (*libxc.Trade, error)
-	SufficientBalanceForCEXTrade(baseID, quoteID uint32, sell bool, rate, qty uint64) (bool, error)
-	VWAP(baseID, quoteID uint32, sell bool, qty uint64) (vwap, extrema uint64, filled bool, err error)
-	PrepareRebalance(ctx context.Context, assetID uint32) (rebalance int64, dexReserves, cexReserves uint64)
-	FreeUpFunds(assetID uint32, cex bool, amt uint64, currEpoch uint64)
-	Deposit(ctx context.Context, assetID uint32, amount uint64) error
-	Withdraw(ctx context.Context, assetID uint32, amount uint64) error
 }
 
 // pendingWithdrawal represents a withdrawal from a CEX that has been
@@ -139,8 +102,8 @@ type pendingDEXOrder struct {
 
 // unifiedExchangeAdaptor implements both botCoreAdaptor and botCexAdaptor.
 type unifiedExchangeAdaptor struct {
-	clientCore
-	libxc.CEX
+	core clientCore
+	cex  libxc.CEX
 
 	botID              string
 	log                dex.Logger
@@ -181,9 +144,6 @@ type unifiedExchangeAdaptor struct {
 	pendingBaseRebalance  atomic.Bool
 	pendingQuoteRebalance atomic.Bool
 }
-
-var _ botCoreAdaptor = (*unifiedExchangeAdaptor)(nil)
-var _ botCexAdaptor = (*unifiedExchangeAdaptor)(nil)
 
 func (u *unifiedExchangeAdaptor) logBalanceAdjustments(dexDiffs, cexDiffs map[uint32]int64, reason string) {
 	var msg strings.Builder
@@ -238,14 +198,14 @@ func (u *unifiedExchangeAdaptor) logBalanceAdjustments(dexDiffs, cexDiffs map[ui
 	u.log.Infof(msg.String())
 }
 
-// SufficientBalanceForDEXTrade returns whether the bot has sufficient balance
+// sufficientBalanceForDEXTrade returns whether the bot has sufficient balance
 // to place a DEX trade.
-func (u *unifiedExchangeAdaptor) SufficientBalanceForDEXTrade(rate, qty uint64, sell bool) (bool, error) {
+func (u *unifiedExchangeAdaptor) sufficientBalanceForDEXTrade(rate, qty uint64, sell bool) (bool, error) {
 	fromAsset, fromFeeAsset, toAsset, toFeeAsset := orderAssets(u.market.BaseID, u.market.QuoteID, sell)
 	balances := map[uint32]uint64{}
 	for _, assetID := range []uint32{fromAsset, fromFeeAsset, toAsset, toFeeAsset} {
 		if _, found := balances[assetID]; !found {
-			bal, err := u.DEXBalance(assetID)
+			bal, err := u.dexBalance(assetID)
 			if err != nil {
 				return false, err
 			}
@@ -253,7 +213,7 @@ func (u *unifiedExchangeAdaptor) SufficientBalanceForDEXTrade(rate, qty uint64, 
 		}
 	}
 
-	mkt, err := u.ExchangeMarket(u.market.Host, u.market.BaseID, u.market.QuoteID)
+	mkt, err := u.core.ExchangeMarket(u.market.Host, u.market.BaseID, u.market.QuoteID)
 	if err != nil {
 		return false, err
 	}
@@ -304,9 +264,9 @@ func (u *unifiedExchangeAdaptor) SufficientBalanceForDEXTrade(rate, qty uint64, 
 	return true, nil
 }
 
-// SufficientBalanceOnCEXTrade returns whether the bot has sufficient balance
+// sufficientBalanceOnCEXTrade returns whether the bot has sufficient balance
 // to place a CEX trade.
-func (u *unifiedExchangeAdaptor) SufficientBalanceForCEXTrade(baseID, quoteID uint32, sell bool, rate, qty uint64) (bool, error) {
+func (u *unifiedExchangeAdaptor) sufficientBalanceForCEXTrade(baseID, quoteID uint32, sell bool, rate, qty uint64) (bool, error) {
 	var fromAssetID uint32
 	var fromAssetQty uint64
 	if sell {
@@ -317,7 +277,7 @@ func (u *unifiedExchangeAdaptor) SufficientBalanceForCEXTrade(baseID, quoteID ui
 		fromAssetQty = calc.BaseToQuote(rate, qty)
 	}
 
-	fromAssetBal, err := u.CEXBalance(fromAssetID)
+	fromAssetBal, err := u.cexBalance(fromAssetID)
 	if err != nil {
 		return false, err
 	}
@@ -481,7 +441,7 @@ func (u *unifiedExchangeAdaptor) MultiTrade(placements []*multiTradePlacement, s
 	if len(placements) == 0 {
 		return nil
 	}
-	mkt, err := u.ExchangeMarket(u.market.Host, u.market.BaseID, u.market.QuoteID)
+	mkt, err := u.core.ExchangeMarket(u.market.Host, u.market.BaseID, u.market.QuoteID)
 	if err != nil {
 		u.log.Errorf("GroupedMultiTrade: error getting market: %v", err)
 		return nil
@@ -502,7 +462,7 @@ func (u *unifiedExchangeAdaptor) MultiTrade(placements []*multiTradePlacement, s
 	remainingBalances := map[uint32]uint64{}
 	for _, assetID := range []uint32{fromAsset, fromFeeAsset, toAsset, toFeeAsset} {
 		if _, found := remainingBalances[assetID]; !found {
-			bal, err := u.DEXBalance(assetID)
+			bal, err := u.dexBalance(assetID)
 			if err != nil {
 				u.log.Errorf("GroupedMultiTrade: error getting dex balance: %v", err)
 				return nil
@@ -529,7 +489,7 @@ func (u *unifiedExchangeAdaptor) MultiTrade(placements []*multiTradePlacement, s
 	accountForCEXBal := placements[0].counterTradeRate > 0
 	var remainingCEXBal uint64
 	if accountForCEXBal {
-		cexBal, err := u.CEXBalance(toAsset)
+		cexBal, err := u.cexBalance(toAsset)
 		if err != nil {
 			u.log.Errorf("GroupedMultiTrade: error getting cex balance: %v", err)
 			return nil
@@ -682,7 +642,7 @@ func (u *unifiedExchangeAdaptor) MultiTrade(placements []*multiTradePlacement, s
 	u.balancesMtx.RUnlock()
 
 	for _, cancel := range cancels {
-		if err := u.Cancel(cancel); err != nil {
+		if err := u.core.Cancel(cancel); err != nil {
 			u.log.Errorf("GroupedMultiTrade: error canceling order %s: %v", cancel, err)
 		}
 	}
@@ -695,7 +655,7 @@ func (u *unifiedExchangeAdaptor) MultiTrade(placements []*multiTradePlacement, s
 			walletOptions = u.quoteWalletOptions
 		}
 
-		fromBalance, err := u.DEXBalance(fromAsset)
+		fromBalance, err := u.dexBalance(fromAsset)
 		if err != nil {
 			u.log.Errorf("GroupedMultiTrade: error getting dex balance: %v", err)
 			return nil
@@ -714,7 +674,7 @@ func (u *unifiedExchangeAdaptor) MultiTrade(placements []*multiTradePlacement, s
 		u.balancesMtx.Lock()
 		defer u.balancesMtx.Unlock()
 
-		orders, err := u.clientCore.MultiTrade([]byte{}, multiTradeForm)
+		orders, err := u.core.MultiTrade([]byte{}, multiTradeForm)
 		if err != nil {
 			u.log.Errorf("GroupedMultiTrade: error placing orders: %v", err)
 			return nil
@@ -740,9 +700,9 @@ func (u *unifiedExchangeAdaptor) MultiTrade(placements []*multiTradePlacement, s
 	return nil
 }
 
-// DEXTrade places a single order on the DEX order book.
-func (u *unifiedExchangeAdaptor) DEXTrade(rate, qty uint64, sell bool) (*core.Order, error) {
-	enough, err := u.SufficientBalanceForDEXTrade(rate, qty, sell)
+// dexTrade places a single order on the DEX order book.
+func (u *unifiedExchangeAdaptor) dexTrade(rate, qty uint64, sell bool) (*core.Order, error) {
+	enough, err := u.sufficientBalanceForDEXTrade(rate, qty, sell)
 	if err != nil {
 		return nil, err
 	}
@@ -754,7 +714,7 @@ func (u *unifiedExchangeAdaptor) DEXTrade(rate, qty uint64, sell bool) (*core.Or
 	if sell {
 		fromAsset = u.market.BaseID
 	}
-	fromBalance, err := u.DEXBalance(fromAsset)
+	fromBalance, err := u.dexBalance(fromAsset)
 	if err != nil {
 		return nil, err
 	}
@@ -786,7 +746,7 @@ func (u *unifiedExchangeAdaptor) DEXTrade(rate, qty uint64, sell bool) (*core.Or
 
 	// MultiTrade is used instead of Trade because Trade does not support
 	// maxLock.
-	orders, err := u.clientCore.MultiTrade([]byte{}, multiTradeForm)
+	orders, err := u.core.MultiTrade([]byte{}, multiTradeForm)
 	if err != nil {
 		return nil, err
 	}
@@ -799,8 +759,8 @@ func (u *unifiedExchangeAdaptor) DEXTrade(rate, qty uint64, sell bool) (*core.Or
 	return orders[0], nil
 }
 
-// DEXBalance returns the bot's balance for a specific asset on the DEX.
-func (u *unifiedExchangeAdaptor) DEXBalance(assetID uint32) (*botBalance, error) {
+// dexBalance returns the bot's balance for a specific asset on the DEX.
+func (u *unifiedExchangeAdaptor) dexBalance(assetID uint32) (*botBalance, error) {
 	u.balancesMtx.RLock()
 	defer u.balancesMtx.RUnlock()
 
@@ -881,8 +841,8 @@ func incompleteCexTradeBalanceEffects(trade *libxc.Trade) (availableDiff map[uin
 	return
 }
 
-// CEXBalance returns the balance of the bot on the CEX.
-func (u *unifiedExchangeAdaptor) CEXBalance(assetID uint32) (*botBalance, error) {
+// cexBalance returns the balance of the bot on the CEX.
+func (u *unifiedExchangeAdaptor) cexBalance(assetID uint32) (*botBalance, error) {
 	u.balancesMtx.RLock()
 	defer u.balancesMtx.RUnlock()
 
@@ -1006,7 +966,7 @@ func (u *unifiedExchangeAdaptor) confirmWalletTransaction(ctx context.Context, a
 	for {
 		select {
 		case <-timer.C:
-			tx, err := u.clientCore.WalletTransaction(assetID, txID)
+			tx, err := u.core.WalletTransaction(assetID, txID)
 			if errors.Is(err, asset.CoinNotFoundError) {
 				u.log.Warnf("%s wallet does not know about deposit tx: %s", dex.BipIDSymbol(assetID), txID)
 			} else if err != nil {
@@ -1023,12 +983,12 @@ func (u *unifiedExchangeAdaptor) confirmWalletTransaction(ctx context.Context, a
 	}
 }
 
-// Deposit deposits funds to the CEX. The deposited funds will be removed from
+// deposit deposits funds to the CEX. The deposited funds will be removed from
 // the bot's wallet balance and allocated to the bot's CEX balance. After both
 // the fees of the deposit transaction are confirmed by the wallet and the
 // CEX confirms the amount they received, the onConfirm callback is called.
-func (u *unifiedExchangeAdaptor) Deposit(ctx context.Context, assetID uint32, amount uint64) error {
-	balance, err := u.DEXBalance(assetID)
+func (u *unifiedExchangeAdaptor) deposit(ctx context.Context, assetID uint32, amount uint64) error {
+	balance, err := u.dexBalance(assetID)
 	if err != nil {
 		return err
 	}
@@ -1037,11 +997,11 @@ func (u *unifiedExchangeAdaptor) Deposit(ctx context.Context, assetID uint32, am
 		return fmt.Errorf("bot has insufficient balance to deposit %d. required: %v, have: %v", assetID, amount, balance.Available)
 	}
 
-	addr, err := u.CEX.GetDepositAddress(ctx, assetID)
+	addr, err := u.cex.GetDepositAddress(ctx, assetID)
 	if err != nil {
 		return err
 	}
-	coin, err := u.clientCore.Send([]byte{}, assetID, amount, addr, u.isWithdrawer(assetID))
+	coin, err := u.core.Send([]byte{}, assetID, amount, addr, u.isWithdrawer(assetID))
 	if err != nil {
 		return err
 	}
@@ -1053,7 +1013,7 @@ func (u *unifiedExchangeAdaptor) Deposit(ctx context.Context, assetID uint32, am
 	}
 
 	getAmtAndFee := func() (uint64, uint64, bool) {
-		tx, err := u.clientCore.WalletTransaction(assetID, coin.TxID())
+		tx, err := u.core.WalletTransaction(assetID, coin.TxID())
 		if err != nil {
 			u.log.Errorf("Error getting wallet transaction: %v", err)
 			return amount, 0, false
@@ -1105,7 +1065,7 @@ func (u *unifiedExchangeAdaptor) Deposit(ctx context.Context, assetID uint32, am
 		u.updatePendingDeposit(coin.TxID(), deposit)
 	}
 
-	u.CEX.ConfirmDeposit(ctx, coin.TxID(), cexConfirmedDeposit)
+	u.cex.ConfirmDeposit(ctx, coin.TxID(), cexConfirmedDeposit)
 
 	return nil
 }
@@ -1144,13 +1104,13 @@ func (u *unifiedExchangeAdaptor) pendingWithdrawalComplete(id string, amtReceive
 	u.logBalanceAdjustments(dexDiffs, cexDiffs, fmt.Sprintf("Withdrawal %s complete.", id))
 }
 
-// Withdraw withdraws funds from the CEX. After withdrawing, the CEX is queried
+// withdraw withdraws funds from the CEX. After withdrawing, the CEX is queried
 // for the transaction ID. After the transaction ID is available, the wallet is
 // queried for the amount received.
-func (u *unifiedExchangeAdaptor) Withdraw(ctx context.Context, assetID uint32, amount uint64) error {
+func (u *unifiedExchangeAdaptor) withdraw(ctx context.Context, assetID uint32, amount uint64) error {
 	symbol := dex.BipIDSymbol(assetID)
 
-	balance, err := u.CEXBalance(assetID)
+	balance, err := u.cexBalance(assetID)
 	if err != nil {
 		return err
 	}
@@ -1158,7 +1118,7 @@ func (u *unifiedExchangeAdaptor) Withdraw(ctx context.Context, assetID uint32, a
 		return fmt.Errorf("bot has insufficient balance to withdraw %s. required: %v, have: %v", symbol, amount, balance.Available)
 	}
 
-	addr, err := u.clientCore.NewDepositAddress(assetID)
+	addr, err := u.core.NewDepositAddress(assetID)
 	if err != nil {
 		return err
 	}
@@ -1171,7 +1131,7 @@ func (u *unifiedExchangeAdaptor) Withdraw(ctx context.Context, assetID uint32, a
 		for {
 			select {
 			case <-timer.C:
-				tx, err := u.clientCore.WalletTransaction(assetID, txID)
+				tx, err := u.core.WalletTransaction(assetID, txID)
 				if errors.Is(err, asset.CoinNotFoundError) {
 					u.log.Warnf("%s wallet does not know about withdrawal tx: %s", dex.BipIDSymbol(assetID), txID)
 					continue
@@ -1193,7 +1153,7 @@ func (u *unifiedExchangeAdaptor) Withdraw(ctx context.Context, assetID uint32, a
 	u.balancesMtx.Lock()
 	defer u.balancesMtx.Unlock()
 
-	err = u.CEX.Withdraw(ctx, assetID, amount, addr, confirmWithdrawal)
+	err = u.cex.Withdraw(ctx, assetID, amount, addr, confirmWithdrawal)
 	if err != nil {
 		return err
 	}
@@ -1212,13 +1172,13 @@ func (u *unifiedExchangeAdaptor) Withdraw(ctx context.Context, assetID uint32, a
 	return nil
 }
 
-// FreeUpFunds cancels active orders to free up the specified amount of funds
+// freeUpFunds cancels active orders to free up the specified amount of funds
 // for a rebalance between the dex and the cex. If the cex parameter is true,
 // it means we are freeing up funds for withdrawal. DEX orders that require a
 // counter-trade on the CEX are cancelled. The orders are cancelled in reverse
 // order of priority (determined by the order in which they were passed into
 // MultiTrade).
-func (u *unifiedExchangeAdaptor) FreeUpFunds(assetID uint32, cex bool, amt uint64, currEpoch uint64) {
+func (u *unifiedExchangeAdaptor) freeUpFunds(assetID uint32, cex bool, amt uint64, currEpoch uint64) {
 	var base bool
 	if assetID == u.market.BaseID {
 		base = true
@@ -1228,7 +1188,7 @@ func (u *unifiedExchangeAdaptor) FreeUpFunds(assetID uint32, cex bool, amt uint6
 	}
 
 	if cex {
-		bal, err := u.CEXBalance(assetID)
+		bal, err := u.cexBalance(assetID)
 		if err != nil {
 			u.log.Errorf("Error getting %s balance on cex: %v", dex.BipIDSymbol(assetID), err)
 			return
@@ -1245,7 +1205,7 @@ func (u *unifiedExchangeAdaptor) FreeUpFunds(assetID uint32, cex bool, amt uint6
 		}
 		amt -= freeBalance
 	} else {
-		bal, err := u.DEXBalance(assetID)
+		bal, err := u.dexBalance(assetID)
 		if err != nil {
 			u.log.Errorf("Error getting %s balance: %v", dex.BipIDSymbol(assetID), err)
 			return
@@ -1292,7 +1252,7 @@ func (u *unifiedExchangeAdaptor) FreeUpFunds(assetID uint32, cex bool, amt uint6
 			// cancel. We still count this order towards the freedAmt in
 			// order to not cancel a higher priority trade.
 			if currEpoch-o.order.Epoch >= 2 {
-				err := u.Cancel(o.order.ID)
+				err := u.core.Cancel(o.order.ID)
 				if err != nil {
 					u.log.Errorf("Error cancelling order: %v", err)
 					continue
@@ -1339,14 +1299,14 @@ func (u *unifiedExchangeAdaptor) cexBalanceBackingDexOrders(assetID uint32) uint
 }
 
 func (u *unifiedExchangeAdaptor) rebalanceAsset(ctx context.Context, assetID uint32, minAmount, minTransferAmount uint64) (toSend int64, dexReserves, cexReserves uint64) {
-	dexBalance, err := u.DEXBalance(assetID)
+	dexBalance, err := u.dexBalance(assetID)
 	if err != nil {
 		u.log.Errorf("Error getting %s balance: %v", dex.BipIDSymbol(assetID), err)
 		return
 	}
 	totalDexBalance := dexBalance.Available + dexBalance.Locked
 
-	cexBalance, err := u.CEXBalance(assetID)
+	cexBalance, err := u.cexBalance(assetID)
 	if err != nil {
 		u.log.Errorf("Error getting %s balance on cex: %v", dex.BipIDSymbol(assetID), err)
 		return
@@ -1412,7 +1372,7 @@ func (u *unifiedExchangeAdaptor) rebalanceAsset(ctx context.Context, assetID uin
 	return
 }
 
-// PrepareRebalance returns the amount that needs to be either deposited to or
+// prepareRebalance returns the amount that needs to be either deposited to or
 // withdrawn from the CEX to rebalance the specified asset. If the amount is
 // positive, it is the amount that needs to be deposited to the CEX. If the
 // amount is negative, it is the amount that needs to be withdrawn from the
@@ -1424,7 +1384,7 @@ func (u *unifiedExchangeAdaptor) rebalanceAsset(ctx context.Context, assetID uin
 // orders that are obstructing the transfer, and also should be passed to any
 // calls to MultiTrade to make sure the funds needed for rebalancing are not
 // used to place orders.
-func (u *unifiedExchangeAdaptor) PrepareRebalance(ctx context.Context, assetID uint32) (rebalance int64, dexReserves, cexReserves uint64) {
+func (u *unifiedExchangeAdaptor) prepareRebalance(ctx context.Context, assetID uint32) (rebalance int64, dexReserves, cexReserves uint64) {
 	if u.rebalanceCfg == nil {
 		return
 	}
@@ -1506,9 +1466,9 @@ func (u *unifiedExchangeAdaptor) handleCEXTradeUpdate(trade *libxc.Trade) {
 	u.logBalanceAdjustments(nil, diffs, fmt.Sprintf("CEX trade %s completed.", trade.ID))
 }
 
-// SubscribeTradeUpdates subscribes to trade updates for the bot's trades on
+// subscribeTradeUpdates subscribes to trade updates for the bot's trades on
 // the CEX. This should be called before making any trades, and only once.
-func (w *unifiedExchangeAdaptor) SubscribeTradeUpdates() (<-chan *libxc.Trade, func()) {
+func (w *unifiedExchangeAdaptor) subscribeTradeUpdates() (<-chan *libxc.Trade, func()) {
 	w.subscriptionIDMtx.Lock()
 	defer w.subscriptionIDMtx.Unlock()
 	if w.subscriptionID != nil {
@@ -1516,7 +1476,7 @@ func (w *unifiedExchangeAdaptor) SubscribeTradeUpdates() (<-chan *libxc.Trade, f
 		return nil, nil
 	}
 
-	updates, unsubscribe, subscriptionID := w.CEX.SubscribeTradeUpdates()
+	updates, unsubscribe, subscriptionID := w.cex.SubscribeTradeUpdates()
 	w.subscriptionID = &subscriptionID
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1540,10 +1500,10 @@ func (w *unifiedExchangeAdaptor) SubscribeTradeUpdates() (<-chan *libxc.Trade, f
 	return forwardUpdates, forwardUnsubscribe
 }
 
-// Trade executes a trade on the CEX. The trade will be executed using the
+// cexTrade executes a trade on the CEX. The trade will be executed using the
 // bot's CEX balance.
-func (u *unifiedExchangeAdaptor) CEXTrade(ctx context.Context, baseID, quoteID uint32, sell bool, rate, qty uint64) (*libxc.Trade, error) {
-	sufficient, err := u.SufficientBalanceForCEXTrade(baseID, quoteID, sell, rate, qty)
+func (u *unifiedExchangeAdaptor) cexTrade(ctx context.Context, baseID, quoteID uint32, sell bool, rate, qty uint64) (*libxc.Trade, error) {
+	sufficient, err := u.sufficientBalanceForCEXTrade(baseID, quoteID, sell, rate, qty)
 	if err != nil {
 		return nil, err
 	}
@@ -1561,7 +1521,7 @@ func (u *unifiedExchangeAdaptor) CEXTrade(ctx context.Context, baseID, quoteID u
 	u.balancesMtx.Lock()
 	defer u.balancesMtx.Unlock()
 
-	trade, err := u.CEX.Trade(ctx, baseID, quoteID, sell, rate, qty, *subscriptionID)
+	trade, err := u.cex.Trade(ctx, baseID, quoteID, sell, rate, qty, *subscriptionID)
 	if err != nil {
 		return nil, err
 	}
@@ -1596,15 +1556,15 @@ func (u *unifiedExchangeAdaptor) fiatRate(assetID uint32) float64 {
 	return rates.(map[uint32]float64)[assetID]
 }
 
-// ExchangeRateFromFiatSources returns market's exchange rate using fiat sources.
-func (u *unifiedExchangeAdaptor) ExchangeRateFromFiatSources() uint64 {
+// exchangeRateFromFiatSources returns market's exchange rate using fiat sources.
+func (u *unifiedExchangeAdaptor) exchangeRateFromFiatSources() uint64 {
 	baseRate := u.fiatRate(u.market.BaseID)
 	quoteRate := u.fiatRate(u.market.QuoteID)
 	if baseRate == 0 || quoteRate == 0 {
 		return 0
 	}
 
-	market, err := u.ExchangeMarket(u.market.Host, u.market.BaseID, u.market.QuoteID)
+	market, err := u.core.ExchangeMarket(u.market.Host, u.market.BaseID, u.market.QuoteID)
 	if err != nil {
 		u.log.Errorf("Error getting market: %v", err)
 		return 0
@@ -1627,11 +1587,11 @@ func (u *unifiedExchangeAdaptor) orderFees() (buyFees, sellFees *orderFees, err 
 	return u.buyFees, u.sellFees, nil
 }
 
-// OrderFeesInUnits returns the swap and redemption fees for either a buy or
+// orderFeesInUnits returns the swap and redemption fees for either a buy or
 // sell order in units of either the base or quote asset. If either the base
 // or quote asset is a token, the fees are converted using fiat rates.
 // Otherwise, the rate parameter is used for the conversion.
-func (u *unifiedExchangeAdaptor) OrderFeesInUnits(sell, base bool, rate uint64) (uint64, error) {
+func (u *unifiedExchangeAdaptor) orderFeesInUnits(sell, base bool, rate uint64) (uint64, error) {
 	convertTokenAssetFees := func(fees uint64, token *asset.Token) (uint64, error) {
 		var unitsAsset uint32
 		if base {
@@ -1709,9 +1669,9 @@ func (u *unifiedExchangeAdaptor) OrderFeesInUnits(sell, base bool, rate uint64) 
 	return baseFeesInUnits + quoteFeesInUnits, nil
 }
 
-// CancelAllOrders cancels all booked orders. True is returned no orders
+// cancelAllOrders cancels all booked orders. True is returned no orders
 // needed to be cancelled.
-func (u *unifiedExchangeAdaptor) CancelAllOrders() bool {
+func (u *unifiedExchangeAdaptor) cancelAllOrders() bool {
 	u.balancesMtx.RLock()
 	defer u.balancesMtx.RUnlock()
 
@@ -1720,7 +1680,7 @@ func (u *unifiedExchangeAdaptor) CancelAllOrders() bool {
 	for _, pendingOrder := range u.pendingDEXOrders {
 		pendingOrder.balancesMtx.RLock()
 		if pendingOrder.order.Status <= order.OrderStatusBooked {
-			err := u.clientCore.Cancel(pendingOrder.order.ID)
+			err := u.core.Cancel(pendingOrder.order.ID)
 			if err != nil {
 				u.log.Errorf("Error canceling order %s: %v", pendingOrder.order.ID, err)
 			}
@@ -1732,9 +1692,9 @@ func (u *unifiedExchangeAdaptor) CancelAllOrders() bool {
 	return noCancels
 }
 
-// SubscribeOrderUpdates returns a channel that sends updates for orders placed
+// subscribeOrderUpdates returns a channel that sends updates for orders placed
 // on the DEX. This function should be called only once.
-func (u *unifiedExchangeAdaptor) SubscribeOrderUpdates() <-chan *core.Order {
+func (u *unifiedExchangeAdaptor) subscribeOrderUpdates() <-chan *core.Order {
 	orderUpdates := make(chan *core.Order, 128)
 	u.orderUpdates.Store(orderUpdates)
 	return orderUpdates
@@ -1742,7 +1702,7 @@ func (u *unifiedExchangeAdaptor) SubscribeOrderUpdates() <-chan *core.Order {
 
 // isAccountLocker returns if the asset's wallet is an asset.AccountLocker.
 func (u *unifiedExchangeAdaptor) isAccountLocker(assetID uint32) bool {
-	walletState := u.clientCore.WalletState(assetID)
+	walletState := u.core.WalletState(assetID)
 	if walletState == nil {
 		u.log.Errorf("isAccountLocker: wallet state not found for asset %d", assetID)
 		return false
@@ -1753,7 +1713,7 @@ func (u *unifiedExchangeAdaptor) isAccountLocker(assetID uint32) bool {
 
 // isDynamicSwapper returns if the asset's wallet is an asset.DynamicSwapper.
 func (u *unifiedExchangeAdaptor) isDynamicSwapper(assetID uint32) bool {
-	walletState := u.clientCore.WalletState(assetID)
+	walletState := u.core.WalletState(assetID)
 	if walletState == nil {
 		u.log.Errorf("isDynamicSwapper: wallet state not found for asset %d", assetID)
 		return false
@@ -1764,7 +1724,7 @@ func (u *unifiedExchangeAdaptor) isDynamicSwapper(assetID uint32) bool {
 
 // isWithdrawer returns if the asset's wallet is an asset.Withdrawer.
 func (u *unifiedExchangeAdaptor) isWithdrawer(assetID uint32) bool {
-	walletState := u.clientCore.WalletState(assetID)
+	walletState := u.core.WalletState(assetID)
 	if walletState == nil {
 		u.log.Errorf("isWithdrawer: wallet state not found for asset %d", assetID)
 		return false
@@ -1863,7 +1823,7 @@ func (u *unifiedExchangeAdaptor) updatePendingDEXOrder(o *core.Order) {
 			if oldTx.Confirmed {
 				continue
 			}
-			tx, err := u.clientCore.WalletTransaction(assetID, txID)
+			tx, err := u.core.WalletTransaction(assetID, txID)
 			if err != nil {
 				u.log.Errorf("Error getting tx %s: %v", txID, err)
 				continue
@@ -1979,7 +1939,7 @@ func (u *unifiedExchangeAdaptor) handleDEXNotification(n core.Notification) {
 	case *core.OrderNote:
 		u.updatePendingDEXOrder(note.Order)
 	case *core.MatchNote:
-		o, err := u.clientCore.Order(note.OrderID)
+		o, err := u.core.Order(note.OrderID)
 		if err != nil {
 			u.log.Errorf("handleDEXNotification: failed to get order %s: %v", note.OrderID, err)
 			return
@@ -1993,7 +1953,7 @@ func (u *unifiedExchangeAdaptor) handleDEXNotification(n core.Notification) {
 // updateFeeRates updates the cached fee rates for placing orders on the market
 // specified by the exchangeAdaptorCfg used to create the unifiedExchangeAdaptor.
 func (u *unifiedExchangeAdaptor) updateFeeRates() error {
-	buySwapFees, buyRedeemFees, buyRefundFees, err := u.clientCore.SingleLotFees(&core.SingleLotFeesForm{
+	buySwapFees, buyRedeemFees, buyRefundFees, err := u.core.SingleLotFees(&core.SingleLotFeesForm{
 		Host:          u.market.Host,
 		Base:          u.market.BaseID,
 		Quote:         u.market.QuoteID,
@@ -2004,7 +1964,7 @@ func (u *unifiedExchangeAdaptor) updateFeeRates() error {
 		return fmt.Errorf("failed to get buy single lot fees: %v", err)
 	}
 
-	sellSwapFees, sellRedeemFees, sellRefundFees, err := u.clientCore.SingleLotFees(&core.SingleLotFeesForm{
+	sellSwapFees, sellRedeemFees, sellRefundFees, err := u.core.SingleLotFees(&core.SingleLotFeesForm{
 		Host:          u.market.Host,
 		Base:          u.market.BaseID,
 		Quote:         u.market.QuoteID,
@@ -2016,12 +1976,12 @@ func (u *unifiedExchangeAdaptor) updateFeeRates() error {
 		return fmt.Errorf("failed to get sell single lot fees: %v", err)
 	}
 
-	buyFundingFees, err := u.clientCore.MaxFundingFees(u.market.QuoteID, u.market.Host, u.maxBuyPlacements, u.baseWalletOptions)
+	buyFundingFees, err := u.core.MaxFundingFees(u.market.QuoteID, u.market.Host, u.maxBuyPlacements, u.baseWalletOptions)
 	if err != nil {
 		return fmt.Errorf("failed to get buy funding fees: %v", err)
 	}
 
-	sellFundingFees, err := u.clientCore.MaxFundingFees(u.market.BaseID, u.market.Host, u.maxSellPlacements, u.quoteWalletOptions)
+	sellFundingFees, err := u.core.MaxFundingFees(u.market.BaseID, u.market.Host, u.maxSellPlacements, u.quoteWalletOptions)
 	if err != nil {
 		return fmt.Errorf("failed to get sell funding fees: %v", err)
 	}
@@ -2046,7 +2006,7 @@ func (u *unifiedExchangeAdaptor) updateFeeRates() error {
 }
 
 func (u *unifiedExchangeAdaptor) run(ctx context.Context) {
-	u.fiatRates.Store(u.clientCore.FiatConversionRates())
+	u.fiatRates.Store(u.core.FiatConversionRates())
 
 	err := u.updateFeeRates()
 	if err != nil {
@@ -2055,7 +2015,7 @@ func (u *unifiedExchangeAdaptor) run(ctx context.Context) {
 
 	// Listen for core notifications
 	go func() {
-		feed := u.clientCore.NotificationFeed()
+		feed := u.core.NotificationFeed()
 		defer feed.ReturnFeed()
 
 		for {
@@ -2105,8 +2065,8 @@ type exchangeAdaptorCfg struct {
 // unifiedExchangeAdaptorForBot returns a unifiedExchangeAdaptor for the specified bot.
 func unifiedExchangeAdaptorForBot(cfg *exchangeAdaptorCfg) *unifiedExchangeAdaptor {
 	return &unifiedExchangeAdaptor{
-		clientCore:         cfg.core,
-		CEX:                cfg.cex,
+		core:               cfg.core,
+		cex:                cfg.cex,
 		botID:              cfg.botID,
 		log:                cfg.log,
 		maxBuyPlacements:   cfg.maxBuyPlacements,

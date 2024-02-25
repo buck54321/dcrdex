@@ -182,7 +182,7 @@ type basicMMCalculator interface {
 type basicMMCalculatorImpl struct {
 	book   dexOrderBook
 	oracle oracle
-	core   botCoreAdaptor
+	core   *unifiedExchangeAdaptor
 	mkt    *core.Market
 	cfg    *BasicMarketMakingConfig
 	log    dex.Logger
@@ -249,7 +249,7 @@ func (b *basicMMCalculatorImpl) basisPrice() uint64 {
 	}
 
 	// TODO: add a configuration to turn off use of fiat rate?
-	fiatRate := b.core.ExchangeRateFromFiatSources()
+	fiatRate := b.core.exchangeRateFromFiatSources()
 	if fiatRate > 0 {
 		return steppedRate(fiatRate, b.mkt.RateStep)
 	}
@@ -273,22 +273,22 @@ func (b *basicMMCalculatorImpl) halfSpread(basisPrice uint64) (uint64, error) {
 		return 0, fmt.Errorf("basis price cannot be zero")
 	}
 
-	sellFeesInBaseUnits, err := b.core.OrderFeesInUnits(true, true, basisPrice)
+	sellFeesInBaseUnits, err := b.core.orderFeesInUnits(true, true, basisPrice)
 	if err != nil {
 		return 0, fmt.Errorf("error getting sell fees in base units: %w", err)
 	}
 
-	buyFeesInBaseUnits, err := b.core.OrderFeesInUnits(false, true, basisPrice)
+	buyFeesInBaseUnits, err := b.core.orderFeesInUnits(false, true, basisPrice)
 	if err != nil {
 		return 0, fmt.Errorf("error getting buy fees in base units: %w", err)
 	}
 
-	sellFeesInQuoteUnits, err := b.core.OrderFeesInUnits(true, false, basisPrice)
+	sellFeesInQuoteUnits, err := b.core.orderFeesInUnits(true, false, basisPrice)
 	if err != nil {
 		return 0, fmt.Errorf("error getting sell fees in quote units: %w", err)
 	}
 
-	buyFeesInQuoteUnits, err := b.core.OrderFeesInUnits(false, false, basisPrice)
+	buyFeesInQuoteUnits, err := b.core.orderFeesInUnits(false, false, basisPrice)
 	if err != nil {
 		return 0, fmt.Errorf("error getting buy fees in quote units: %w", err)
 	}
@@ -325,13 +325,14 @@ func (b *basicMMCalculatorImpl) halfSpread(basisPrice uint64) (uint64, error) {
 }
 
 type basicMarketMaker struct {
+	*unifiedExchangeAdaptor
+
 	ctx              context.Context
 	host             string
 	base             uint32
 	quote            uint32
 	cfg              *BasicMarketMakingConfig
 	log              dex.Logger
-	core             botCoreAdaptor
 	oracle           oracle
 	mkt              *core.Market
 	rebalanceRunning atomic.Bool
@@ -416,8 +417,8 @@ func (m *basicMarketMaker) rebalance(newEpoch uint64) {
 	m.log.Tracef("rebalance: epoch %d", newEpoch)
 
 	buyOrders, sellOrders := m.ordersToPlace()
-	m.core.MultiTrade(buyOrders, false, m.cfg.DriftTolerance, newEpoch, nil, nil)
-	m.core.MultiTrade(sellOrders, true, m.cfg.DriftTolerance, newEpoch, nil, nil)
+	m.MultiTrade(buyOrders, false, m.cfg.DriftTolerance, newEpoch, nil, nil)
+	m.MultiTrade(sellOrders, true, m.cfg.DriftTolerance, newEpoch, nil, nil)
 }
 
 func (m *basicMarketMaker) run() {
@@ -430,7 +431,7 @@ func (m *basicMarketMaker) run() {
 	m.calculator = &basicMMCalculatorImpl{
 		book:   book,
 		oracle: m.oracle,
-		core:   m.core,
+		core:   m.unifiedExchangeAdaptor,
 		mkt:    m.mkt,
 		cfg:    m.cfg,
 		log:    m.log,
@@ -457,11 +458,11 @@ func (m *basicMarketMaker) run() {
 
 	wg.Wait()
 
-	m.core.CancelAllOrders()
+	m.cancelAllOrders()
 }
 
 // RunBasicMarketMaker starts a basic market maker bot.
-func RunBasicMarketMaker(ctx context.Context, cfg *BotConfig, c botCoreAdaptor, oracle oracle, log dex.Logger) {
+func RunBasicMarketMaker(ctx context.Context, cfg *BotConfig, ua *unifiedExchangeAdaptor, oracle oracle, log dex.Logger) {
 	if cfg.BasicMMConfig == nil {
 		// implies bug in caller
 		log.Errorf("No market making config provided. Exiting.")
@@ -474,22 +475,22 @@ func RunBasicMarketMaker(ctx context.Context, cfg *BotConfig, c botCoreAdaptor, 
 		return
 	}
 
-	mkt, err := c.ExchangeMarket(cfg.Host, cfg.BaseID, cfg.QuoteID)
+	mkt, err := ua.core.ExchangeMarket(cfg.Host, cfg.BaseID, cfg.QuoteID)
 	if err != nil {
 		log.Errorf("Failed to get market: %v. Not starting market maker.", err)
 		return
 	}
 
 	mm := &basicMarketMaker{
-		ctx:    ctx,
-		core:   c,
-		log:    log,
-		cfg:    cfg.BasicMMConfig,
-		host:   cfg.Host,
-		base:   cfg.BaseID,
-		quote:  cfg.QuoteID,
-		oracle: oracle,
-		mkt:    mkt,
+		unifiedExchangeAdaptor: ua,
+		ctx:                    ctx,
+		log:                    log,
+		cfg:                    cfg.BasicMMConfig,
+		host:                   cfg.Host,
+		base:                   cfg.BaseID,
+		quote:                  cfg.QuoteID,
+		oracle:                 oracle,
+		mkt:                    mkt,
 	}
 
 	mm.run()

@@ -138,7 +138,7 @@ func TestSufficientBalanceForDEXTrade(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				adaptor.run(ctx)
-				sufficient, err := adaptor.SufficientBalanceForDEXTrade(test.rate, test.qty, test.sell)
+				sufficient, err := adaptor.sufficientBalanceForDEXTrade(test.rate, test.qty, test.sell)
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
@@ -206,7 +206,7 @@ func TestSufficientBalanceForCEXTrade(t *testing.T) {
 					},
 					log: tLogger,
 				})
-				sufficient, err := adaptor.SufficientBalanceForCEXTrade(baseID, quoteID, test.sell, test.rate, test.qty)
+				sufficient, err := adaptor.sufficientBalanceForCEXTrade(baseID, quoteID, test.sell, test.rate, test.qty)
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
@@ -465,7 +465,7 @@ func TestPrepareRebalance(t *testing.T) {
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			rebalance, dexReserves, cexReserves := adaptor.PrepareRebalance(ctx, test.assetID)
+			rebalance, dexReserves, cexReserves := adaptor.prepareRebalance(ctx, test.assetID)
 			if rebalance != test.expectedRebalance {
 				t.Fatalf("expected rebalance=%d, got %d", test.expectedRebalance, rebalance)
 			}
@@ -648,7 +648,7 @@ func TestFreeUpFunds(t *testing.T) {
 				log: tLogger,
 			})
 			adaptor.pendingDEXOrders = test.pendingDEXOrders
-			adaptor.FreeUpFunds(test.assetID, test.cex, test.amt, currEpoch)
+			adaptor.freeUpFunds(test.assetID, test.cex, test.amt, currEpoch)
 
 			if len(tCore.cancelsPlaced) != len(test.expectedCancels) {
 				t.Fatalf("%s: expected %d cancels, got %d", test.name, len(test.expectedCancels), len(tCore.cancelsPlaced))
@@ -2042,7 +2042,7 @@ func TestDEXTrade(t *testing.T) {
 		checkBalances := func(expected map[uint32]*botBalance, updateNum int) {
 			t.Helper()
 			for assetID, expectedBal := range expected {
-				bal, err := adaptor.DEXBalance(assetID)
+				bal, err := adaptor.dexBalance(assetID)
 				if err != nil {
 					t.Fatalf("%s: unexpected error: %v", test.name, err)
 				}
@@ -2346,12 +2346,12 @@ func TestDeposit(t *testing.T) {
 			},
 		})
 		adaptor.run(ctx)
-		err := adaptor.Deposit(ctx, test.assetID, test.depositAmt)
+		err := adaptor.deposit(ctx, test.assetID, test.depositAmt)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", test.name, err)
 		}
 
-		preConfirmBal, err := adaptor.DEXBalance(test.assetID)
+		preConfirmBal, err := adaptor.dexBalance(test.assetID)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", test.name, err)
 		}
@@ -2360,7 +2360,7 @@ func TestDeposit(t *testing.T) {
 		}
 
 		if test.assetID == 966001 {
-			preConfirmParentBal, err := adaptor.DEXBalance(966)
+			preConfirmParentBal, err := adaptor.dexBalance(966)
 			if err != nil {
 				t.Fatalf("%s: unexpected error: %v", test.name, err)
 			}
@@ -2377,7 +2377,7 @@ func TestDeposit(t *testing.T) {
 		<-tCEX.confirmDepositComplete
 
 		checkPostConfirmBalance := func() error {
-			postConfirmBal, err := adaptor.DEXBalance(test.assetID)
+			postConfirmBal, err := adaptor.dexBalance(test.assetID)
 			if err != nil {
 				t.Fatalf("%s: unexpected error: %v", test.name, err)
 			}
@@ -2387,7 +2387,7 @@ func TestDeposit(t *testing.T) {
 			}
 
 			if test.assetID == 966001 {
-				postConfirmParentBal, err := adaptor.DEXBalance(966)
+				postConfirmParentBal, err := adaptor.dexBalance(966)
 				if err != nil {
 					t.Fatalf("%s: unexpected error: %v", test.name, err)
 				}
@@ -2509,12 +2509,12 @@ func TestWithdraw(t *testing.T) {
 		})
 		adaptor.run(ctx)
 
-		err := adaptor.Withdraw(ctx, assetID, test.withdrawAmt)
+		err := adaptor.withdraw(ctx, assetID, test.withdrawAmt)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", test.name, err)
 		}
 
-		preConfirmBal, err := adaptor.DEXBalance(assetID)
+		preConfirmBal, err := adaptor.dexBalance(assetID)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", test.name, err)
 		}
@@ -2530,7 +2530,7 @@ func TestWithdraw(t *testing.T) {
 
 		<-tCEX.confirmWithdrawalComplete
 
-		postConfirmBal, err := adaptor.DEXBalance(assetID)
+		postConfirmBal, err := adaptor.dexBalance(assetID)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", test.name, err)
 		}
@@ -2830,9 +2830,9 @@ func TestCEXTrade(t *testing.T) {
 		})
 		adaptor.run(ctx)
 
-		adaptor.SubscribeTradeUpdates()
+		adaptor.subscribeTradeUpdates()
 
-		_, err := adaptor.CEXTrade(ctx, baseID, quoteID, test.sell, test.rate, test.qty)
+		_, err := adaptor.cexTrade(ctx, baseID, quoteID, test.sell, test.rate, test.qty)
 		if test.wantErr {
 			if err == nil {
 				t.Fatalf("%s: expected error but did not get", test.name)
@@ -2846,7 +2846,7 @@ func TestCEXTrade(t *testing.T) {
 		checkBalances := func(expected map[uint32]*botBalance, i int) {
 			t.Helper()
 			for assetID, expectedBal := range expected {
-				bal, err := adaptor.CEXBalance(assetID)
+				bal, err := adaptor.cexBalance(assetID)
 				if err != nil {
 					t.Fatalf("%s: unexpected error: %v", test.name, err)
 				}
@@ -2983,7 +2983,7 @@ func TestOrderFeesInUnits(t *testing.T) {
 		defer cancel()
 		adaptor.run(ctx)
 
-		sellBase, err := adaptor.OrderFeesInUnits(true, true, tt.rate)
+		sellBase, err := adaptor.orderFeesInUnits(true, true, tt.rate)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", tt.name, err)
 		}
@@ -2991,7 +2991,7 @@ func TestOrderFeesInUnits(t *testing.T) {
 			t.Fatalf("%s: unexpected sell base fee. want %d, got %d", tt.name, tt.expectedSellBase, sellBase)
 		}
 
-		sellQuote, err := adaptor.OrderFeesInUnits(true, false, tt.rate)
+		sellQuote, err := adaptor.orderFeesInUnits(true, false, tt.rate)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", tt.name, err)
 		}
@@ -2999,7 +2999,7 @@ func TestOrderFeesInUnits(t *testing.T) {
 			t.Fatalf("%s: unexpected sell quote fee. want %d, got %d", tt.name, tt.expectedSellQuote, sellQuote)
 		}
 
-		buyBase, err := adaptor.OrderFeesInUnits(false, true, tt.rate)
+		buyBase, err := adaptor.orderFeesInUnits(false, true, tt.rate)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", tt.name, err)
 		}
@@ -3007,7 +3007,7 @@ func TestOrderFeesInUnits(t *testing.T) {
 			t.Fatalf("%s: unexpected buy base fee. want %d, got %d", tt.name, tt.expectedBuyBase, buyBase)
 		}
 
-		buyQuote, err := adaptor.OrderFeesInUnits(false, false, tt.rate)
+		buyQuote, err := adaptor.orderFeesInUnits(false, false, tt.rate)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", tt.name, err)
 		}

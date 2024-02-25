@@ -864,7 +864,7 @@ func (m *MarketMaker) Start(pw []byte, alternateConfigPath *string) (err error) 
 				})
 				exchangeAdaptor.run(ctx)
 
-				RunSimpleArbBot(m.ctx, cfg, exchangeAdaptor, exchangeAdaptor, logger)
+				RunSimpleArbBot(m.ctx, cfg, exchangeAdaptor, logger)
 			}(cfg)
 		case cfg.ArbMarketMakerConfig != nil:
 			wg.Add(1)
@@ -901,7 +901,7 @@ func (m *MarketMaker) Start(pw []byte, alternateConfigPath *string) (err error) 
 				})
 				exchangeAdaptor.run(ctx)
 
-				RunArbMarketMaker(m.ctx, cfg, exchangeAdaptor, exchangeAdaptor, logger)
+				RunArbMarketMaker(m.ctx, cfg, exchangeAdaptor, logger)
 			}(cfg)
 		default:
 			m.log.Errorf("No bot config provided. Skipping %s-%d-%d", cfg.Host, cfg.BaseID, cfg.QuoteID)

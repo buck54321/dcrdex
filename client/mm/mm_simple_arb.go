@@ -63,12 +63,12 @@ type arbSequence struct {
 }
 
 type simpleArbMarketMaker struct {
+	*unifiedExchangeAdaptor
+
 	ctx              context.Context
 	host             string
 	baseID           uint32
 	quoteID          uint32
-	cex              botCexAdaptor
-	core             botCoreAdaptor
 	log              dex.Logger
 	cfg              *SimpleArbConfig
 	mkt              *core.Market
@@ -137,7 +137,7 @@ func (a *simpleArbMarketMaker) arbExistsOnSide(sellOnDEX bool) (exists bool, lot
 			break
 		}
 
-		enough, err := a.core.SufficientBalanceForDEXTrade(dexExtrema, numLots*lotSize, sellOnDEX)
+		enough, err := a.sufficientBalanceForDEXTrade(dexExtrema, numLots*lotSize, sellOnDEX)
 		if err != nil {
 			a.log.Errorf("error checking sufficient balance: %v", err)
 			break
@@ -146,7 +146,7 @@ func (a *simpleArbMarketMaker) arbExistsOnSide(sellOnDEX bool) (exists bool, lot
 			break
 		}
 
-		enough, err = a.cex.SufficientBalanceForCEXTrade(a.baseID, a.quoteID, !sellOnDEX, cexExtrema, numLots*lotSize)
+		enough, err = a.sufficientBalanceForCEXTrade(a.baseID, a.quoteID, !sellOnDEX, cexExtrema, numLots*lotSize)
 		if err != nil {
 			a.log.Errorf("error checking sufficient balance: %v", err)
 			break
@@ -155,7 +155,7 @@ func (a *simpleArbMarketMaker) arbExistsOnSide(sellOnDEX bool) (exists bool, lot
 			break
 		}
 
-		feesInQuoteUnits, err := a.core.OrderFeesInUnits(sellOnDEX, false, dexAvg)
+		feesInQuoteUnits, err := a.orderFeesInUnits(sellOnDEX, false, dexAvg)
 		if err != nil {
 			a.log.Errorf("error calculating fees: %v", err)
 			break
@@ -215,13 +215,13 @@ func (a *simpleArbMarketMaker) executeArb(sellOnDex bool, lotsToArb, dexRate, ce
 	defer a.activeArbsMtx.Unlock()
 
 	// Place cex order first. If placing dex order fails then can freely cancel cex order.
-	cexTrade, err := a.cex.CEXTrade(a.ctx, a.baseID, a.quoteID, !sellOnDex, cexRate, lotsToArb*a.mkt.LotSize)
+	cexTrade, err := a.cexTrade(a.ctx, a.baseID, a.quoteID, !sellOnDex, cexRate, lotsToArb*a.mkt.LotSize)
 	if err != nil {
 		a.log.Errorf("error placing cex order: %v", err)
 		return
 	}
 
-	dexOrder, err := a.core.DEXTrade(dexRate, lotsToArb*a.mkt.LotSize, sellOnDex)
+	dexOrder, err := a.dexTrade(dexRate, lotsToArb*a.mkt.LotSize, sellOnDex)
 	if err != nil {
 		if err != nil {
 			a.log.Errorf("error placing dex order: %v", err)
@@ -396,29 +396,29 @@ func (a *simpleArbMarketMaker) rebalance(newEpoch uint64) {
 
 	// There will be no reserves, as this will only be called when there
 	// are no active orders.
-	rebalanceBase, _, _ := a.cex.PrepareRebalance(a.ctx, a.baseID)
+	rebalanceBase, _, _ := a.prepareRebalance(a.ctx, a.baseID)
 	if rebalanceBase > 0 {
-		err := a.cex.Deposit(a.ctx, a.baseID, uint64(rebalanceBase))
+		err := a.deposit(a.ctx, a.baseID, uint64(rebalanceBase))
 		if err != nil {
 			a.log.Errorf("error depositing base asset: %v", err)
 		}
 	}
 	if rebalanceBase < 0 {
-		err := a.cex.Withdraw(a.ctx, a.baseID, uint64(-rebalanceBase))
+		err := a.withdraw(a.ctx, a.baseID, uint64(-rebalanceBase))
 		if err != nil {
 			a.log.Errorf("error withdrawing base asset: %v", err)
 		}
 	}
 
-	rebalanceQuote, _, _ := a.cex.PrepareRebalance(a.ctx, a.quoteID)
+	rebalanceQuote, _, _ := a.prepareRebalance(a.ctx, a.quoteID)
 	if rebalanceQuote > 0 {
-		err := a.cex.Deposit(a.ctx, a.quoteID, uint64(rebalanceQuote))
+		err := a.deposit(a.ctx, a.quoteID, uint64(rebalanceQuote))
 		if err != nil {
 			a.log.Errorf("error depositing quote asset: %v", err)
 		}
 	}
 	if rebalanceQuote < 0 {
-		err := a.cex.Withdraw(a.ctx, a.quoteID, uint64(-rebalanceQuote))
+		err := a.withdraw(a.ctx, a.quoteID, uint64(-rebalanceQuote))
 		if err != nil {
 			a.log.Errorf("error withdrawing quote asset: %v", err)
 		}
@@ -439,7 +439,7 @@ func (a *simpleArbMarketMaker) run() {
 		return
 	}
 
-	tradeUpdates, unsubscribe := a.cex.SubscribeTradeUpdates()
+	tradeUpdates, unsubscribe := a.subscribeTradeUpdates()
 	defer unsubscribe()
 
 	wg := &sync.WaitGroup{}
@@ -476,7 +476,7 @@ func (a *simpleArbMarketMaker) run() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		orderUpdates := a.core.SubscribeOrderUpdates()
+		orderUpdates := a.subscribeOrderUpdates()
 		for {
 			select {
 			case n := <-orderUpdates:
@@ -492,29 +492,28 @@ func (a *simpleArbMarketMaker) run() {
 	a.cancelAllOrders()
 }
 
-func RunSimpleArbBot(ctx context.Context, cfg *BotConfig, c botCoreAdaptor, cex botCexAdaptor, log dex.Logger) {
+func RunSimpleArbBot(ctx context.Context, cfg *BotConfig, ua *unifiedExchangeAdaptor, log dex.Logger) {
 	if cfg.SimpleArbConfig == nil {
 		// implies bug in caller
 		log.Errorf("No arb config provided. Exiting.")
 		return
 	}
 
-	mkt, err := c.ExchangeMarket(cfg.Host, cfg.BaseID, cfg.QuoteID)
+	mkt, err := ua.core.ExchangeMarket(cfg.Host, cfg.BaseID, cfg.QuoteID)
 	if err != nil {
 		log.Errorf("Failed to get market: %v", err)
 		return
 	}
 
 	(&simpleArbMarketMaker{
-		ctx:        ctx,
-		host:       cfg.Host,
-		baseID:     cfg.BaseID,
-		quoteID:    cfg.QuoteID,
-		cex:        cex,
-		core:       c,
-		log:        log,
-		cfg:        cfg.SimpleArbConfig,
-		mkt:        mkt,
-		activeArbs: make([]*arbSequence, 0),
+		unifiedExchangeAdaptor: ua,
+		ctx:                    ctx,
+		host:                   cfg.Host,
+		baseID:                 cfg.BaseID,
+		quoteID:                cfg.QuoteID,
+		log:                    log,
+		cfg:                    cfg.SimpleArbConfig,
+		mkt:                    mkt,
+		activeArbs:             make([]*arbSequence, 0),
 	}).run()
 }
