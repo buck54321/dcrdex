@@ -2936,9 +2936,9 @@ func TestOrderFeesInUnits(t *testing.T) {
 				0:     42999,
 			},
 			rate:              calc.MessageRateAlt(43000, 1e8, 1e6),
-			expectedSellBase:  108838,
-			expectedBuyBase:   93489,
-			expectedSellQuote: 47055555,
+			expectedSellBase:  108839, // 5e4 sats + (1.1e7 gwei / 1e9 * 2300 / 42999 * 1e8) = 108838.57
+			expectedBuyBase:   93490,
+			expectedSellQuote: 47055556,
 			expectedBuyQuote:  40432323,
 		},
 		{
@@ -2963,8 +2963,8 @@ func TestOrderFeesInUnits(t *testing.T) {
 			},
 			rate:              calc.MessageRateAlt(43000, 1e8, 1e6),
 			expectedSellBase:  59529,
-			expectedBuyBase:   54117,
-			expectedSellQuote: 25555595,
+			expectedBuyBase:   54118,
+			expectedSellQuote: 25555596,
 			expectedBuyQuote:  23232355,
 		},
 	}
