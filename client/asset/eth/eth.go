@@ -391,7 +391,7 @@ var _ asset.Authenticator = (*ETHWallet)(nil)
 var _ asset.TokenApprover = (*TokenWallet)(nil)
 var _ asset.WalletHistorian = (*ETHWallet)(nil)
 var _ asset.WalletHistorian = (*TokenWallet)(nil)
-var _ asset.BondUpdater = (*ETHWallet)(nil)
+var _ asset.BondUpdater = (*bondingWallet)(nil)
 
 type baseWallet struct {
 	// The asset subsystem starts with Connect(ctx). This ctx will be initialized
@@ -460,6 +460,8 @@ type assetWallet struct {
 	versionedContracts map[uint32]common.Address
 	versionedGases     map[uint32]*dexeth.Gases
 
+	bondAddresses map[uint32]common.Address
+
 	maxSwapGas   uint64
 	maxRedeemGas uint64
 
@@ -469,11 +471,6 @@ type assetWallet struct {
 		redemptionReserves uint64
 		refundReserves     uint64
 	}
-
-	maintainingBondReserves atomic.Bool
-
-	ethBond     *v0Bond.ETHBond
-	bondAddress common.Address
 
 	findRedemptionMtx  sync.RWMutex
 	findRedemptionReqs map[[32]byte]*findRedemptionRequest
@@ -507,6 +504,11 @@ type ETHWallet struct {
 	*assetWallet
 }
 
+type BondingETHWallet struct {
+	*ETHWallet
+	*bondingWallet
+}
+
 // TokenWallet implements some token-specific methods.
 type TokenWallet struct {
 	*assetWallet
@@ -515,6 +517,20 @@ type TokenWallet struct {
 	parent   *assetWallet
 	token    *dexeth.Token
 	netToken *dexeth.NetToken
+}
+
+type BondingTokenWallet struct {
+	*TokenWallet
+	*bondingWallet
+}
+
+type bondingWallet struct {
+	aw       *assetWallet
+	bondAddr common.Address
+
+	maintainingBondReserves atomic.Bool
+
+	ethBond *v0Bond.ETHBond
 }
 
 func (w *assetWallet) maxSwapsAndRedeems() (maxSwaps, maxRedeems uint64) {
@@ -631,7 +647,7 @@ func CreateEVMWallet(chainID int64, createWalletParams *asset.CreateWalletParams
 }
 
 // newWallet is the constructor for an Ethereum asset.Wallet.
-func newWallet(assetCFG *asset.WalletConfig, logger dex.Logger, net dex.Network) (w *ETHWallet, err error) {
+func newWallet(assetCFG *asset.WalletConfig, logger dex.Logger, net dex.Network) (w asset.Wallet, err error) {
 	chainCfg, err := ChainConfig(net)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate Ethereum genesis configuration for network %s", net)
@@ -650,6 +666,11 @@ func newWallet(assetCFG *asset.WalletConfig, logger dex.Logger, net dex.Network)
 		}
 	}
 
+	bondAddresses := make(map[uint32]common.Address)
+	if bondAddress, found := dexeth.ETHBondAddress[net]; found {
+		bondAddresses[BipID] = bondAddress
+	}
+
 	return NewEVMWallet(&EVMWalletConfig{
 		BaseChainID:        BipID,
 		ChainCfg:           chainCfg,
@@ -659,6 +680,7 @@ func newWallet(assetCFG *asset.WalletConfig, logger dex.Logger, net dex.Network)
 		Tokens:             dexeth.Tokens,
 		Logger:             logger,
 		BaseChainContracts: contracts,
+		BondAddresses:      bondAddresses,
 		MultiBalAddress:    dexeth.MultiBalanceAddresses[net],
 		WalletInfo:         WalletInfo,
 		Net:                net,
@@ -676,11 +698,12 @@ type EVMWalletConfig struct {
 	Logger             dex.Logger
 	BaseChainContracts map[uint32]common.Address
 	MultiBalAddress    common.Address
+	BondAddresses      map[uint32]common.Address
 	WalletInfo         asset.WalletInfo
 	Net                dex.Network
 }
 
-func NewEVMWallet(cfg *EVMWalletConfig) (w *ETHWallet, err error) {
+func NewEVMWallet(cfg *EVMWalletConfig) (w asset.Wallet, err error) {
 	assetID := cfg.BaseChainID
 	chainID := cfg.ChainCfg.ChainID.Int64()
 
@@ -743,12 +766,18 @@ func NewEVMWallet(cfg *EVMWalletConfig) (w *ETHWallet, err error) {
 		return nil, errors.New("max redeems cannot be zero or undefined")
 	}
 
+	bondAddresses := cfg.BondAddresses
+	if bondAddresses == nil {
+		bondAddresses = make(map[uint32]common.Address)
+	}
+
 	aw := &assetWallet{
 		baseWallet:         eth,
 		log:                cfg.Logger,
 		assetID:            assetID,
 		versionedContracts: cfg.BaseChainContracts,
 		versionedGases:     cfg.VersionedGases,
+		bondAddresses:      bondAddresses,
 		maxSwapGas:         maxSwapGas,
 		maxRedeemGas:       maxRedeemGas,
 		emit:               cfg.AssetCfg.Emit,
@@ -773,9 +802,21 @@ func NewEVMWallet(cfg *EVMWalletConfig) (w *ETHWallet, err error) {
 		assetID: aw,
 	}
 
-	return &ETHWallet{
+	ew := &ETHWallet{
 		assetWallet: aw,
-	}, nil
+	}
+
+	if bondAddress, found := aw.bondAddresses[cfg.BaseChainID]; found {
+		return &BondingETHWallet{
+			ETHWallet: ew,
+			bondingWallet: &bondingWallet{
+				aw:       aw,
+				bondAddr: bondAddress,
+			},
+		}, nil
+	}
+
+	return ew, nil
 }
 
 func getWalletDir(dataDir string, network dex.Network) string {
@@ -788,6 +829,19 @@ func (w *ETHWallet) shutdown() {
 	if err := w.txDB.close(); err != nil {
 		w.log.Errorf("error closing tx history db: %v", err)
 	}
+}
+
+func (bw *BondingETHWallet) Connect(ctx context.Context) (_ *sync.WaitGroup, err error) {
+	wg, err := bw.ETHWallet.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ethBond, err := v0Bond.NewETHBond(bw.bondAddr, bw.aw.node.contractBackend())
+	if err != nil {
+		return nil, err
+	}
+	bw.ethBond = ethBond
+	return wg, nil
 }
 
 // Connect connects to the node RPC server. Satisfies dex.Connector.
@@ -845,18 +899,6 @@ func (w *ETHWallet) Connect(ctx context.Context) (_ *sync.WaitGroup, err error) 
 			w.log.Errorf("Error loading MultiBalance contract: %v", err)
 		}
 	}
-
-	bondAddress, found := dexeth.ETHBondAddress[w.net]
-	if !found {
-		return nil, fmt.Errorf("no bond address for network %s", w.net)
-	}
-
-	ethBond, err := v0Bond.NewETHBond(bondAddress, w.node.contractBackend())
-	if err != nil {
-		return nil, err
-	}
-	w.ethBond = ethBond
-	w.bondAddress = bondAddress
 
 	w.txDB, err = newBadgerTxDB(filepath.Join(w.dir, "tx.db"), w.log.SubLogger("TXDB"))
 	if err != nil {
@@ -1112,13 +1154,25 @@ func (w *ETHWallet) OpenTokenWallet(tokenCfg *asset.TokenConfig) (asset.Wallet, 
 	w.baseWallet.wallets[tokenCfg.AssetID] = aw
 	w.baseWallet.walletsMtx.Unlock()
 
-	return &TokenWallet{
+	tw := &TokenWallet{
 		assetWallet: aw,
 		cfg:         cfg,
 		parent:      w.assetWallet,
 		token:       token,
 		netToken:    netToken,
-	}, nil
+	}
+
+	if bondAddress, found := w.bondAddresses[tokenCfg.AssetID]; found {
+		return &BondingTokenWallet{
+			TokenWallet: tw,
+			bondingWallet: &bondingWallet{
+				aw:       aw,
+				bondAddr: bondAddress,
+			},
+		}, nil
+	}
+
+	return tw, nil
 }
 
 // OwnsDepositAddress indicates if an address belongs to the wallet. The address
@@ -1220,8 +1274,30 @@ func (w *assetWallet) amountLocked() uint64 {
 }
 
 // Balance returns the available and locked funds (token or eth).
+func (bw *bondingWallet) Balance() (*asset.Balance, error) {
+	bal, err := bw.aw.balanceWithoutBondReserves()
+	if err != nil {
+		return nil, err
+	}
+
+	reserves := bw.bondReserves()
+
+	if reserves > bal.Available {
+		bw.aw.log.Warnf("Available balance insufficient for bond reserves: %f < %f", bal.Available, reserves)
+		bal.ReservesDeficit = reserves - bal.Available
+		reserves = bal.Available
+	}
+
+	bal.BondReserves = reserves
+	bal.Available -= reserves
+	bal.Locked += reserves
+
+	return bal, nil
+}
+
+// Balance returns the available and locked funds (token or eth).
 func (w *assetWallet) Balance() (*asset.Balance, error) {
-	return w.balanceWithBondReserves()
+	return w.balanceWithoutBondReserves()
 }
 
 // balanceWithoutBondReserves returns the total available funds in the account
@@ -1248,16 +1324,16 @@ func (w *assetWallet) balanceWithoutBondReserves() (*asset.Balance, error) {
 
 // balanceWithBondReserves returns the total available funds in the account
 // accounting for bond reserves.
-func (w *assetWallet) balanceWithBondReserves() (*asset.Balance, error) {
-	bal, err := w.balanceWithoutBondReserves()
+func (bw *bondingWallet) balanceWithBondReserves() (*asset.Balance, error) {
+	bal, err := bw.aw.balanceWithoutBondReserves()
 	if err != nil {
 		return nil, err
 	}
 
-	reserves := w.bondReserves()
+	reserves := bw.bondReserves()
 
 	if reserves > bal.Available {
-		w.log.Warnf("Available balance insufficient for bond reserves: %f < %f", bal.Available, reserves)
+		bw.aw.log.Warnf("Available balance insufficient for bond reserves: %f < %f", bal.Available, reserves)
 		bal.ReservesDeficit = reserves - bal.Available
 		reserves = bal.Available
 	}
@@ -2991,7 +3067,8 @@ func txIsSigned(tx *types.Transaction) bool {
 		(s == nil || s.Cmp(big.NewInt(0)) == 0))
 }
 
-func (w *assetWallet) bondTxInfo(tx *types.Transaction) (asset.TransactionType, *asset.BondTxInfo) {
+func (bw *bondingWallet) bondTxInfo(tx *types.Transaction) (asset.TransactionType, *asset.BondTxInfo) {
+	w := bw.aw
 	newBondTxInfo := func(accountID, bondID [32]byte, lockTime uint64) *asset.BondTxInfo {
 		return &asset.BondTxInfo{
 			AccountID: accountID[:],
@@ -3008,7 +3085,7 @@ func (w *assetWallet) bondTxInfo(tx *types.Transaction) (asset.TransactionType, 
 		var totalReplacedBondValue uint64
 		var changeBondLockTime uint64
 		for i, bondID := range bondsToUpdate {
-			bondData, err := w.ethBond.BondData(&bind.CallOpts{Context: w.ctx, From: w.addr}, accountID, bondID)
+			bondData, err := bw.ethBond.BondData(&bind.CallOpts{Context: w.ctx, From: w.addr}, accountID, bondID)
 			if err != nil {
 				w.log.Errorf("updateBondTxToInfo: failed to get bond data: %v", err)
 				continue
@@ -3072,7 +3149,8 @@ func (w *assetWallet) bondTxInfo(tx *types.Transaction) (asset.TransactionType, 
 // sendBondTxWithNewNonceAndGasFee resubmits a bond transaction with the gas
 // fee provided and a new nonce. The transaction is placed into monitoredTxs
 // with the key being the hash of the unsigned nonce-less transaction.
-func (w *assetWallet) sendBondTxWithNewNonceAndGasFee(tx *types.Transaction, gasFeeCap *big.Int) (common.Hash, error) {
+func (bw *bondingWallet) sendBondTxWithNewNonceAndGasFee(tx *types.Transaction, gasFeeCap *big.Int) (common.Hash, error) {
+	w := bw.aw
 	w.nonceSendMtx.Lock()
 	defer w.nonceSendMtx.Unlock()
 
@@ -3092,7 +3170,7 @@ func (w *assetWallet) sendBondTxWithNewNonceAndGasFee(tx *types.Transaction, gas
 	fees := dexeth.WeiToGwei(sentTx.GasPrice()) * sentTx.Gas()
 	bondAmount := dexeth.WeiToGwei(sentTx.Value())
 
-	txType, bondTxInfo := w.bondTxInfo(tx)
+	txType, bondTxInfo := bw.bondTxInfo(tx)
 	w.addToTxHistory(txOpts.Nonce.Uint64(), bondAmount, fees, w.assetID, txHash, txType, bondTxInfo, nil)
 
 	w.tipMtx.RLock()
@@ -3115,7 +3193,7 @@ func (w *assetWallet) sendBondTxWithNewNonceAndGasFee(tx *types.Transaction, gas
 // resubmitted unless it has been overridden by another transaction with the
 // same nonce or the base gas fee has increased and the transaction cannot be
 // mined at the current max fee rate.
-func (w *assetWallet) sendUnsignedBondTransaction(tx *types.Transaction) ([]byte, error) {
+func (bw *bondingWallet) sendUnsignedBondTransaction(tx *types.Transaction) ([]byte, error) {
 	_, _, _, newBondErr := dexeth.ParseCreateBondTx(tx.Data())
 	if newBondErr != nil {
 		_, _, _, _, _, updateBondErr := dexeth.ParseUpdateBondsTx(tx.Data())
@@ -3124,6 +3202,7 @@ func (w *assetWallet) sendUnsignedBondTransaction(tx *types.Transaction) ([]byte
 		}
 	}
 
+	w := bw.aw
 	baseFee, _, err := w.node.currentFees(w.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting net fee state: %w", err)
@@ -3147,7 +3226,7 @@ func (w *assetWallet) sendUnsignedBondTransaction(tx *types.Transaction) ([]byte
 			gasFeeCap = gasFeeLimitWei
 		}
 
-		txHash, err := w.sendBondTxWithNewNonceAndGasFee(tx, gasFeeCap)
+		txHash, err := bw.sendBondTxWithNewNonceAndGasFee(tx, gasFeeCap)
 		if err != nil {
 			return nil, err
 		}
@@ -3177,7 +3256,7 @@ func (w *assetWallet) sendUnsignedBondTransaction(tx *types.Transaction) ([]byte
 		return nil, err
 	}
 	if confirmedNonce > monitoredTx.tx.Nonce() {
-		txHash, err := w.sendBondTxWithNewNonceAndGasFee(tx, monitoredTx.tx.GasFeeCap())
+		txHash, err := bw.sendBondTxWithNewNonceAndGasFee(tx, monitoredTx.tx.GasFeeCap())
 		if err != nil {
 			return nil, err
 		}
@@ -3213,7 +3292,7 @@ func (w *assetWallet) sendUnsignedBondTransaction(tx *types.Transaction) ([]byte
 			gasFeeCap = totalFee.Div(totalFee, big.NewInt(int64(monitoredTx.tx.Gas())))
 		}
 
-		txHash, err := w.sendBondTxWithNewNonceAndGasFee(tx, gasFeeCap)
+		txHash, err := bw.sendBondTxWithNewNonceAndGasFee(tx, gasFeeCap)
 		if err != nil {
 			return nil, err
 		}
@@ -3224,6 +3303,24 @@ func (w *assetWallet) sendUnsignedBondTransaction(tx *types.Transaction) ([]byte
 	return monitoredTx.tx.Hash().Bytes(), nil
 }
 
+func (bw *bondingWallet) SendTransaction(rawTx []byte) ([]byte, error) {
+	tx := new(types.Transaction)
+	err := tx.UnmarshalBinary(rawTx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal transaction: %w", err)
+	}
+
+	w := bw.aw
+	if !txIsSigned(tx) {
+		return bw.sendUnsignedBondTransaction(tx)
+	}
+
+	if err := w.node.sendSignedTransaction(w.ctx, tx); err != nil {
+		return nil, err
+	}
+	return tx.Hash().Bytes(), nil
+}
+
 // SendTransaction broadcasts a transaction. If it is not yet signed,
 // a nonce will be added and the transaction signed.
 func (w *assetWallet) SendTransaction(rawTx []byte) ([]byte, error) {
@@ -3231,10 +3328,6 @@ func (w *assetWallet) SendTransaction(rawTx []byte) ([]byte, error) {
 	err := tx.UnmarshalBinary(rawTx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal transaction: %w", err)
-	}
-
-	if !txIsSigned(tx) {
-		return w.sendUnsignedBondTransaction(tx)
 	}
 
 	if err := w.node.sendSignedTransaction(w.ctx, tx); err != nil {
@@ -3381,7 +3474,7 @@ func (w *ETHWallet) EstimateSendTxFee(addr string, value, _ uint64, subtract boo
 // the SignedTx and UnsignedTx fields in the return value both contain
 // the same data. The nonce and the signature is added when SendTransaction
 // is called.
-func (w *ETHWallet) MakeBondTx(ver uint16, amt uint64, feeRate uint64, lockTime time.Time, privKey *secp256k1.PrivateKey, acctID []byte) (*asset.Bond, func(), error) {
+func (bw *bondingWallet) MakeBondTx(ver uint16, amt uint64, feeRate uint64, lockTime time.Time, privKey *secp256k1.PrivateKey, acctID []byte) (*asset.Bond, func(), error) {
 	if ver != 0 {
 		return nil, nil, fmt.Errorf("only version 0 bonds are supported")
 	}
@@ -3394,6 +3487,7 @@ func (w *ETHWallet) MakeBondTx(ver uint16, amt uint64, feeRate uint64, lockTime 
 		return nil, nil, err
 	}
 
+	w := bw.aw
 	balance, err := w.balanceWithoutBondReserves()
 	if err != nil {
 		return nil, nil, err
@@ -3406,7 +3500,7 @@ func (w *ETHWallet) MakeBondTx(ver uint16, amt uint64, feeRate uint64, lockTime 
 
 	bondTx := types.NewTx(&types.DynamicFeeTx{
 		Value:     dexeth.GweiToWei(amt),
-		To:        &w.bondAddress,
+		To:        &bw.bondAddr,
 		Gas:       dexeth.NewBondGas,
 		GasFeeCap: dexeth.GweiToWei(gasFeeLimit),
 		Data:      data})
@@ -3431,7 +3525,7 @@ func (w *ETHWallet) MakeBondTx(ver uint16, amt uint64, feeRate uint64, lockTime 
 // setupForUpdateBond extracts the accountID and bondIDs from the bondCoins,
 // sorts the bondIDs by lock time, and returns the earliest lockTime and total
 // value of the bonds to be updated.
-func (w *ETHWallet) setupForUpdateBond(bondCoins []dex.Bytes) (accountID [32]byte, sortedBondIDs [][32]byte, earliestLockTime uint64, totalValue uint64, err error) {
+func (bw *bondingWallet) setupForUpdateBond(bondCoins []dex.Bytes) (accountID [32]byte, sortedBondIDs [][32]byte, earliestLockTime uint64, totalValue uint64, err error) {
 	type bondIDAndLockTime struct {
 		bondID   [32]byte
 		lockTime uint64
@@ -3439,6 +3533,7 @@ func (w *ETHWallet) setupForUpdateBond(bondCoins []dex.Bytes) (accountID [32]byt
 
 	bondIDsAndLockTimes := make([]*bondIDAndLockTime, len(bondCoins))
 	totalBondValueWei := big.NewInt(0)
+	w := bw.aw
 
 	for i, bondCoin := range bondCoins {
 		bondCoin, err := decodeBondCoin(bondCoin)
@@ -3446,7 +3541,7 @@ func (w *ETHWallet) setupForUpdateBond(bondCoins []dex.Bytes) (accountID [32]byt
 			return [32]byte{}, nil, 0, 0, err
 		}
 
-		bondData, err := w.ethBond.BondData(&bind.CallOpts{Context: w.ctx, From: w.addr}, bondCoin.accountID, bondCoin.bondID)
+		bondData, err := bw.ethBond.BondData(&bind.CallOpts{Context: w.ctx, From: w.addr}, bondCoin.accountID, bondCoin.bondID)
 		if err != nil {
 			return [32]byte{}, nil, 0, 0, fmt.Errorf("error getting bond data: %w", err)
 		}
@@ -3493,12 +3588,12 @@ func (w *ETHWallet) setupForUpdateBond(bondCoins []dex.Bytes) (accountID [32]byt
 //   - The value of the earliest expiring bond must be greater than the "change"
 //     bond value.
 //   - The bondsToUpdate must all be from the same account.
-func (w *ETHWallet) UpdateBondTx(ver uint16, bondsToUpdate []dex.Bytes, privKeys []*secp256k1.PrivateKey, amt uint64, lockTime time.Time) ([]*asset.Bond, error) {
+func (bw *bondingWallet) UpdateBondTx(ver uint16, bondsToUpdate []dex.Bytes, privKeys []*secp256k1.PrivateKey, amt uint64, lockTime time.Time) ([]*asset.Bond, error) {
 	if len(bondsToUpdate) == 0 {
 		return nil, fmt.Errorf("no bonds to update")
 	}
 
-	accountID, bondIDs, earliestLockTime, totalValueGwei, err := w.setupForUpdateBond(bondsToUpdate)
+	accountID, bondIDs, earliestLockTime, totalValueGwei, err := bw.setupForUpdateBond(bondsToUpdate)
 	if err != nil {
 		return nil, err
 	}
@@ -3507,6 +3602,7 @@ func (w *ETHWallet) UpdateBondTx(ver uint16, bondsToUpdate []dex.Bytes, privKeys
 	if totalValueGwei < amt {
 		gweiRequired = amt - totalValueGwei
 	}
+	w := bw.aw
 	balance, err := w.balanceWithoutBondReserves()
 	if err != nil {
 		return nil, err
@@ -3526,7 +3622,7 @@ func (w *ETHWallet) UpdateBondTx(ver uint16, bondsToUpdate []dex.Bytes, privKeys
 	weiAmt := dexeth.GweiToWei(amt)
 	lt := uint64(lockTime.Unix())
 	weiToSend := dexeth.GweiToWei(gweiRequired)
-	canUpdate, _, reason, err := w.ethBond.VerifyBondUpdate(
+	canUpdate, _, reason, err := bw.ethBond.VerifyBondUpdate(
 		&bind.CallOpts{Context: w.ctx, From: w.addr}, accountID, bondIDs, newBondCoinIDs, weiAmt, lt, weiToSend)
 	if err != nil {
 		return nil, fmt.Errorf("error checking if bond can be updated: %w", err)
@@ -3542,7 +3638,7 @@ func (w *ETHWallet) UpdateBondTx(ver uint16, bondsToUpdate []dex.Bytes, privKeys
 
 	bondTx := types.NewTx(&types.DynamicFeeTx{
 		Value:     weiToSend,
-		To:        &w.bondAddress,
+		To:        &bw.bondAddr,
 		Gas:       dexeth.UpdateBondGas,
 		GasFeeCap: dexeth.GweiToWei(gasFeeLimit),
 		Data:      data})
@@ -3588,13 +3684,13 @@ func (w *ETHWallet) UpdateBondTx(ver uint16, bondsToUpdate []dex.Bytes, privKeys
 }
 
 // RefundBond retrieves the funds locked in an expired bond.
-func (w *ETHWallet) RefundBond(ctx context.Context, ver uint16, coinID []byte, _ []byte, _ uint64, _ *secp256k1.PrivateKey) (asset.Coin, error) {
+func (bw *bondingWallet) RefundBond(ctx context.Context, ver uint16, coinID []byte, _ []byte, _ uint64, _ *secp256k1.PrivateKey) (asset.Coin, error) {
 	bondCoin, err := decodeBondCoin(coinID)
 	if err != nil {
 		return nil, err
 	}
 
-	refundable, err := w.ethBond.BondRefundable(&bind.CallOpts{Context: ctx}, bondCoin.accountID, bondCoin.bondID)
+	refundable, err := bw.ethBond.BondRefundable(&bind.CallOpts{Context: ctx}, bondCoin.accountID, bondCoin.bondID)
 	if err != nil {
 		return nil, fmt.Errorf("error checking if bond is refundable: %w", err)
 	}
@@ -3602,18 +3698,19 @@ func (w *ETHWallet) RefundBond(ctx context.Context, ver uint16, coinID []byte, _
 		return nil, fmt.Errorf("bond is not refundable")
 	}
 
-	bondData, err := w.ethBond.BondData(&bind.CallOpts{Context: ctx}, bondCoin.accountID, bondCoin.bondID)
+	bondData, err := bw.ethBond.BondData(&bind.CallOpts{Context: ctx}, bondCoin.accountID, bondCoin.bondID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting bond data: %w", err)
 	}
 
+	w := bw.aw
 	w.nonceSendMtx.Lock()
 	defer w.nonceSendMtx.Unlock()
 	txOpts, err := w.node.txOpts(ctx, 0, dexeth.RefundBondGas, dexeth.GweiToWei(w.gasFeeLimit()), nil)
 	if err != nil {
 		return nil, err
 	}
-	tx, err := w.ethBond.RefundBond(txOpts, bondCoin.accountID, bondCoin.bondID)
+	tx, err := bw.ethBond.RefundBond(txOpts, bondCoin.accountID, bondCoin.bondID)
 	if err != nil {
 		return nil, fmt.Errorf("error refunding bond: %w", err)
 	}
@@ -3636,8 +3733,8 @@ func (w *ETHWallet) RefundBond(ctx context.Context, ver uint16, coinID []byte, _
 
 // SetBondReserves does nothing for ETH, because bond reserves are only
 // required for the fee buffer.
-func (a *assetWallet) SetBondReserves(reserves uint64) {
-	a.maintainingBondReserves.Store(reserves > 0)
+func (bw *bondingWallet) SetBondReserves(reserves uint64) {
+	bw.maintainingBondReserves.Store(reserves > 0)
 }
 
 func bondFeeBuffer(feeRateLimit uint64) uint64 {
@@ -3647,15 +3744,15 @@ func bondFeeBuffer(feeRateLimit uint64) uint64 {
 
 // BondsFeeBuffer suggests how much may be required to be reserved for
 // transaction fees when bond rotation is enabled.
-func (w *assetWallet) BondsFeeBuffer(feeRate uint64) uint64 {
+func (bw *bondingWallet) BondsFeeBuffer(feeRate uint64) uint64 {
 	return bondFeeBuffer(feeRate)
 }
 
 // bondReserves returns the bond fee buffer if the nominal bond reserves
 // and greater than zero, otherwise it returns zero.
-func (w *assetWallet) bondReserves() uint64 {
-	if w.maintainingBondReserves.Load() {
-		return w.BondsFeeBuffer(w.gasFeeLimit())
+func (bw *bondingWallet) bondReserves() uint64 {
+	if bw.maintainingBondReserves.Load() {
+		return bw.BondsFeeBuffer(bw.aw.gasFeeLimit())
 	}
 
 	return 0
@@ -3947,18 +4044,18 @@ func (eth *baseWallet) swapOrRedemptionFeesPaid(ctx context.Context, coinID, con
 }
 
 // BondConfirmations gets the numer of confirmations since the creation of a bond.
-func (eth *ETHWallet) BondConfirmations(ctx context.Context, coinID dex.Bytes) (confs uint32, err error) {
+func (bw *bondingWallet) BondConfirmations(ctx context.Context, coinID dex.Bytes) (confs uint32, err error) {
 	bondCoin, err := decodeBondCoin(coinID)
 	if err != nil {
 		return 0, err
 	}
 
-	bondData, err := eth.ethBond.BondData(&bind.CallOpts{Context: ctx}, bondCoin.accountID, bondCoin.bondID)
+	bondData, err := bw.ethBond.BondData(&bind.CallOpts{Context: ctx}, bondCoin.accountID, bondCoin.bondID)
 	if err != nil {
 		return 0, err
 	}
 
-	bestHdr, err := eth.node.bestHeader(ctx)
+	bestHdr, err := bw.aw.node.bestHeader(ctx)
 	if err != nil {
 		return 0, err
 	}
