@@ -16,7 +16,8 @@ import {
   app,
   PasswordCache,
   Exchange,
-  PageElement
+  PageElement,
+  PrepaidBondID
 } from './registry'
 import State from './state'
 
@@ -102,6 +103,10 @@ export default class RegistrationPage extends BasePage {
 
     // SELECT REG ASSET
     this.regAssetForm = new FeeAssetSelectionForm(page.regAssetForm, async (assetID: number, tier: number) => {
+      if (assetID === PrepaidBondID) {
+        this.registerDEXSuccess()
+        return
+      }
       const asset = app().assets[assetID]
       const wallet = asset.wallet
       if (wallet) {
@@ -119,7 +124,7 @@ export default class RegistrationPage extends BasePage {
       this.confirmRegisterForm.tier = tier
       this.newWalletForm.setAsset(assetID)
       slideSwap(page.regAssetForm, page.newWalletForm)
-    })
+    }, this.pwCache)
 
     this.walletWaitForm = new WalletWaitForm(page.walletWait, () => {
       this.animateConfirmForm(page.walletWait)
@@ -169,7 +174,7 @@ export default class RegistrationPage extends BasePage {
     this.host = xc.host
     this.confirmRegisterForm.setExchange(xc, certFile)
     this.walletWaitForm.setExchange(xc)
-    this.regAssetForm.setExchange(xc)
+    this.regAssetForm.setExchange(xc, certFile)
     this.animateRegAsset(oldForm)
   }
 

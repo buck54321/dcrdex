@@ -1462,6 +1462,9 @@ func (dm *DEX) ForgiveMatchFail(aid account.AccountID, mid order.MatchID) (forgi
 func (dm *DEX) AccountMatchOutcomesN(aid account.AccountID, n int) ([]*auth.MatchOutcome, error) {
 	return dm.authMgr.AccountMatchOutcomesN(aid, n)
 }
+func (dm *DEX) CreatePrepaidBonds(n int, strength uint32, durSecs int64) ([][]byte, error) {
+	return dm.authMgr.CreatePrepaidBonds(n, strength, durSecs)
+}
 
 // Notify sends a text notification to a connected client.
 func (dm *DEX) Notify(acctID account.AccountID, msg *msgjson.Message) {
