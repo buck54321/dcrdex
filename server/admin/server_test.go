@@ -28,6 +28,7 @@ import (
 	"decred.org/dcrdex/dex/order"
 	"decred.org/dcrdex/server/account"
 	"decred.org/dcrdex/server/asset"
+	"decred.org/dcrdex/server/auth"
 	"decred.org/dcrdex/server/db"
 	dexsrv "decred.org/dcrdex/server/dex"
 	"decred.org/dcrdex/server/market"
@@ -209,6 +210,9 @@ func (c *TCore) Unban(_ account.AccountID) error {
 }
 func (c *TCore) ForgiveMatchFail(_ account.AccountID, _ order.MatchID) (bool, bool, error) {
 	return false, false, nil // TODO: tests
+}
+func (c *TCore) AccountMatchOutcomesN(user account.AccountID, n int) ([]*auth.MatchOutcome, error) {
+	return nil, nil
 }
 func (c *TCore) Notify(_ account.AccountID, _ *msgjson.Message) {}
 func (c *TCore) NotifyAll(_ *msgjson.Message)                   {}
