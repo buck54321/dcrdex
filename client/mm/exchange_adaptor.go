@@ -2393,7 +2393,7 @@ type RunStats struct {
 	FeeGap             *FeeGapStats           `json:"feeGap"`
 }
 
-func calcRunProfitLoss(initialBalances, finalBalances map[uint32]uint64, fiatRates map[uint32]float64) (deltaUSD, profitRatio float64) {
+func calcRunProfitLoss(initialBalances, finalBalances map[uint32]uint64, mods map[uint32]int64, fiatRates map[uint32]float64) (deltaUSD, profitRatio float64) {
 	assetIDs := make(map[uint32]struct{}, len(initialBalances))
 	for assetID := range initialBalances {
 		assetIDs[assetID] = struct{}{}
@@ -2420,6 +2420,16 @@ func calcRunProfitLoss(initialBalances, finalBalances map[uint32]uint64, fiatRat
 		finalBalance, err := convertToConventional(assetID, int64(finalBalances[assetID]))
 		if err != nil {
 			continue
+		}
+
+		if mod := mods[assetID]; mod != 0 {
+			if modConv, err := convertToConventional(assetID, mod); err == nil {
+				if mod > 0 {
+					initialBalance += modConv
+				} else {
+					finalBalance -= modConv
+				}
+			}
 		}
 
 		fiatRate := fiatRates[assetID]
@@ -2459,7 +2469,9 @@ func (u *unifiedExchangeAdaptor) stats() (*RunStats, error) {
 		feeGap = feeGapI.(*FeeGapStats)
 	}
 
-	profitLoss, profitRatio := calcRunProfitLoss(u.initialBalances, totalBalances, fiatRates)
+	mods := make(map[uint32]int64)
+
+	profitLoss, profitRatio := calcRunProfitLoss(u.initialBalances, totalBalances, mods, fiatRates)
 	u.runStats.tradedUSD.Lock()
 	tradedUSD := u.runStats.tradedUSD.v
 	u.runStats.tradedUSD.Unlock()

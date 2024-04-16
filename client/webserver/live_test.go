@@ -2373,6 +2373,7 @@ func (m *TMarketMaker) RunOverview(startTime int64, mkt *mm.MarketWithHost) (*mm
 		EndTime:         &endTime,
 		Cfg:             randomBotConfig(mkt),
 		InitialBalances: make(map[uint32]uint64),
+		Mods:            make(map[uint32]int64),
 		FinalBalances:   make(map[uint32]uint64),
 		ProfitLoss:      rand.Float64()*1e6 - 5e5,
 		ProfitRatio:     rand.Float64()*0.4 - 0.2,

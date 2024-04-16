@@ -85,6 +85,7 @@ type MarketMakingRunOverview struct {
 	EndTime         *int64            `json:"endTime,omitempty"`
 	Cfg             *BotConfig        `json:"cfg"`
 	InitialBalances map[uint32]uint64 `json:"initialBalances"`
+	InventoryMods   map[uint32]int64  `json:"inventoryMods"`
 	FinalBalances   map[uint32]uint64 `json:"finalBalances"`
 	ProfitLoss      float64           `json:"profitLoss"`
 	ProfitRatio     float64           `json:"profitRatio"`
@@ -147,6 +148,7 @@ var _ eventLogDB = (*boltEventLogDB)(nil)
 var (
 	botRunsBucket = []byte("botRuns")
 	eventsBucket  = []byte("events")
+	invModBucket  = []byte("invMods")
 
 	startTimeKey   = []byte("startTime")
 	endTimeKey     = []byte("endTime")
@@ -216,6 +218,35 @@ func (db *boltEventLogDB) updateEvent(update *eventUpdate) {
 		return runBucket.Put(finalStateKey, versionedBytes(0).AddData(bsJSON))
 	})
 	db.log.Errorf("error storing event: %v", err)
+}
+
+func (db *boltEventLogDB) modifyInventory(runKey []byte, mods map[uint32]int64) {
+	if err := db.Update(func(tx *bbolt.Tx) error {
+		botRuns := tx.Bucket(botRunsBucket)
+		runBucket := botRuns.Bucket(runKey)
+		if runBucket == nil {
+			return fmt.Errorf("nil run bucket for key %x", runKey)
+		}
+		modsBkt, err := runBucket.CreateBucketIfNotExists(invModBucket)
+		if err != nil {
+			return err
+		}
+		for assetID, mod := range mods {
+			assetKey := encode.Uint32Bytes(assetID)
+			var v int64
+			oldValB := modsBkt.Get(assetKey)
+			if len(oldValB) == 8 {
+				v = int64(binary.BigEndian.Uint64(oldValB))
+			}
+			v += mod
+			if err := modsBkt.Put(assetKey, encode.Uint64Bytes(uint64(v))); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		db.log.Errorf("Error adding inventory mods: %v", err)
+	}
 }
 
 // listedForStoreEvents listens on the updateEvent channel and updates the
@@ -430,6 +461,17 @@ func (db *boltEventLogDB) runOverview(startTime int64, mkt *MarketWithHost) (*Ma
 			return err
 		}
 
+		mods := make(map[uint32]int64)
+		if modsBkt := runBucket.Bucket(invModBucket); modsBkt != nil {
+			if err := modsBkt.ForEach(func(assetKey, modB []byte) error {
+				assetID := binary.BigEndian.Uint32(assetKey)
+				mods[assetID] = int64(binary.BigEndian.Uint64(modB))
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+
 		finalStateB := runBucket.Get(finalStateKey)
 		finalState := new(BalanceState)
 		ver, pushes, err = encode.DecodeBlob(finalStateB)
@@ -459,12 +501,13 @@ func (db *boltEventLogDB) runOverview(startTime int64, mkt *MarketWithHost) (*Ma
 			finalBals[assetID] = bal.Available + bal.Pending + bal.Locked
 		}
 
-		profitLoss, profitRatio := calcRunProfitLoss(initialBals, finalBals, finalState.FiatRates)
+		profitLoss, profitRatio := calcRunProfitLoss(initialBals, finalBals, mods, finalState.FiatRates)
 
 		overview = &MarketMakingRunOverview{
 			EndTime:         endTime,
 			Cfg:             cfg,
 			InitialBalances: initialBals,
+			InventoryMods:   mods,
 			FinalBalances:   finalBals,
 			ProfitLoss:      profitLoss,
 			ProfitRatio:     profitRatio,

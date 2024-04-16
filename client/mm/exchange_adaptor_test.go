@@ -3474,7 +3474,8 @@ func TestCalcProfitLoss(t *testing.T) {
 		42: 23,
 		0:  65000,
 	}
-	profitLoss, _ := calcRunProfitLoss(initialBalances, finalBalances, fiatRates)
+	mods := make(map[uint32]int64)
+	profitLoss, _ := calcRunProfitLoss(initialBalances, finalBalances, mods, fiatRates)
 	expProfitLoss := (9-10)*23 + (0.011-0.01)*65000
 	if math.Abs(profitLoss-expProfitLoss) > 1e-6 {
 		t.Fatalf("unexpected profit loss. want %f, got %f", expProfitLoss, profitLoss)
