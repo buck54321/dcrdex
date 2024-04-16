@@ -801,7 +801,7 @@ export class ConfirmRegistrationForm {
   form: HTMLElement
   success: () => void
   page: Record<string, PageElement>
-  host: string
+  xc: Exchange
   certFile: string
   bondAssetID: number
   tier: number
@@ -820,7 +820,7 @@ export class ConfirmRegistrationForm {
   }
 
   setExchange (xc: Exchange, certFile: string) {
-    this.host = xc.host
+    this.xc = xc
     this.certFile = certFile
     const page = this.page
     if (State.passwordIsCached() || (this.pwCache && this.pwCache.pw)) Doc.hide(page.passBox)
@@ -835,8 +835,7 @@ export class ConfirmRegistrationForm {
     this.tier = tier
     this.fees = fees
     const page = this.page
-    const xc = app().exchanges[this.host]
-    const bondAsset = xc.bondAssets[asset.symbol]
+    const bondAsset = this.xc.bondAssets[asset.symbol]
     const bondLock = bondAsset.amount * tier * bondReserveMultiplier
     const bondLockConventional = bondLock / conversionFactor
     page.tradingTier.textContent = String(tier)
@@ -873,7 +872,7 @@ export class ConfirmRegistrationForm {
    * submitForm is called when the form is submitted.
    */
   async submitForm () {
-    const { page, bondAssetID, host, certFile, pwCache, tier } = this
+    const { page, bondAssetID, xc, certFile, pwCache, tier } = this
     const asset = app().assets[bondAssetID]
     if (!asset) {
       page.regErr.innerText = intl.prep(intl.ID_SELECT_WALLET_FOR_FEE_PAYMENT)
@@ -881,7 +880,6 @@ export class ConfirmRegistrationForm {
       return
     }
     Doc.hide(page.regErr)
-    const xc = app().exchanges[host]
     const bondAsset = xc.bondAssets[asset.wallet.symbol]
     const cert = await certFile
     const dexAddr = xc.host
@@ -935,7 +933,7 @@ interface MarketLimitsRow {
 export class FeeAssetSelectionForm {
   form: HTMLElement
   success: (assetID: number, tier: number) => Promise<void>
-  host: string
+  xc: Exchange
   selectedAssetID: number
   page: Record<string, PageElement>
   assetRows: Record<string, RegAssetRow>
@@ -995,7 +993,7 @@ export class FeeAssetSelectionForm {
   }
 
   setExchange (xc: Exchange) {
-    this.host = xc.host
+    this.xc = xc
     this.assetRows = {}
     this.marketRows = []
     const page = this.page
@@ -1092,7 +1090,7 @@ export class FeeAssetSelectionForm {
   }
 
   refresh () {
-    this.setExchange(app().exchanges[this.host])
+    this.setExchange(this.xc)
   }
 
   assetSelected (assetID: number) {
@@ -1104,10 +1102,10 @@ export class FeeAssetSelectionForm {
   }
 
   setTier () {
-    const { page, host, selectedAssetID: assetID } = this
+    const { page, xc: { bondAssets }, selectedAssetID: assetID } = this
     const { symbol, unitInfo: ui } = app().assets[assetID]
     const { conventional: { conversionFactor, unit } } = ui
-    const { bondAssets } = app().exchanges[host]
+
     const bondAsset = bondAssets[symbol]
     const raw = page.tradingTierInput.value ?? ''
     if (!raw) return
@@ -1796,6 +1794,7 @@ export class DEXAddressForm {
         pass: pw
       }
     }
+
     const loaded = app().loading(this.form)
     const res = await postJSON(endpoint, req)
     loaded()
