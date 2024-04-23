@@ -1014,7 +1014,7 @@ func testSendSignedTransaction(t *testing.T) {
 		ks = c.creds.ks
 		chainID = c.chainID
 	case *multiRPCClient:
-		n, err := c.nextNonce(ctx)
+		_, n, err := c.nextNonce(ctx)
 		if err != nil {
 			t.Fatalf("error getting nonce: %v", err)
 		}

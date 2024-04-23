@@ -942,7 +942,7 @@ func (w *ETHWallet) Connect(ctx context.Context) (_ *sync.WaitGroup, err error) 
 				lowestPendingNonce = n
 			}
 		}
-		w.log.Debug("Synced with header %s and confirmed nonce %s, pending nonce %s, %d pending txs from nonce %d to nonce %d",
+		w.log.Debugf("Synced with header %s and confirmed nonce %s, pending nonce %s, %d pending txs from nonce %d to nonce %d",
 			bestHdr.Number, confirmedNonce, nextNonce, len(pendingTxs), highestPendingNonce, lowestPendingNonce)
 	}
 
