@@ -1453,7 +1453,9 @@ func (dcr *ExchangeWallet) maxOrder(lotSize, feeSuggestion, maxFeeRate uint64) (
 		return utxos, est, err
 	}
 
-	return nil, &asset.SwapEstimate{}, nil
+	return nil, &asset.SwapEstimate{
+		FeeReservesPerLot: basicFee,
+	}, nil
 }
 
 // estimateSwap prepares an *asset.SwapEstimate.
@@ -1467,6 +1469,8 @@ func (dcr *ExchangeWallet) estimateSwap(lots, lotSize, feeSuggestion, maxFeeRate
 		bumpedMaxRate = uint64(math.Ceil(float64(bumpedMaxRate) * feeBump))
 		bumpedNetRate = uint64(math.Ceil(float64(bumpedNetRate) * feeBump))
 	}
+
+	feeReservesPerLot := bumpedMaxRate * dexdcr.InitTxSize
 
 	val := lots * lotSize
 	// The orderEnough func does not account for a split transaction at the
@@ -1514,6 +1518,7 @@ func (dcr *ExchangeWallet) estimateSwap(lots, lotSize, feeSuggestion, maxFeeRate
 				MaxFees:            maxFees + splitMaxFees,
 				RealisticBestCase:  estLowFees + splitFees,
 				RealisticWorstCase: estHighFees + splitFees,
+				FeeReservesPerLot:  feeReservesPerLot,
 			}, true, reqFunds, nil // requires reqTotal, but locks reqFunds in the split output
 		}
 	}
@@ -1540,6 +1545,7 @@ func (dcr *ExchangeWallet) estimateSwap(lots, lotSize, feeSuggestion, maxFeeRate
 		MaxFees:            maxFees,
 		RealisticBestCase:  estLowFees,
 		RealisticWorstCase: estHighFees,
+		FeeReservesPerLot:  feeReservesPerLot,
 	}, false, sum, nil
 }
 
