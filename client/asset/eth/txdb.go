@@ -4,19 +4,18 @@
 package eth
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
-	"sync"
+	"math/big"
 	"time"
 
 	"decred.org/dcrdex/client/asset"
 	"decred.org/dcrdex/dex"
-	"decred.org/dcrdex/dex/encode"
+	"decred.org/dcrdex/dex/utils"
 	"github.com/dgraph-io/badger"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -25,87 +24,28 @@ import (
 // extendedWalletTx is an asset.WalletTransaction extended with additional
 // fields used for tracking transactions.
 type extendedWalletTx struct {
-	mtx sync.RWMutex
 	*asset.WalletTransaction
-	BlockSubmitted uint64 `json:"blockSubmitted"`
-	SubmissionTime uint64 `json:"timeStamp"`
+	BlockSubmitted   uint64    `json:"blockSubmitted"`
+	SubmissionTime   uint64    `json:"timeStamp"` // seconds
+	RawTx            dex.Bytes `json:"rawTx"`
+	NonceReplacement string    `json:"feeReplacement"`
+	Nonce            *big.Int  `json:"nonce"`
 
-	lastCheck uint64
-	savedToDB bool
+	txHash          common.Hash
+	lastCheck       uint64
+	savedToDB       bool
+	indexed         bool // The network seems to know about it.
+	lastBroadcast   time.Time
+	actionRequested bool
 }
 
-// monitoredTx is used to keep track of redemption transactions that have not
-// yet been confirmed. If a transaction has to be replaced due to the fee
-// being too low or another transaction being mined with the same nonce,
-// the replacement transaction's ID is recorded in the replacementTx field.
-// replacedTx is used to maintain a doubly linked list, which allows deletion
-// of transactions that were replaced after a transaction is confirmed.
-type monitoredTx struct {
-	tx             *types.Transaction
-	blockSubmitted uint64
-
-	// This mutex must be held during the entire process of confirming
-	// a transaction. This is to avoid confirmations of the same
-	// transactions happening concurrently resulting in more than one
-	// replacement for the same transaction.
-	mtx           sync.Mutex
-	replacementTx *common.Hash
-	// replacedTx could be set when the tx is created, be immutable, and not
-	// need the mutex, but since Redeem doesn't know if the transaction is a
-	// replacement or a new one, this variable is set in recordReplacementTx.
-	replacedTx        *common.Hash
-	errorsBroadcasted uint16
+func (t *extendedWalletTx) age() time.Duration {
+	return time.Since(time.Unix(int64(t.SubmissionTime), 0))
 }
 
-// MarshalBinary marshals a monitoredTx into a byte array.
-// It satisfies the encoding.BinaryMarshaler interface for monitoredTx.
-func (m *monitoredTx) MarshalBinary() (data []byte, err error) {
-	b := encode.BuildyBytes{0}
-	txB, err := m.tx.MarshalBinary()
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling tx: %v", err)
-	}
-	b = b.AddData(txB)
-
-	blockB := make([]byte, 8)
-	binary.BigEndian.PutUint64(blockB, m.blockSubmitted)
-	b = b.AddData(blockB)
-
-	if m.replacementTx != nil {
-		replacementTxHash := m.replacementTx[:]
-		b = b.AddData(replacementTxHash)
-	}
-
-	return b, nil
-}
-
-// UnmarshalBinary loads a data from a marshalled byte array into a
-// monitoredTx.
-func (m *monitoredTx) UnmarshalBinary(data []byte) error {
-	ver, pushes, err := encode.DecodeBlob(data)
-	if err != nil {
-		return err
-	}
-	if ver != 0 {
-		return fmt.Errorf("unknown version %d", ver)
-	}
-	if len(pushes) != 2 && len(pushes) != 3 {
-		return fmt.Errorf("wrong number of pushes %d", len(pushes))
-	}
-	m.tx = &types.Transaction{}
-	if err := m.tx.UnmarshalBinary(pushes[0]); err != nil {
-		return fmt.Errorf("error reading tx: %w", err)
-	}
-
-	m.blockSubmitted = binary.BigEndian.Uint64(pushes[1])
-
-	if len(pushes) == 3 {
-		var replacementTxHash common.Hash
-		copy(replacementTxHash[:], pushes[2])
-		m.replacementTx = &replacementTxHash
-	}
-
-	return nil
+func (t *extendedWalletTx) tx() (*types.Transaction, error) {
+	tx := new(types.Transaction)
+	return tx, tx.UnmarshalBinary(t.RawTx)
 }
 
 var (
@@ -115,9 +55,6 @@ var (
 	// txHashPrefix is the prefix for the key used to map a transaction hash
 	// to a nonce key.
 	txHashPrefix = []byte("txHash-")
-	// monitoredTxPrefix is the prefix for the key used to map a transaction
-	// hash to a monitoredTx.
-	monitoredTxPrefix = []byte("monitoredTx-")
 	// dbVersionKey is the key used to store the database version.
 	dbVersionKey = []byte("dbVersion")
 )
@@ -129,34 +66,11 @@ func nonceKey(nonce uint64) []byte {
 	return key
 }
 
-func nonceFromKey(nk []byte) (uint64, error) {
-	if !bytes.HasPrefix(nk, noncePrefix) {
-		return 0, fmt.Errorf("nonce key %x does not have nonce prefix %x", nk, noncePrefix)
-	}
-	return binary.BigEndian.Uint64(nk[len(noncePrefix):]), nil
-}
-
-func txIDKey(txID string) []byte {
-	key := make([]byte, len(txHashPrefix)+len([]byte(txID)))
+func txKey(txHash common.Hash) []byte {
+	key := make([]byte, len(txHashPrefix)+20)
 	copy(key, txHashPrefix)
-	copy(key[len(txHashPrefix):], []byte(txID))
+	copy(key[len(txHashPrefix):], txHash[:])
 	return key
-}
-
-func monitoredTxKey(txHash dex.Bytes) []byte {
-	key := make([]byte, len(monitoredTxPrefix)+len(txHash))
-	copy(key, monitoredTxPrefix)
-	copy(key[len(monitoredTxPrefix):], txHash)
-	return key
-}
-
-func monitoredTxHashFromKey(mtk []byte) (common.Hash, error) {
-	if !bytes.HasPrefix(mtk, monitoredTxPrefix) {
-		return common.Hash{}, fmt.Errorf("monitored tx key %x does not have monitored tx prefix %x", mtk, monitoredTxPrefix)
-	}
-	var txHash common.Hash
-	copy(txHash[:], mtk[len(monitoredTxPrefix):])
-	return txHash, nil
 }
 
 var maxNonceKey = nonceKey(math.MaxUint64)
@@ -164,22 +78,28 @@ var maxNonceKey = nonceKey(math.MaxUint64)
 // initialDBVersion only contained mappings from txHash -> monitoredTx.
 const initialDBVersion = 0
 
-// prefixDBVersion contains three mappings each marked with a prefix:
+// prefixDBVersion contains two mappings each marked with a prefix:
 //
 //	nonceKey -> extendedWalletTx (noncePrefix)
 //	txHash -> nonceKey (txHashPrefix)
-//	txHash -> monitoredTx (monitoredTxPrefix)
 const prefixDBVersion = 1
-const txDBVersion = prefixDBVersion
+
+// txMappingVersion reverses the semantics so that all txs are accessible
+// by txHash.
+//
+// nonceKey -> accepted tx hash
+// txHash -> extendedWalletTx, which contains a nonce
+const txMappingVersion = 2
+
+const txDBVersion = txMappingVersion
 
 type txDB interface {
-	storeTx(nonce uint64, wt *extendedWalletTx) error
-	removeTx(id string) error
-	getTxs(n int, refID *string, past bool, tokenID *uint32) ([]*asset.WalletTransaction, error)
-	getPendingTxs() (map[uint64]*extendedWalletTx, error)
-	storeMonitoredTx(txHash common.Hash, tx *monitoredTx) error
-	getMonitoredTxs() (map[common.Hash]*monitoredTx, error)
-	removeMonitoredTxs([]common.Hash) error
+	storeTx(wt *extendedWalletTx) error
+	getTxs(n int, refID *common.Hash, past bool, tokenID *uint32) ([]*asset.WalletTransaction, error)
+	// getTx gets a single transaction. It is not an error if the tx is not known.
+	// In that case, a nil tx is returned.
+	getTx(txHash common.Hash) (*extendedWalletTx, error)
+	getPendingTxs() ([]*extendedWalletTx, error)
 	close() error
 	run(context.Context)
 }
@@ -248,6 +168,50 @@ func newBadgerTxDB(filePath string, log dex.Logger) (*badgerTxDB, error) {
 	return txDB, nil
 }
 
+// txForNonce gets the registered for the given nonce.
+func txForNonce(txn *badger.Txn, nonce uint64) (tx *extendedWalletTx, err error) {
+	nk := nonceKey(nonce)
+	txHashi, err := txn.Get(nk)
+	if err != nil {
+		return nil, err
+	}
+	return tx, txHashi.Value(func(txHashB []byte) error {
+		var txHash common.Hash
+		copy(txHash[:], txHashB)
+		txi, err := txn.Get(txKey(txHash))
+		if err != nil {
+			return err
+		}
+		return txi.Value(func(wtB []byte) error {
+			tx, err = unmarshalTx(wtB)
+			return err
+		})
+	})
+}
+
+// txForHash get the extendedWalletTx at the given tx hash and checks for any
+// unsaved nonce replacement.
+func txForHash(txn *badger.Txn, txHash common.Hash) (wt *extendedWalletTx, err error) {
+	txi, err := txn.Get(txKey(txHash))
+	if err != nil {
+		return nil, err
+	}
+	return wt, txi.Value(func(wtB []byte) error {
+		wt, err = unmarshalTx(wtB)
+		if err != nil || wt.Confirmed || wt.NonceReplacement != "" {
+			return err
+		}
+		nonceTx, err := txForNonce(txn, wt.Nonce.Uint64())
+		if err != nil {
+			return err
+		}
+		if nonceTx.txHash != wt.txHash && nonceTx.Confirmed {
+			wt.NonceReplacement = wt.txHash.String()
+		}
+		return nil
+	})
+}
+
 // updateVersion updates the DB to the latest version. In version 0,
 // only a mapping from txHash to monitoredTx was stored, with no
 // prefixes.
@@ -272,39 +236,18 @@ func (s *badgerTxDB) updateVersion() error {
 		s.log.Errorf("error retrieving database version: %v", err)
 	}
 
-	if version == initialDBVersion {
-		err = s.Update(func(txn *badger.Txn) error {
-			opts := badger.DefaultIteratorOptions
-			it := txn.NewIterator(opts)
-			defer it.Close()
-
-			for it.Rewind(); it.Valid(); it.Next() {
-				item := it.Item()
-				key := item.Key()
-				newKey := monitoredTxKey(key)
-				monitoredTxB, err := item.ValueCopy(nil)
-				if err != nil {
-					return err
-				}
-
-				err = txn.Set(newKey, monitoredTxB)
-				if err != nil {
-					return err
-				}
-				err = txn.Delete(key)
-				if err != nil {
-					return err
-				}
-			}
-
-			versionB := make([]byte, 8)
-			binary.BigEndian.PutUint64(versionB, 1)
+	if version < txMappingVersion {
+		if err := s.DB.DropAll(); err != nil {
+			return fmt.Errorf("error deleting DB entries for version upgrade: %w", err)
+		}
+		versionB := make([]byte, 8)
+		binary.BigEndian.PutUint64(versionB, txMappingVersion)
+		if err = s.Update(func(txn *badger.Txn) error {
 			return txn.Set(dbVersionKey, versionB)
-		})
-		if err != nil {
+		}); err != nil {
 			return err
 		}
-		s.log.Infof("Updated database to version %d", prefixDBVersion)
+		s.log.Infof("Upgraded DB to version %d by deleting everything and starting from scratch.", txMappingVersion)
 	} else if version > txDBVersion {
 		return fmt.Errorf("database version %d is not supported", version)
 	}
@@ -335,96 +278,70 @@ func (s *badgerTxDB) run(ctx context.Context) {
 // storeTx stores a mapping from nonce to extendedWalletTx and a mapping from
 // transaction hash to nonce so transactions can be looked up by hash. If a
 // nonce already exists, the extendedWalletTx is overwritten.
-func (s *badgerTxDB) storeTx(nonce uint64, wt *extendedWalletTx) error {
+func (s *badgerTxDB) storeTx(wt *extendedWalletTx) error {
 	wtB, err := json.Marshal(wt)
 	if err != nil {
 		return err
 	}
+	nonce := wt.Nonce.Uint64()
 	nk := nonceKey(nonce)
-	tk := txIDKey(wt.ID)
+	tk := txKey(wt.txHash)
 
 	return s.Update(func(txn *badger.Txn) error {
-		oldWtItem, err := txn.Get(nk)
+		// If there is not a confirmed tx at this tx's nonce, map the nonce
+		// to this tx.
+		nonceTx, err := txForNonce(txn, wt.Nonce.Uint64())
 		if err != nil && !errors.Is(err, badger.ErrKeyNotFound) {
-			return err
+			return fmt.Errorf("error reading nonce tx: %w", err)
 		}
-
-		// If there is an existing transaction with this nonce, delete the
-		// mapping from tx hash to nonce.
-		if err == nil {
-			oldWt := new(extendedWalletTx)
-			err = oldWtItem.Value(func(oldWtB []byte) error {
-				err := json.Unmarshal(oldWtB, oldWt)
-				if err != nil {
-					s.log.Errorf("unable to unmarhsal wallet transaction: %s: %v", string(oldWtB), err)
-				}
-				return err
-			})
-			if err == nil && oldWt.ID != wt.ID {
-				err = txn.Delete(txIDKey(oldWt.ID))
-				if err != nil {
-					s.log.Errorf("failed to delete old tx id: %s: %v", oldWt.ID, err)
-				}
+		if nonceTx == nil || !nonceTx.Confirmed {
+			if err := txn.Set(nk, wt.txHash[:]); err != nil {
+				return fmt.Errorf("error mapping nonce to tx hash: %w", err)
 			}
 		}
-
-		// Store nonce key -> wallet transaction
-		if err := txn.Set(nk, wtB); err != nil {
-			return err
-		}
-
-		// Store tx hash -> nonce key
-		return txn.Set(tk, nk)
+		// Store the at it's hash.
+		return txn.Set(tk, wtB)
 	})
 }
 
-// removeTx removes a tx from the db.
-func (s *badgerTxDB) removeTx(id string) error {
-	tk := txIDKey(id)
-
-	return s.Update(func(txn *badger.Txn) error {
-		txIDEntry, err := txn.Get(tk)
-		if err != nil {
-			return err
-		}
-		err = txn.Delete(tk)
-		if err != nil {
-			return err
-		}
-
-		nk, err := txIDEntry.ValueCopy(nil)
-		if err != nil {
-			return err
-		}
-
-		return txn.Delete(nk)
+// getTx gets a single transaction. It is not an error if the tx is not known.
+// In that case, a nil tx is returned.
+func (s *badgerTxDB) getTx(txHash common.Hash) (tx *extendedWalletTx, err error) {
+	return tx, s.View(func(txn *badger.Txn) error {
+		tx, err = txForHash(txn, txHash)
+		return err
 	})
+}
+
+func unmarshalTx(wtB []byte) (wt *extendedWalletTx, err error) {
+	if err = json.Unmarshal(wtB, &wt); err != nil {
+		return nil, err
+	}
+	wt.txHash = common.HexToHash(wt.ID)
+	return
 }
 
 // getTxs returns the n more recent transaction if refID is nil, or the
 // n transactions before/after refID depending on the value of past. The
 // transactions are returned in reverse chronological order.
 // If a non-nil refID is not found, asset.CoinNotFoundError is returned.
-func (s *badgerTxDB) getTxs(n int, refID *string, past bool, tokenID *uint32) ([]*asset.WalletTransaction, error) {
-	var txs []*asset.WalletTransaction
+func (s *badgerTxDB) getTxs(n int, refID *common.Hash, past bool, tokenID *uint32) ([]*asset.WalletTransaction, error) {
+	txs := make([]*asset.WalletTransaction, 0, n)
 
-	err := s.View(func(txn *badger.Txn) error {
-		var startNonceKey []byte
+	return txs, s.View(func(txn *badger.Txn) error {
+		startNonceKey := maxNonceKey
 		if refID != nil {
 			// Get the nonce for the provided tx hash.
-			tk := txIDKey(*refID)
-			item, err := txn.Get(tk)
+			wt, err := txForHash(txn, *refID)
 			if err != nil {
-				return asset.CoinNotFoundError
-			}
-			if startNonceKey, err = item.ValueCopy(nil); err != nil {
+				if errors.Is(err, badger.ErrKeyNotFound) {
+					return asset.CoinNotFoundError
+				}
 				return err
 			}
+			startNonceKey = nonceKey(wt.Nonce.Uint64())
 		} else {
 			past = true
-		}
-		if startNonceKey == nil {
-			startNonceKey = maxNonceKey
 		}
 
 		opts := badger.DefaultIteratorOptions
@@ -434,43 +351,39 @@ func (s *badgerTxDB) getTxs(n int, refID *string, past bool, tokenID *uint32) ([
 		defer it.Close()
 
 		for it.Seek(startNonceKey); it.Valid() && (n <= 0 || len(txs) < n); it.Next() {
-			item := it.Item()
-			err := item.Value(func(wtB []byte) error {
-				wt := new(asset.WalletTransaction)
-				err := json.Unmarshal(wtB, wt)
+			txHashi := it.Item()
+			if err := txHashi.Value(func(txHashB []byte) error {
+				var txHash common.Hash
+				copy(txHash[:], txHashB)
+				wt, err := txForHash(txn, txHash)
 				if err != nil {
-					s.log.Errorf("unable to unmarhsal wallet transaction: %s: %v", string(wtB), err)
 					return err
 				}
 				if tokenID != nil && (wt.TokenID == nil || *tokenID != *wt.TokenID) {
 					return nil
 				}
-				if past {
-					txs = append(txs, wt)
-				} else {
-					txs = append([]*asset.WalletTransaction{wt}, txs...)
-				}
+				txs = append(txs, wt.WalletTransaction)
 				return nil
-			})
-			if err != nil {
+			}); err != nil {
 				return err
 			}
 		}
+		if !past {
+			utils.ReverseSlice(txs)
+		}
 		return nil
 	})
-
-	return txs, err
 }
 
 // getPendingTxs returns a map of nonce to extendedWalletTx for all
 // pending transactions.
-func (s *badgerTxDB) getPendingTxs() (map[uint64]*extendedWalletTx, error) {
+func (s *badgerTxDB) getPendingTxs() ([]*extendedWalletTx, error) {
 	// We will be iterating backwards from the most recent nonce.
 	// If we find numConfirmedTxsToCheck consecutive confirmed transactions,
 	// we can stop iterating.
 	const numConfirmedTxsToCheck = 20
 
-	txs := make(map[uint64]*extendedWalletTx, 4)
+	txs := make([]*extendedWalletTx, 0, 4)
 
 	err := s.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
@@ -481,28 +394,32 @@ func (s *badgerTxDB) getPendingTxs() (map[uint64]*extendedWalletTx, error) {
 
 		var numConfirmedTxs int
 		for it.Seek(maxNonceKey); it.Valid(); it.Next() {
-			item := it.Item()
-			err := item.Value(func(wtB []byte) error {
-				wt := new(extendedWalletTx)
-				err := json.Unmarshal(wtB, wt)
+			txHashi := it.Item()
+			err := txHashi.Value(func(txHashB []byte) error {
+				var txHash common.Hash
+				copy(txHash[:], txHashB)
+				txi, err := txn.Get(txKey(txHash))
 				if err != nil {
-					s.log.Errorf("unable to unmarhsal wallet transaction: %s: %v", string(wtB), err)
 					return err
 				}
-				if !wt.Confirmed {
-					numConfirmedTxs = 0
-					nonce, err := nonceFromKey(item.Key())
+				return txi.Value(func(wtB []byte) error {
+					wt, err := unmarshalTx(wtB)
 					if err != nil {
+						s.log.Errorf("unable to unmarhsal wallet transaction: %s: %v", string(wtB), err)
 						return err
 					}
-					txs[nonce] = wt
-				} else {
-					numConfirmedTxs++
-					if numConfirmedTxs >= numConfirmedTxsToCheck {
-						return nil
+					if !wt.Confirmed {
+						numConfirmedTxs = 0
+						txs = append(txs, wt)
+					} else {
+						numConfirmedTxs++
+						if numConfirmedTxs >= numConfirmedTxsToCheck {
+							return nil
+						}
 					}
-				}
-				return nil
+					return nil
+				})
+
 			})
 			if err != nil {
 				return err
@@ -510,69 +427,8 @@ func (s *badgerTxDB) getPendingTxs() (map[uint64]*extendedWalletTx, error) {
 		}
 		return nil
 	})
+
+	utils.ReverseSlice(txs)
 
 	return txs, err
-}
-
-// storeMonitoredTx stores a monitoredTx in the database.
-func (s *badgerTxDB) storeMonitoredTx(txHash common.Hash, tx *monitoredTx) error {
-	txKey := monitoredTxKey(txHash.Bytes())
-	txBytes, err := tx.MarshalBinary()
-	if err != nil {
-		return err
-	}
-	return s.Update(func(txn *badger.Txn) error {
-		return txn.Set(txKey, txBytes)
-	})
-}
-
-// getMonitoredTxs returns a map of transaction hash to monitoredTx for all
-// monitored transactions.
-func (s *badgerTxDB) getMonitoredTxs() (map[common.Hash]*monitoredTx, error) {
-	monitoredTxs := make(map[common.Hash]*monitoredTx)
-
-	err := s.View(func(txn *badger.Txn) error {
-		opts := badger.DefaultIteratorOptions
-		opts.Prefix = monitoredTxPrefix
-		it := txn.NewIterator(opts)
-		defer it.Close()
-
-		for it.Seek(monitoredTxPrefix); it.Valid(); it.Next() {
-			item := it.Item()
-			err := item.Value(func(txBytes []byte) error {
-				tx := new(monitoredTx)
-				err := tx.UnmarshalBinary(txBytes)
-				if err != nil {
-					return err
-				}
-				txHash, err := monitoredTxHashFromKey(item.Key())
-				if err != nil {
-					return err
-				}
-				monitoredTxs[txHash] = tx
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-
-	return monitoredTxs, err
-}
-
-// removeMonitoredTxs removes the monitored transactions with the provided
-// hashes from the database.
-func (s *badgerTxDB) removeMonitoredTxs(txHashes []common.Hash) error {
-	return s.Update(func(txn *badger.Txn) error {
-		for _, txHash := range txHashes {
-			txKey := monitoredTxKey(txHash.Bytes())
-			err := txn.Delete(txKey)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
 }

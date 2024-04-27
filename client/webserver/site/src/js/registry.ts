@@ -342,6 +342,7 @@ export interface User {
   bots: BotReport[]
   net: number
   extensionModeConfig: ExtensionModeConfig
+  actions: ActionRequiredNote[]
 }
 
 export interface CoreNote {
@@ -405,6 +406,22 @@ export interface CustomWalletNote extends BaseWalletNote {
 export interface TransactionNote extends BaseWalletNote {
   transaction: WalletTransaction
   new: boolean
+}
+
+export interface ActionRequiredNote extends BaseWalletNote {
+  uniqueID: string
+  actionID: string
+  payload: any
+}
+
+export interface ActionResolvedNote extends BaseWalletNote {
+  uniqueID: string
+}
+
+export interface TransactionActionNote {
+  tx: WalletTransaction
+  nonce: number
+  newFees: number
 }
 
 export interface WalletNote extends CoreNote {
@@ -1044,7 +1061,7 @@ export interface Application {
   attachCommon (node: HTMLElement): void
   updateBondConfs (dexAddr: string, coinID: string, confs: number, assetID: number): void
   handleBondNote (note: BondNote): void
-  setNotes (notes: CoreNote[]): void
+  loggedIn (notes: CoreNote[], pokes: CoreNote[]): void
   setPokes(pokes: CoreNote[]): void
   notify (note: CoreNote): void
   log (loggerID: string, ...msg: any): void
