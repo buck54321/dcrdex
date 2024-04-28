@@ -1,3 +1,5 @@
+//go:build !harness && !rpclive
+
 package eth
 
 import (
@@ -15,7 +17,7 @@ func TestTxDB(t *testing.T) {
 
 	// Grab these for the tx generation utilities
 	_, eth, node, shutdown := tassetWallet(BipID)
-	defer shutdown()
+	shutdown()
 
 	txHistoryStore, err := newBadgerTxDB(tempDir, tLogger)
 	if err != nil {

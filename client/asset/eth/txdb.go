@@ -25,11 +25,13 @@ import (
 // fields used for tracking transactions.
 type extendedWalletTx struct {
 	*asset.WalletTransaction
-	BlockSubmitted   uint64    `json:"blockSubmitted"`
-	SubmissionTime   uint64    `json:"timeStamp"` // seconds
-	RawTx            dex.Bytes `json:"rawTx"`
-	NonceReplacement string    `json:"feeReplacement"`
-	Nonce            *big.Int  `json:"nonce"`
+	BlockSubmitted   uint64         `json:"blockSubmitted"`
+	SubmissionTime   uint64         `json:"timeStamp"` // seconds
+	RawTx            dex.Bytes      `json:"rawTx"`
+	NonceReplacement string         `json:"feeReplacement,omitempty"`
+	AssumedLost      bool           `json:"assumedLost,omitempty"`
+	Nonce            *big.Int       `json:"nonce"`
+	Receipt          *types.Receipt `json:"receipt,omitempty"`
 
 	txHash          common.Hash
 	lastCheck       uint64
@@ -99,6 +101,8 @@ type txDB interface {
 	// getTx gets a single transaction. It is not an error if the tx is not known.
 	// In that case, a nil tx is returned.
 	getTx(txHash common.Hash) (*extendedWalletTx, error)
+	// getPendingTxs returns any recent txs that are not confirmed, ordered
+	// by nonce lowest-first.
 	getPendingTxs() ([]*extendedWalletTx, error)
 	close() error
 	run(context.Context)
@@ -309,15 +313,21 @@ func (s *badgerTxDB) storeTx(wt *extendedWalletTx) error {
 func (s *badgerTxDB) getTx(txHash common.Hash) (tx *extendedWalletTx, err error) {
 	return tx, s.View(func(txn *badger.Txn) error {
 		tx, err = txForHash(txn, txHash)
+		if errors.Is(err, badger.ErrKeyNotFound) {
+			return nil
+		}
 		return err
 	})
 }
 
+// unmarshalTx attempts to decode the binary tx and sets some unexported fields.
 func unmarshalTx(wtB []byte) (wt *extendedWalletTx, err error) {
 	if err = json.Unmarshal(wtB, &wt); err != nil {
 		return nil, err
 	}
 	wt.txHash = common.HexToHash(wt.ID)
+	wt.lastBroadcast = time.Unix(int64(wt.SubmissionTime), 0)
+	wt.savedToDB = true
 	return
 }
 
