@@ -198,7 +198,7 @@ func (n *testNode) getTransaction(ctx context.Context, hash common.Hash) (*types
 	return n.getTxRes, n.getTxHeight, n.getTxErr
 }
 
-func (n *testNode) txOpts(ctx context.Context, val, maxGas uint64, maxFeeRate, nonce *big.Int) (*bind.TransactOpts, error) {
+func (n *testNode) txOpts(ctx context.Context, val, maxGas uint64, maxFeeRate, tipRate, nonce *big.Int) (*bind.TransactOpts, error) {
 	if maxFeeRate == nil {
 		maxFeeRate = n.maxFeeRate
 	}
@@ -681,7 +681,7 @@ func TestCheckPendingTxs(t *testing.T) {
 	const finalized = tip - txConfsNeededToConfirm + 1
 	now := uint64(time.Now().Unix())
 	finalizedStamp := now - txConfsNeededToConfirm*10
-	mature := now - 300 // able to send actions
+	mature := now - 600 // able to send actions
 	agedOut := now - uint64(txAgeOut.Seconds()) - 1
 
 	val := dexeth.GweiToWei(1)
@@ -692,6 +692,7 @@ func TestCheckPendingTxs(t *testing.T) {
 		pendingTx.Timestamp = blockStamp
 		pendingTx.SubmissionTime = submissionStamp
 		pendingTx.lastBroadcast = time.Unix(int64(submissionStamp), 0)
+		pendingTx.lastFeeCheck = time.Unix(int64(submissionStamp), 0)
 		return pendingTx
 	}
 
@@ -769,13 +770,14 @@ func TestCheckPendingTxs(t *testing.T) {
 			actionID:    actionTypeLostTx,
 		},
 		{
-			name: "old and indexed, low fees",
+			name: "mature and indexed, low fees",
 			pendingTxs: []*extendedWalletTx{
-				extendedTx(6, 0, 0, agedOut),
+				extendedTx(6, 0, 0, mature),
 			},
 			noncesAfter: []uint64{6},
 			receipts:    []*types.Receipt{newReceipt(0)},
 			actionID:    actionTypeTooCheap,
+			recast:      true,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1487,6 +1489,7 @@ func TestFeeRate(t *testing.T) {
 		ctx:           ctx,
 		log:           tLogger,
 		finalizeConfs: txConfsNeededToConfirm,
+		currentTip:    &types.Header{Number: big.NewInt(100)},
 	}
 
 	maxInt := ^int64(0)
@@ -1515,6 +1518,7 @@ func TestFeeRate(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		eth.currentFees.blockNum = 0
 		node.baseFee = test.baseFee
 		node.tip = test.tip
 		node.netFeeStateErr = test.netFeeStateErr
@@ -3840,7 +3844,7 @@ func TestSwapConfirmation(t *testing.T) {
 	state.BlockHeight = 5
 	state.State = dexeth.SSInitiated
 	hdr.Number = big.NewInt(6)
-	node.bestHdr = hdr
+	eth.currentTip = hdr
 
 	ver := uint32(0)
 
@@ -3848,6 +3852,7 @@ func TestSwapConfirmation(t *testing.T) {
 	defer cancel()
 
 	checkResult := func(expErr bool, expConfs uint32, expSpent bool) {
+		t.Helper()
 		confs, spent, err := eth.SwapConfirmations(ctx, nil, dexeth.EncodeContractData(ver, secretHash), time.Time{})
 		if err != nil {
 			if expErr {
@@ -3874,11 +3879,6 @@ func TestSwapConfirmation(t *testing.T) {
 	node.tContractor.swapErr = fmt.Errorf("test error")
 	checkResult(true, 0, false)
 	node.tContractor.swapErr = nil
-
-	// header error
-	node.bestHdrErr = fmt.Errorf("test error")
-	checkResult(true, 0, false)
-	node.bestHdrErr = nil
 
 	// ErrSwapNotInitiated
 	state.State = dexeth.SSNone
@@ -4491,7 +4491,7 @@ func testSend(t *testing.T, assetID uint32) {
 	node.sendTxTx = tx
 	node.tokenContractor.transferTx = tx
 
-	maxFeeRate, _ := eth.recommendedMaxFeeRate(eth.ctx)
+	maxFeeRate, _, _ := eth.recommendedMaxFeeRate(eth.ctx)
 	ethFees := dexeth.WeiToGwei(maxFeeRate) * defaultSendGasLimit
 	tokenFees := dexeth.WeiToGwei(maxFeeRate) * tokenGases.Transfer
 
@@ -4789,7 +4789,7 @@ func testEstimateSendTxFee(t *testing.T, assetID uint32) {
 	w, eth, node, shutdown := tassetWallet(assetID)
 	defer shutdown()
 
-	maxFeeRate, _ := eth.recommendedMaxFeeRate(eth.ctx)
+	maxFeeRate, _, _ := eth.recommendedMaxFeeRate(eth.ctx)
 	ethFees := dexeth.WeiToGwei(maxFeeRate) * defaultSendGasLimit
 	tokenFees := dexeth.WeiToGwei(maxFeeRate) * tokenGases.Transfer
 
