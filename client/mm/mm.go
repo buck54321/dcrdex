@@ -659,7 +659,7 @@ func (m *MarketMaker) logInitialBotBalances(dexBalances, cexBalances map[string]
 	var msg strings.Builder
 	msg.WriteString("Initial market making balances:\n")
 	for mkt, botDexBals := range dexBalances {
-		msg.WriteString(fmt.Sprintf("-- %s:\n", mkt))
+		msg.WriteString(fmt.Sprintf("## market %s:\n", mkt))
 
 		i := 0
 		msg.WriteString("  DEX: ")
