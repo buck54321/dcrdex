@@ -25,20 +25,33 @@ import (
 // fields used for tracking transactions.
 type extendedWalletTx struct {
 	*asset.WalletTransaction
-	BlockSubmitted   uint64         `json:"blockSubmitted"`
-	SubmissionTime   uint64         `json:"timeStamp"` // seconds
-	RawTx            dex.Bytes      `json:"rawTx"`
-	NonceReplacement string         `json:"feeReplacement,omitempty"`
-	AssumedLost      bool           `json:"assumedLost,omitempty"`
-	Nonce            *big.Int       `json:"nonce"`
-	Receipt          *types.Receipt `json:"receipt,omitempty"`
+	BlockSubmitted uint64         `json:"blockSubmitted"`
+	SubmissionTime uint64         `json:"timeStamp"` // seconds
+	Nonce          *big.Int       `json:"nonce"`
+	Receipt        *types.Receipt `json:"receipt,omitempty"`
+	RawTx          dex.Bytes      `json:"rawTx"`
+	// NonceReplacement is a transaction with the same nonce that was accepted
+	// by the network, meaning this tx was not applied.
+	NonceReplacement string `json:"nonceReplacement,omitempty"`
+	// FeeReplacement is a transaction that replaced this transaction but with
+	// higher fees. The FeeReplacement is always the NonceReplacement too,
+	// but the FeeReplacement can be assumed to otherwise be the same tx as
+	// the one replaced, just with higher fees.
+	FeeReplacement string `json:"feeReplacement,omitempty"`
+	// AssumedLost will be set to true if a transaction is assumed to be lost.
+	// This typically requires feedback from the user in response to an
+	// ActionRequiredNote.
+	AssumedLost bool `json:"assumedLost,omitempty"`
 
 	txHash          common.Hash
 	lastCheck       uint64
 	savedToDB       bool
-	indexed         bool // The network seems to know about it.
 	lastBroadcast   time.Time
 	actionRequested bool
+	// indexed will be true if the network seems to know about the tx one way
+	// or another, even if we can't get a receipt. which might be the case for
+	// providers that return information about mempool transactions.
+	indexed bool
 }
 
 func (t *extendedWalletTx) age() time.Duration {
@@ -78,18 +91,18 @@ func txKey(txHash common.Hash) []byte {
 var maxNonceKey = nonceKey(math.MaxUint64)
 
 // initialDBVersion only contained mappings from txHash -> monitoredTx.
-const initialDBVersion = 0
+// const initialDBVersion = 0
 
 // prefixDBVersion contains two mappings each marked with a prefix:
 //
 //	nonceKey -> extendedWalletTx (noncePrefix)
 //	txHash -> nonceKey (txHashPrefix)
-const prefixDBVersion = 1
+// const prefixDBVersion = 1
 
 // txMappingVersion reverses the semantics so that all txs are accessible
 // by txHash.
 //
-// nonceKey -> accepted tx hash
+// nonceKey -> best-known txHash
 // txHash -> extendedWalletTx, which contains a nonce
 const txMappingVersion = 2
 
@@ -279,9 +292,8 @@ func (s *badgerTxDB) run(ctx context.Context) {
 	}
 }
 
-// storeTx stores a mapping from nonce to extendedWalletTx and a mapping from
-// transaction hash to nonce so transactions can be looked up by hash. If a
-// nonce already exists, the extendedWalletTx is overwritten.
+// storeTx stores a mapping from txHash to extendedWalletTx. If this tx is
+// suitable, it will be marked as the best-known tx for the nonce.
 func (s *badgerTxDB) storeTx(wt *extendedWalletTx) error {
 	wtB, err := json.Marshal(wt)
 	if err != nil {
@@ -298,12 +310,15 @@ func (s *badgerTxDB) storeTx(wt *extendedWalletTx) error {
 		if err != nil && !errors.Is(err, badger.ErrKeyNotFound) {
 			return fmt.Errorf("error reading nonce tx: %w", err)
 		}
-		if nonceTx == nil || !nonceTx.Confirmed {
+		// If we don't have a tx stored at the nonce or the tx stored at the
+		// nonce is not confirmed, put this one there instead, unless this one
+		// has been marked as nonce-replaced.
+		if (nonceTx == nil || !nonceTx.Confirmed) && wt.NonceReplacement == "" {
 			if err := txn.Set(nk, wt.txHash[:]); err != nil {
 				return fmt.Errorf("error mapping nonce to tx hash: %w", err)
 			}
 		}
-		// Store the at it's hash.
+		// Store the tx at its hash.
 		return txn.Set(tk, wtB)
 	})
 }
