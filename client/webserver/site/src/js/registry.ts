@@ -219,6 +219,13 @@ export enum ApprovalStatus {
   NotApproved = 2
 }
 
+export interface FeeState {
+  rate: number
+  send: number
+  swap: number
+  stampMS: number
+}
+
 export interface WalletState {
   symbol: string
   assetID: number
@@ -236,6 +243,7 @@ export interface WalletState {
   synced: boolean
   syncProgress: number
   approved: Record<number, ApprovalStatus>
+  feeState?: FeeState
 }
 
 export interface WalletInfo {
@@ -313,6 +321,7 @@ export interface UnitInfo {
   atomicUnit: string
   conventional: Denomination
   denominations: Denomination[]
+  feeRateUnit: string
 }
 
 export interface Denomination {

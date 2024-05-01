@@ -180,12 +180,12 @@ func (be *AssetBackend) baseCoin(coinID []byte, contractData []byte) (*baseCoin,
 	zero := new(big.Int)
 	gasFeeCap := tx.GasFeeCap()
 	if gasFeeCap == nil || gasFeeCap.Cmp(zero) <= 0 {
-		return nil, fmt.Errorf("Failed to parse gas fee cap from tx %s", txHash)
+		return nil, fmt.Errorf("failed to parse gas fee cap from tx %s", txHash)
 	}
 
 	gasTipCap := tx.GasTipCap()
 	if gasTipCap == nil || gasTipCap.Cmp(zero) <= 0 {
-		return nil, fmt.Errorf("Failed to parse gas tip cap from tx %s", txHash)
+		return nil, fmt.Errorf("failed to parse gas tip cap from tx %s", txHash)
 	}
 
 	return &baseCoin{
