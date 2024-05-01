@@ -20,6 +20,7 @@ var (
 			Unit:             "MATIC",
 			ConversionFactor: 1e9,
 		},
+		FeeRateUnit: "gwei/gas",
 	}
 
 	// First swap used 134434 gas Recommended Gases.Swap = 174764
@@ -76,6 +77,7 @@ var (
 					Unit:             "USDC",
 					ConversionFactor: 1e6,
 				},
+				FeeRateUnit: "gwei/gas",
 			},
 		},
 		NetTokens: map[dex.Network]*dexeth.NetToken{
@@ -172,6 +174,7 @@ var (
 					Unit:             "WETH",
 					ConversionFactor: 1e9,
 				},
+				FeeRateUnit: "gwei/gas",
 			},
 		},
 		NetTokens: map[dex.Network]*dexeth.NetToken{
@@ -222,6 +225,7 @@ var (
 					Unit:             "WBTC",
 					ConversionFactor: 1e8,
 				},
+				FeeRateUnit: "gwei/gas",
 			},
 		},
 		NetTokens: map[dex.Network]*dexeth.NetToken{

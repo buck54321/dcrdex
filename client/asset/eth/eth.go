@@ -1533,6 +1533,9 @@ func (w *baseWallet) MaxFundingFees(_ uint32, _ uint64, _ map[string]string) uin
 
 // SingleLotSwapRefundFees returns the fees for a swap transaction for a single lot.
 func (w *assetWallet) SingleLotSwapRefundFees(version uint32, feeSuggestion uint64, _ bool) (swapFees uint64, refundFees uint64, err error) {
+	if version == asset.VersionNewest {
+		version = contractVersionNewest
+	}
 	g := w.gases(version)
 	if g == nil {
 		return 0, 0, fmt.Errorf("no gases known for %d version %d", w.assetID, version)
@@ -1552,15 +1555,11 @@ func (w *assetWallet) estimateSwap(
 		}, nil
 	}
 
-	rateNow, err := w.currentFeeRate(w.ctx)
+	feeRate, err := w.currentFeeRate(w.ctx)
 	if err != nil {
 		return nil, err
 	}
-	rate, err := dexeth.WeiToGweiSafe(rateNow)
-	if err != nil {
-		return nil, fmt.Errorf("invalid current fee rate: %v", err)
-	}
-
+	feeRateGwei := dexeth.WeiToGweiCeil(feeRate)
 	// This is an estimate, so we use the (lower) live gas estimates.
 	oneSwap, err := w.estimateInitGas(w.ctx, 1, ver)
 	if err != nil {
@@ -1578,8 +1577,8 @@ func (w *assetWallet) estimateSwap(
 		Lots:               lots,
 		Value:              value,
 		MaxFees:            maxFees,
-		RealisticWorstCase: oneGasMax * rate,
-		RealisticBestCase:  oneSwap * rate, // not even batch, just perfect match
+		RealisticWorstCase: oneGasMax * feeRateGwei,
+		RealisticBestCase:  oneSwap * feeRateGwei, // not even batch, just perfect match
 		FeeReservesPerLot:  feeReservesPerLot,
 	}, nil
 }
@@ -1607,6 +1606,9 @@ func (w *assetWallet) PreRedeem(req *asset.PreRedeemForm) (*asset.PreRedeem, err
 
 // SingleLotRedeemFees returns the fees for a redeem transaction for a single lot.
 func (w *assetWallet) SingleLotRedeemFees(version uint32, feeSuggestion uint64) (fees uint64, err error) {
+	if version == asset.VersionNewest {
+		version = contractVersionNewest
+	}
 	g := w.gases(version)
 	if g == nil {
 		return 0, fmt.Errorf("no gases known for %d version %d", w.assetID, version)
@@ -2457,7 +2459,10 @@ func (w *assetWallet) Redeem(form *asset.RedeemForm, feeWallet *assetWallet, non
 	if err != nil {
 		return fail(fmt.Errorf("Error getting net fee state: %w", err))
 	}
-	baseFeeGwei := dexeth.WeiToGweiCeil(baseFee)
+	baseFeeGwei, err := dexeth.WeiToGweiSafe(baseFee)
+	if err != nil {
+		return fail(err)
+	}
 	if baseFeeGwei > form.FeeSuggestion {
 		additionalFundsNeeded := (2 * baseFeeGwei * gasLimit) - originalFundsReserved
 		if bal.Available > additionalFundsNeeded {
@@ -2657,7 +2662,10 @@ func (w *TokenWallet) UnapproveToken(assetVer uint32, onConfirm func()) (string,
 	if err != nil {
 		return "", fmt.Errorf("error calculating approval fee rate: %w", err)
 	}
-	feeRateGwei := dexeth.WeiToGweiCeil(maxFeeRate)
+	feeRateGwei, err := dexeth.WeiToGweiSafe(maxFeeRate)
+	if err != nil {
+		return "", err
+	}
 	approvalGas, err := w.approvalGas(big.NewInt(0), assetVer)
 	if err != nil {
 		return "", fmt.Errorf("error calculating approval gas: %w", err)
@@ -3224,7 +3232,7 @@ func (w *ETHWallet) canSend(value uint64, verifyBalance, isPreEstimate bool) (ma
 	if err != nil {
 		return 0, nil, nil, fmt.Errorf("error getting max fee rate: %w", err)
 	}
-	maxFeeRateGwei := dexeth.WeiToGwei(maxFeeRate)
+	maxFeeRateGwei := dexeth.WeiToGweiCeil(maxFeeRate)
 
 	maxFee = defaultSendGasLimit * maxFeeRateGwei
 
@@ -3307,6 +3315,10 @@ func (w *ETHWallet) EstimateSendTxFee(addr string, value, _ uint64, subtract boo
 	return maxFee, w.ValidateAddress(addr), nil
 }
 
+func (w *ETHWallet) StandardSendFee(feeRate uint64) uint64 {
+	return defaultSendGasLimit * feeRate
+}
+
 // EstimateSendTxFee returns a tx fee estimate for a send tx. The provided fee
 // rate is ignored since all sends will use an internally derived fee rate. If
 // an address is provided, it will ensure wallet has enough to cover total
@@ -3320,6 +3332,10 @@ func (w *TokenWallet) EstimateSendTxFee(addr string, value, _ uint64, subtract b
 		return 0, false, err
 	}
 	return maxFee, w.ValidateAddress(addr), nil
+}
+
+func (w *TokenWallet) StandardSendFee(feeRate uint64) uint64 {
+	return defaultSendGasLimit * feeRate
 }
 
 // RestorationInfo returns information about how to restore the wallet in
