@@ -50,6 +50,7 @@ var (
 			Unit:             "ETH",
 			ConversionFactor: 1e9,
 		},
+		FeeRateUnit: "gwei/gas",
 	}
 
 	VersionedGases = map[uint32]*Gases{
@@ -147,29 +148,47 @@ func RefundGas(contractVer uint32) uint64 {
 	return g.Refund
 }
 
+var (
+	// add before diving by gweiFactorBig to take the ceiling.
+	gweiCeilAddend = big.NewInt(GweiFactor - 1)
+	gweiFactorBig  = big.NewInt(GweiFactor)
+)
+
 // GweiToWei converts uint64 Gwei to *big.Int Wei.
 func GweiToWei(v uint64) *big.Int {
-	return new(big.Int).Mul(big.NewInt(int64(v)), big.NewInt(GweiFactor))
+	return new(big.Int).Mul(big.NewInt(int64(v)), gweiFactorBig)
 }
 
 // WeiToGwei converts *big.Int Wei to uint64 Gwei. If v is determined to be
 // unsuitable for a uint64, zero is returned.
 func WeiToGwei(v *big.Int) uint64 {
-	vGwei := new(big.Int).Div(v, big.NewInt(GweiFactor))
+	vGwei := new(big.Int).Div(v, gweiFactorBig)
 	if vGwei.IsUint64() {
 		return vGwei.Uint64()
 	}
 	return 0
 }
 
-// WeiToGweiUint64 converts a *big.Int in wei (1e18 unit) to gwei (1e9 unit) as
+// WeiToGweiCeil converts *big.Int Wei to uint64 Gwei. If v is determined to be
+// unsuitable for a uint64, zero is returned. For values that are not even
+// multiples of 1 gwei, this function returns the ceiling.
+func WeiToGweiCeil(v *big.Int) uint64 {
+	vGwei := new(big.Int).Div(v.Add(v, gweiCeilAddend), gweiFactorBig)
+	if vGwei.IsUint64() {
+		return vGwei.Uint64()
+	}
+	return 0
+}
+
+// WeiToGweiSafe converts a *big.Int in wei (1e18 unit) to gwei (1e9 unit) as
 // a uint64. Errors if the amount of gwei is too big to fit fully into a uint64.
-func WeiToGweiUint64(wei *big.Int) (uint64, error) {
+// For values that are not even multiples of 1 gwei, this function returns the
+// ceiling.
+func WeiToGweiSafe(wei *big.Int) (uint64, error) {
 	if wei.Cmp(new(big.Int)) == -1 {
 		return 0, fmt.Errorf("wei must be non-negative")
 	}
-	gweiFactorBig := big.NewInt(GweiFactor)
-	gwei := new(big.Int).Div(wei, gweiFactorBig)
+	gwei := new(big.Int).Div(wei.Add(wei, gweiCeilAddend), gweiFactorBig)
 	if !gwei.IsUint64() {
 		return 0, fmt.Errorf("suggest gas price %v gwei is too big for a uint64", wei)
 	}

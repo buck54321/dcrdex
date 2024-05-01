@@ -182,7 +182,7 @@ func (be *AssetBackend) baseCoin(coinID []byte, contractData []byte) (*baseCoin,
 	if gasFeeCap == nil || gasFeeCap.Cmp(zero) <= 0 {
 		return nil, fmt.Errorf("Failed to parse gas fee cap from tx %s", txHash)
 	}
-	gasFeeCapGwei, err := dexeth.WeiToGweiUint64(gasFeeCap)
+	gasFeeCapGwei, err := dexeth.WeiToGweiSafe(gasFeeCap)
 	if err != nil {
 		return nil, fmt.Errorf("unable to convert gas fee cap: %v", err)
 	}
@@ -191,7 +191,7 @@ func (be *AssetBackend) baseCoin(coinID []byte, contractData []byte) (*baseCoin,
 	if gasTipCap == nil || gasTipCap.Cmp(zero) <= 0 {
 		return nil, fmt.Errorf("Failed to parse gas tip cap from tx %s", txHash)
 	}
-	gasTipCapGwei, err := dexeth.WeiToGweiUint64(gasTipCap)
+	gasTipCapGwei, err := dexeth.WeiToGweiSafe(gasTipCap)
 	if err != nil {
 		return nil, fmt.Errorf("unable to convert gas tip cap: %v", err)
 	}

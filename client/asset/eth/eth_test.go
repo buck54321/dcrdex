@@ -1274,9 +1274,10 @@ func TestFeeRate(t *testing.T) {
 	defer cancel()
 	node := &testNode{}
 	eth := &baseWallet{
-		node: node,
-		ctx:  ctx,
-		log:  tLogger,
+		node:       node,
+		ctx:        ctx,
+		log:        tLogger,
+		currentTip: &types.Header{Number: big.NewInt(100)},
 	}
 
 	maxInt := ^int64(0)
@@ -1305,6 +1306,7 @@ func TestFeeRate(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		eth.currentFees.blockNum = 0
 		node.baseFee = test.baseFee
 		node.tip = test.tip
 		node.netFeeStateErr = test.netFeeStateErr
@@ -3646,7 +3648,7 @@ func TestSwapConfirmation(t *testing.T) {
 	state.BlockHeight = 5
 	state.State = dexeth.SSInitiated
 	hdr.Number = big.NewInt(6)
-	node.bestHdr = hdr
+	eth.currentTip = hdr
 
 	ver := uint32(0)
 
@@ -3680,11 +3682,6 @@ func TestSwapConfirmation(t *testing.T) {
 	node.tContractor.swapErr = fmt.Errorf("test error")
 	checkResult(true, 0, false)
 	node.tContractor.swapErr = nil
-
-	// header error
-	node.bestHdrErr = fmt.Errorf("test error")
-	checkResult(true, 0, false)
-	node.bestHdrErr = nil
 
 	// ErrSwapNotInitiated
 	state.State = dexeth.SSNone
@@ -4297,7 +4294,7 @@ func testSend(t *testing.T, assetID uint32) {
 	node.sendTxTx = tx
 	node.tokenContractor.transferTx = tx
 
-	maxFeeRate, _ := eth.recommendedMaxFeeRate(eth.ctx)
+	maxFeeRate, _, _ := eth.recommendedMaxFeeRate(eth.ctx)
 	ethFees := dexeth.WeiToGwei(maxFeeRate) * defaultSendGasLimit
 	tokenFees := dexeth.WeiToGwei(maxFeeRate) * tokenGases.Transfer
 
@@ -5268,7 +5265,7 @@ func testEstimateVsActualSendFees(t *testing.T, assetID uint32) {
 	if assetID == BipID {
 		node.bal = dexeth.GweiToWei(11e9)
 		canSend := new(big.Int).Sub(node.bal, dexeth.GweiToWei(fee))
-		canSendGwei, err := dexeth.WeiToGweiUint64(canSend)
+		canSendGwei, err := dexeth.WeiToGweiSafe(canSend)
 		if err != nil {
 			t.Fatalf("error converting canSend to gwei: %v", err)
 		}
@@ -5296,7 +5293,7 @@ func testEstimateSendTxFee(t *testing.T, assetID uint32) {
 	w, eth, node, shutdown := tassetWallet(assetID)
 	defer shutdown()
 
-	maxFeeRate, _ := eth.recommendedMaxFeeRate(eth.ctx)
+	maxFeeRate, _, _ := eth.recommendedMaxFeeRate(eth.ctx)
 	ethFees := dexeth.WeiToGwei(maxFeeRate) * defaultSendGasLimit
 	tokenFees := dexeth.WeiToGwei(maxFeeRate) * tokenGases.Transfer
 
