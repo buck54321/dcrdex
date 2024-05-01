@@ -385,7 +385,9 @@ func (c *tokenContractorV0) allowance(ctx context.Context) (*big.Int, error) {
 		From:    c.acctAddr,
 		Context: ctx,
 	}
-	return c.tokenContract.Allowance(callOpts, c.acctAddr, c.contractAddr)
+
+	a, err := c.tokenContract.Allowance(callOpts, c.acctAddr, c.contractAddr)
+	return a, err
 }
 
 // approve sends an approve transaction approving the linked contract to call

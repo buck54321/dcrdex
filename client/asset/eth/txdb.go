@@ -49,6 +49,8 @@ type extendedWalletTx struct {
 	lastBroadcast   time.Time
 	lastFeeCheck    time.Time
 	actionRequested bool
+	actionIgnored   time.Time
+	indexed         bool
 }
 
 func (t *extendedWalletTx) age() time.Duration {
@@ -429,6 +431,9 @@ func (s *badgerTxDB) getPendingTxs() ([]*extendedWalletTx, error) {
 					if err != nil {
 						s.log.Errorf("unable to unmarhsal wallet transaction: %s: %v", string(wtB), err)
 						return err
+					}
+					if wt.AssumedLost {
+						return nil
 					}
 					if !wt.Confirmed {
 						numConfirmedTxs = 0
