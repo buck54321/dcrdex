@@ -302,7 +302,7 @@ func (w *NativeWallet) mixFunds() {
 // runSimnetMixer just sends all funds from the mixed account to the default
 // account, after a short delay.
 func (w *NativeWallet) runSimnetMixer(ctx context.Context) {
-	if err := w.transferAccount(w.ctx, mixedAccountName, defaultAccountName); err != nil {
+	if err := w.transferAccount(ctx, mixedAccountName, defaultAccountName); err != nil {
 		w.log.Errorf("error transferring funds while disabling mixing: %w", err)
 	}
 
@@ -348,7 +348,7 @@ func (w *NativeWallet) transferAccount(ctx context.Context, toAcct string, fromA
 	// Move funds from mixed and trading account to default account.
 	var unspents []*walletjson.ListUnspentResult
 	for _, acctName := range fromAccts {
-		uns, err := w.spvw.Unspents(w.ctx, acctName)
+		uns, err := w.spvw.Unspents(ctx, acctName)
 		if err != nil {
 			return fmt.Errorf("error listing unspent outputs for acct %q: %w", acctName, err)
 		}
