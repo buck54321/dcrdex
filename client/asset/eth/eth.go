@@ -3364,7 +3364,7 @@ func (w *ETHWallet) RestorationInfo(seed []byte) ([]*asset.WalletRestoration, er
 
 // SwapConfirmations gets the number of confirmations and the spend status
 // for the specified swap.
-func (w *assetWallet) SwapConfirmations(ctx context.Context, coinID dex.Bytes, contract dex.Bytes, _ time.Time) (confs uint32, spent bool, err error) {
+func (w *assetWallet) SwapConfirmations(ctx context.Context, coinID dex.Bytes, contract dex.Bytes, matchTime time.Time) (confs uint32, spent bool, err error) {
 	contractVer, secretHash, err := dexeth.DecodeContractData(contract)
 	if err != nil {
 		return 0, false, err
@@ -3381,8 +3381,16 @@ func (w *assetWallet) SwapConfirmations(ctx context.Context, coinID dex.Bytes, c
 	}
 
 	if swapData.State == dexeth.SSNone {
-		// Check if we know about the tx ourselves. If it's not in pendingTxs
-		// or the database, assume it's lost.
+		// Is this our own tx that we have marked as lost?
+		var txHash common.Hash
+		copy(txHash[:], coinID)
+		if found, s := w.localTxStatus(txHash); found && s.assumedLost {
+			return 0, false, asset.CoinNotFoundError
+		}
+		_, err := w.node.transactionReceipt(w.ctx, txHash)
+		if errors.Is(err, asset.CoinNotFoundError) {
+			return 0, false, asset.CoinNotFoundError
+		}
 		return 0, false, asset.ErrSwapNotInitiated
 	}
 

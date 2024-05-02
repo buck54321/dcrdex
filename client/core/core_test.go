@@ -5437,7 +5437,7 @@ func TestRefunds(t *testing.T) {
 			checkStatus("taker swapped", match, order.TakerSwapCast)
 		}
 		// Confirm isRefundable = true.
-		if !tracker.isRefundable(tCore.ctx, match) {
+		if refundable, _ := tracker.isRefundable(tCore.ctx, match); !refundable {
 			t.Fatalf("%s's swap not refundable", match.Side)
 		}
 		// Check refund.
@@ -5450,7 +5450,7 @@ func TestRefunds(t *testing.T) {
 			t.Fatalf("expected %d refund amount, got %d", expectAmt, amtRefunded)
 		}
 		// Confirm isRefundable = false.
-		if tracker.isRefundable(tCore.ctx, match) {
+		if refundable, _ := tracker.isRefundable(tCore.ctx, match); refundable {
 			t.Fatalf("%s's swap refundable after being refunded", match.Side)
 		}
 		// Expect refund re-attempt to not refund any coin.

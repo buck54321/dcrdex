@@ -1550,6 +1550,32 @@ func (t *trackedTrade) updateDynamicSwapOrRedemptionFeesPaid(ctx context.Context
 	t.notify(newOrderNote(TopicOrderStatusUpdate, "", "", db.Data, t.coreOrderInternal()))
 }
 
+// lookForMissingRefundCoin looks for a condition in which the swap coin we
+// had recorded was never broadcast or otherwise accepted for inclusion into
+// the blockchain, but we are still trying to refund it.
+func (c *Core) lookForMissingRefundCoin(ctx context.Context, t *trackedTrade, match *matchTracker) {
+	coinID := match.MetaData.Proof.MakerSwap
+	if match.Side == order.Taker {
+		coinID = match.MetaData.Proof.TakerSwap
+	}
+	w := t.wallets.fromWallet
+	if _, _, err := w.swapConfirmations(ctx, coinID, match.MetaData.Proof.ContractData, match.MetaData.Stamp); err != nil {
+		switch {
+		case errors.Is(err, asset.CoinNotFoundError):
+			c.log.Errorf("Our swap coin %s (%s) apparently doesn't exist", coinIDString(w.AssetID, coinID), unbip(w.AssetID))
+			// Our swap coin was somehow recorded but never happened.
+			if match.Side == order.Taker {
+				match.MetaData.Proof.TakerSwap = nil
+				match.Status = order.MakerSwapCast
+			} else {
+				match.MetaData.Proof.MakerSwap = nil
+				match.Status = order.NewlyMatched
+			}
+			match.MetaData.Proof.SelfRevoked = true
+		}
+	}
+}
+
 // isRedeemable will be true if the match is ready for our redemption to be
 // broadcast.
 //
@@ -1604,7 +1630,7 @@ func (t *trackedTrade) isRedeemable(ctx context.Context, match *matchTracker) (r
 					// We cannot get the swap data yet but there is no need
 					// to log an error if swap not initiated as this is
 					// expected for newly made swaps involving contracts.
-					t.dc.log.Errorf("isRedeemable: %v", err)
+					t.dc.log.Errorf("Error checking counter-party swap confirmations: %v", err)
 				}
 				return false, false
 			}
@@ -1674,11 +1700,11 @@ func (t *trackedTrade) isRedeemable(ctx context.Context, match *matchTracker) (r
 //
 // This method modifies match fields and MUST be called with the trackedTrade
 // mutex lock held for reads.
-func (t *trackedTrade) isRefundable(ctx context.Context, match *matchTracker) bool {
+func (t *trackedTrade) isRefundable(ctx context.Context, match *matchTracker) (refundable, lookForCoin bool) {
 	if match.refundErr != nil || len(match.MetaData.Proof.RefundCoin) != 0 {
 		t.dc.log.Tracef("Match %s not refundable: refundErr = %v, RefundCoin = %v",
 			match, match.refundErr, match.MetaData.Proof.RefundCoin)
-		return false
+		return false, false
 	}
 
 	wallet := t.wallets.fromWallet
@@ -1687,29 +1713,33 @@ func (t *trackedTrade) isRefundable(ctx context.Context, match *matchTracker) bo
 	if !wallet.locallyUnlocked() {
 		t.dc.log.Errorf("not checking if order %s, match %s is refundable because %s wallet is locked or disabled",
 			t.ID(), match, unbip(wallet.AssetID))
-		return false
+		return false, false
 	}
 
 	// Return if we've NOT sent a swap OR a redeem has been
 	// executed by either party.
 	if len(match.MetaData.Proof.ContractData) == 0 || match.Status >= order.MakerRedeemed {
-		return false
+		return false, false
 	}
 
 	// Issue a refund if our swap's locktime has expired.
 	swapLocktimeExpired, contractExpiry, err := wallet.ContractLockTimeExpired(ctx, match.MetaData.Proof.ContractData)
 	if err != nil {
-		if !errors.Is(err, asset.ErrSwapNotInitiated) {
-			// No need to log an error as this is expected for newly
-			// made swaps involving contracts.
-			t.dc.log.Errorf("error checking if locktime has expired for %s contract on order %s, match %s: %v",
-				match.Side, t.ID(), match, err)
+		if errors.Is(err, asset.ErrSwapNotInitiated) {
+			// If our swap is still not initiated after a couple of hours,
+			// start checking for asset.CoinNotFoundError.
+			return false, time.Since(match.matchTime()) > time.Hour*2
 		}
-		return false
+		// No need to log an error as this is expected for newly
+		// made swaps involving contracts.
+		t.dc.log.Errorf("error checking if locktime has expired for %s contract on order %s, match %s: %v",
+			match.Side, t.ID(), match, err)
+		return false, false
+
 	}
 
 	if swapLocktimeExpired {
-		return true
+		return true, false
 	}
 
 	// Log contract expiry info on intervals: hourly when not expired, otherwise
@@ -1720,7 +1750,7 @@ func (t *trackedTrade) isRefundable(ctx context.Context, match *matchTracker) bo
 		logInterval = 5 * time.Minute
 	}
 	if !match.setExpireDur(expiresIn, logInterval) {
-		return false // too recently logged
+		return false, false // too recently logged
 	}
 
 	swapCoinID := match.MetaData.Proof.TakerSwap
@@ -1740,7 +1770,7 @@ func (t *trackedTrade) isRefundable(ctx context.Context, match *matchTracker) bo
 	t.dc.log.Infof("Contract for match %s with swap coin %v (%s) %s",
 		match, coinIDString(assetID, swapCoinID), assetSymb, expireDetails)
 
-	return false
+	return false, false
 }
 
 // shouldBeginFindRedemption will be true if we are the Taker on this match,
@@ -1841,7 +1871,7 @@ func (c *Core) tick(t *trackedTrade) (assetMap, error) {
 	tLock = time.Since(tStart)
 
 	var swaps, redeems, refunds, revokes, searches, redemptionConfirms,
-		dynamicSwapFeeConfirms, dynamicRedemptionFeeConfirms []*matchTracker
+		dynamicSwapFeeConfirms, dynamicRedemptionFeeConfirms, missingRefundCoins []*matchTracker
 	var sent, quoteSent, received, quoteReceived uint64
 
 	checkMatch := func(match *matchTracker) error { // only errors on context.DeadlineExceeded or context.Canceled
@@ -1910,9 +1940,13 @@ func (c *Core) tick(t *trackedTrade) (assetMap, error) {
 		// Ensures that redemption search is not started if locktime has expired.
 		// If we've already started redemption search for this match, the search
 		// will be aborted if/when auto-refund succeeds.
-		if t.isRefundable(ctx, match) { // does not matter if revoked
+		if refundable, lookForCoin := t.isRefundable(ctx, match); refundable { // does not matter if revoked
 			c.log.Debugf("Refundable match %s for order %v (%v)", match, t.ID(), side)
 			refunds = append(refunds, match)
+			return nil
+		} else if lookForCoin {
+			c.log.Warnf("Our own swap is missing for match %s", match.MatchID)
+			missingRefundCoins = append(missingRefundCoins, match)
 			return nil
 		}
 		if ctx.Err() != nil {
@@ -2121,6 +2155,10 @@ func (c *Core) tick(t *trackedTrade) (assetMap, error) {
 
 	for _, match := range dynamicRedemptionFeeConfirms {
 		t.updateDynamicSwapOrRedemptionFeesPaid(c.ctx, match, false)
+	}
+
+	for _, match := range missingRefundCoins {
+		c.lookForMissingRefundCoin(c.ctx, t, match)
 	}
 
 	return assets, errs.ifAny()
