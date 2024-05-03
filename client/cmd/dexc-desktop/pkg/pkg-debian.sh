@@ -6,7 +6,7 @@
 set -ex
 
 APP="dexc"
-VER="0.7.0-pre"
+VER="0.8.0-pre"
 META= # "release"
 REV="0"
 ARCH="amd64"
