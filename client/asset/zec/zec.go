@@ -2128,6 +2128,8 @@ func (w *zecWallet) EstimateSendTxFee(
 	return
 }
 
+// StandardSendFees returns the fees for a simple send tx with one input and two
+// outputs.
 func (w *zecWallet) StandardSendFee(feeRate uint64) uint64 {
 	return dexzec.TxFeesZIP317(dexbtc.RedeemP2PKHInputSize+1, 2*dexbtc.P2PKHOutputSize+1, 0, 0, 0, 0)
 }

@@ -122,7 +122,7 @@ var EnUS = map[string]*intl.Translation{
 	"auth_order_app_pw":              {T: "Authorize this order with your app password."},
 	"lots":                           {T: "lots"},
 	"order_disclaimer": {T: `<span class="red">IMPORTANT</span>: Trades take time to settle, and you cannot turn off the DEX client software,
-		or the <span data-unit="quote"></span> or <span data-unit="base"></span> blockchain and/or wallet software, until
+		or the <span data-quote-ticker></span> or <span data-base-ticker></span> blockchain and/or wallet software, until
 		settlement is complete. Settlement can complete as quickly as a few minutes or take as long as a few hours.`},
 	"acknowledge_and_hide":      {T: "acknowledge and hide"},
 	"show_disclaimer":           {T: "view warnings"},
