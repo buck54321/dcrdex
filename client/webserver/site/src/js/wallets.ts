@@ -2553,6 +2553,8 @@ export default class WalletsPage extends BasePage {
     this.updateAssetButton(this.selectedAssetID)
     if (!note.fiatRates[this.selectedAssetID]) return
     this.updateDisplayedAssetBalance()
+    const { feeState } = app().walletMap[this.selectedAssetID]
+    if (feeState) this.updateFeeState(feeState)
   }
 
   /*
