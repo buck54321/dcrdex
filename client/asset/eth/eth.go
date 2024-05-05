@@ -3290,6 +3290,7 @@ func (w *ETHWallet) EstimateSendTxFee(addr string, value, _ uint64, subtract boo
 	return maxFee, w.ValidateAddress(addr), nil
 }
 
+// StandardSendFees returns the fees for a simple send tx.
 func (w *ETHWallet) StandardSendFee(feeRate uint64) uint64 {
 	return defaultSendGasLimit * feeRate
 }
@@ -3309,6 +3310,7 @@ func (w *TokenWallet) EstimateSendTxFee(addr string, value, _ uint64, subtract b
 	return maxFee, w.ValidateAddress(addr), nil
 }
 
+// StandardSendFees returns the fees for a simple send tx.
 func (w *TokenWallet) StandardSendFee(feeRate uint64) uint64 {
 	return defaultSendGasLimit * feeRate
 }

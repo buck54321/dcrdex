@@ -321,7 +321,7 @@ export interface UnitInfo {
   atomicUnit: string
   conventional: Denomination
   denominations: Denomination[]
-  feeRateUnit: string
+  feeRateDenom: string
 }
 
 export interface Denomination {
@@ -1073,6 +1073,7 @@ export interface Application {
   bindTooltips (ancestor: HTMLElement): void
   bindUrlHandlers (ancestor: HTMLElement): void
   attachHeader (): void
+  updateMarketElements (ancestor: PageElement, baseID: number, quoteID: number): void
   showDropdown (icon: HTMLElement, dialog: HTMLElement): void
   ackNotes (): void
   setNoteTimes (noteList: HTMLElement): void
