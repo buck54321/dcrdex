@@ -891,8 +891,7 @@ func (w *ETHWallet) Connect(ctx context.Context) (_ *sync.WaitGroup, err error) 
 		}
 	}
 
-	w.txDB = newBadgerTxDB(filepath.Join(w.dir, "tx.db"), w.log.SubLogger("TXDB"))
-	wg, err := w.txDB.connect(ctx)
+	w.txDB, err = newBadgerTxDB(filepath.Join(w.dir, "tx.db"), w.log.SubLogger("TXDB"))
 	if err != nil {
 		return nil, err
 	}
@@ -942,7 +941,13 @@ func (w *ETHWallet) Connect(ctx context.Context) (_ *sync.WaitGroup, err error) 
 	atomic.StoreInt64(&w.tipAtConnect, height.Int64())
 	w.log.Infof("Connected to eth (%s), at height %d", w.walletType, height)
 
-	w.connected.Store(true)
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		w.txDB.run(ctx)
+	}()
 
 	wg.Add(1)
 	go func() {
@@ -957,12 +962,13 @@ func (w *ETHWallet) Connect(ctx context.Context) (_ *sync.WaitGroup, err error) 
 		w.monitorPeers(ctx)
 	}()
 
+	w.connected.Store(true)
 	go func() {
 		<-ctx.Done()
 		w.connected.Store(false)
 	}()
 
-	return wg, nil
+	return &wg, nil
 }
 
 // Connect waits for context cancellation and closes the WaitGroup. Satisfies
