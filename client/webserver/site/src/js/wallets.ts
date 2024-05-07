@@ -2406,10 +2406,13 @@ export default class WalletsPage extends BasePage {
       walletType = page.changeWalletTypeSelect.value || ''
     }
 
+    const config = this.reconfigForm.map(assetID)
+    console.log("--config", config)
+
     const loaded = app().loading(page.reconfigForm)
     const req: ReconfigRequest = {
       assetID: assetID,
-      config: this.reconfigForm.map(assetID),
+      config,
       appPW: page.appPW.value ?? '',
       walletType: walletType
     }
