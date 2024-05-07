@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/decred/slog"
 )
@@ -36,6 +38,7 @@ const (
 type Logger interface {
 	slog.Logger
 	SubLogger(name string) Logger
+	Meter(callerID string, delay time.Duration) Logger
 }
 
 // LoggerMaker allows creation of new log subsystems with predefined levels.
@@ -53,17 +56,20 @@ type logger struct {
 	level   slog.Level
 	levels  map[string]slog.Level
 	backend *slog.Backend
+
+	meterMtx sync.Mutex
+	meters   map[string]time.Time
 }
 
 // SubLogger creates a new Logger for the subsystem with the given name. If name
 // exists in the levels map, use that level, otherwise the parent's log level is
 // used.
-func (lggr *logger) SubLogger(name string) Logger {
-	combinedName := fmt.Sprintf("%s[%s]", lggr.name, name)
-	newLggr := lggr.backend.Logger(combinedName)
-	level := lggr.level
+func (log *logger) SubLogger(name string) Logger {
+	combinedName := fmt.Sprintf("%s[%s]", log.name, name)
+	newLggr := log.backend.Logger(combinedName)
+	level := log.level
 	// If name is in the levels map, use that level.
-	if lvl, ok := lggr.levels[name]; ok {
+	if lvl, ok := log.levels[name]; ok {
 		level = lvl
 	}
 	newLggr.SetLevel(level)
@@ -71,9 +77,25 @@ func (lggr *logger) SubLogger(name string) Logger {
 		Logger:  newLggr,
 		name:    combinedName,
 		level:   level,
-		levels:  lggr.levels,
-		backend: lggr.backend,
+		levels:  log.levels,
+		backend: log.backend,
 	}
+}
+
+// Meter enforces a time delay on logging. The first call to a metered logger
+// always logs. Subsequent calls for the same callerID are ignored until the
+// delay is surpassed.
+func (log *logger) Meter(callerID string, delay time.Duration) Logger {
+	log.meterMtx.Lock()
+	defer log.meterMtx.Unlock()
+	if log.meters == nil {
+		log.meters = make(map[string]time.Time)
+	}
+	if lastLog, exists := log.meters[callerID]; exists && time.Since(lastLog) < delay {
+		return Disabled
+	}
+	log.meters[callerID] = time.Now()
+	return log
 }
 
 func inUTC() slog.BackendOption {
