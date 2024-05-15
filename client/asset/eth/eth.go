@@ -69,6 +69,7 @@ func registerToken(tokenID uint32, desc string) {
 func init() {
 	asset.Register(BipID, &Driver{})
 	registerToken(usdcTokenID, "The USDC Ethereum ERC20 token.")
+	registerToken(usdtTokenID, "The USDT Ethereum ERC20 token.")
 }
 
 const (
@@ -124,6 +125,7 @@ const (
 
 var (
 	usdcTokenID, _ = dex.BipSymbolID("usdc.eth")
+	usdtTokenID, _ = dex.BipSymbolID("usdt.eth")
 	walletOpts     = []*asset.ConfigOption{
 		{
 			Key:         "gasfeelimit",
@@ -5164,12 +5166,6 @@ func (w *TokenWallet) WalletTransaction(ctx context.Context, txID string) (*asse
 type providersFile struct {
 	Seed      dex.Bytes                                                   `json:"seed"`
 	Providers map[string] /* symbol */ map[string] /* network */ []string `json:"providers"`
-}
-
-// fileCredentials contain the seed and providers to use for GetGasEstimates.
-type fileCredentials struct {
-	Seed      dex.Bytes         `json:"seed"`
-	Providers map[string]string `json:"providers"`
 }
 
 // getFileCredentials reads the file at path and extracts the seed and the
