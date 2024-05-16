@@ -18,13 +18,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/eth/downloader"
 	"github.com/ethereum/go-ethereum/eth/ethconfig"
-	"github.com/ethereum/go-ethereum/les"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/p2p/nat"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -34,162 +29,6 @@ type nodeConfig struct {
 	net                dex.Network
 	listenAddr, appDir string
 	logger             dex.Logger
-}
-
-// ethLogger satisfies geth's logger interface.
-type ethLogger struct {
-	dl dex.Logger
-}
-
-// New returns a new Logger that has this logger's context plus the given
-// context.
-func (el *ethLogger) New(ctx ...interface{}) log.Logger {
-	s := ""
-	for _, v := range ctx {
-		if s == "" {
-			s = fmt.Sprintf("%s", v)
-			continue
-		}
-		s = fmt.Sprintf("%s: %s", s, v)
-	}
-	l := el.dl.SubLogger(s)
-	return &ethLogger{dl: l}
-}
-
-// dummyHandler is used to return from the logger's GetHandler method in order
-// to avoid null pointer errors in case geth ever uses that function.
-type dummyHandler struct{}
-
-// Log does nothing and returns nil.
-func (dummyHandler) Log(r *log.Record) error {
-	return nil
-}
-
-// Check that *dummyHandler satisfies the log.Handler interface.
-var _ log.Handler = (*dummyHandler)(nil)
-
-// GetHandler gets the handler associated with the logger. Unused in geth. Does
-// nothing and returns a nil interface here.
-func (el *ethLogger) GetHandler() log.Handler {
-	return new(dummyHandler)
-}
-
-// SetHandler updates the logger to write records to the specified handler.
-// Used during setup in geth when a logger is not supplied. Does nothing here.
-func (el *ethLogger) SetHandler(h log.Handler) {}
-
-func formatEthLog(msg string, ctx ...interface{}) []interface{} {
-	msgs := []interface{}{msg, "         "}
-	alternator := 0
-	for _, v := range ctx {
-		deliminator := "="
-		if alternator == 0 {
-			deliminator = " "
-		}
-		alternator = 1 - alternator
-		msgs = append(msgs, deliminator, v)
-	}
-	return msgs
-}
-
-// Trace logs at Trace level.
-func (el *ethLogger) Trace(msg string, ctx ...interface{}) {
-	el.dl.Trace(formatEthLog(msg, ctx...)...)
-}
-
-// Debug logs at debug level.
-func (el *ethLogger) Debug(msg string, ctx ...interface{}) {
-	el.dl.Debug(formatEthLog(msg, ctx...)...)
-}
-
-// Info logs at info level.
-func (el *ethLogger) Info(msg string, ctx ...interface{}) {
-	el.dl.Info(formatEthLog(msg, ctx...)...)
-}
-
-// Warn logs at warn level.
-func (el *ethLogger) Warn(msg string, ctx ...interface{}) {
-	el.dl.Warn(formatEthLog(msg, ctx...)...)
-}
-
-// Error logs at error level.
-func (el *ethLogger) Error(msg string, ctx ...interface{}) {
-	el.dl.Error(formatEthLog(msg, ctx...)...)
-}
-
-// Crit logs at critical level.
-func (el *ethLogger) Crit(msg string, ctx ...interface{}) {
-	el.dl.Critical(formatEthLog(msg, ctx...)...)
-}
-
-// Check that *ethLogger satisfies the log.Logger interface.
-var _ log.Logger = (*ethLogger)(nil)
-
-// prepareNode sets up a geth node, but does not start it.
-func prepareNode(cfg *nodeConfig) (*node.Node, error) {
-	stackConf := &node.Config{
-		DataDir: cfg.appDir,
-		// KeyStoreDir is set the same as the geth default, but we rely on this
-		// location for Exists, so protect against future geth changes.
-		KeyStoreDir: filepath.Join(cfg.appDir, "keystore"),
-	}
-
-	stackConf.Logger = &ethLogger{dl: cfg.logger}
-
-	stackConf.P2P.MaxPeers = maxPeers
-	var key *ecdsa.PrivateKey
-	var err error
-	if key, err = crypto.GenerateKey(); err != nil {
-		return nil, err
-	}
-	stackConf.P2P.PrivateKey = key
-	stackConf.P2P.ListenAddr = cfg.listenAddr
-	stackConf.P2P.NAT = nat.Any()
-
-	var urls []string
-	switch cfg.net {
-	case dex.Simnet:
-		urls = []string{
-			"enode://897c84f6e4f18195413c1d02927e6a4093f5e7574b52bdec6f20844c4f1f6dd3f16036a9e600bd8681ab50fd8dd144df4a6ba9dd8722bb578a86aaa8222c964f@127.0.0.1:30304", // alpha
-			"enode://b1d3e358ee5c9b268e911f2cab47bc12d0e65c80a6d2b453fece34facc9ac3caed14aa3bc7578166bb08c5bc9719e5a2267ae14e0b42da393f4d86f6d5829061@127.0.0.1:30305", // beta
-			"enode://b1c14deee09b9d5549c90b7b30a35c812a56bf6afea5873b05d7a1bcd79c7b0848bcfa982faf80cc9e758a3a0d9b470f0a002840d365050fd5bf45052a6ec313@127.0.0.1:30306", // gamma
-			"enode://ca414c361d1a38716170923e4900d9dc9203dbaf8fdcaee73e1f861df9fdf20a1453b76fd218c18bc6f3c7e13cbca0b3416af02a53b8e31188faa45aab398d1c@127.0.0.1:30307", // delta
-		}
-	case dex.Testnet:
-		urls = params.GoerliBootnodes
-	case dex.Mainnet:
-		urls = params.MainnetBootnodes
-	default:
-		return nil, fmt.Errorf("unknown network ID: %d", uint8(cfg.net))
-	}
-
-	for _, url := range urls {
-		node, err := enode.Parse(enode.ValidSchemes, url)
-		if err != nil {
-			return nil, fmt.Errorf("Bootstrap URL %q invalid: %v", url, err)
-		}
-		stackConf.P2P.BootstrapNodes = append(stackConf.P2P.BootstrapNodes, node)
-	}
-
-	if cfg.net != dex.Simnet {
-		for _, url := range params.V5Bootnodes {
-			node, err := enode.Parse(enode.ValidSchemes, url)
-			if err != nil {
-				return nil, fmt.Errorf("Bootstrap v5 URL %q invalid: %v", url, err)
-			}
-			stackConf.P2P.BootstrapNodesV5 = append(stackConf.P2P.BootstrapNodesV5, node)
-		}
-	}
-
-	node, err := node.New(stackConf)
-	if err != nil {
-		return nil, err
-	}
-
-	ks := keystore.NewKeyStore(node.KeyStoreDir(), keystore.LightScryptN, keystore.LightScryptP)
-	node.AccountManager().AddBackend(ks)
-
-	return node, nil
 }
 
 func ethChainConfig(network dex.Network) (c ethconfig.Config, err error) {
@@ -214,32 +53,6 @@ func ethChainConfig(network dex.Network) (c ethconfig.Config, err error) {
 		return c, fmt.Errorf("unknown network ID: %d", uint8(network))
 	}
 	return ethCfg, nil
-}
-
-// startNode starts a geth node.
-func startNode(node *node.Node, network dex.Network) (*les.LightEthereum, error) {
-	ethCfg, err := ethChainConfig(network)
-	if err != nil {
-		return nil, err
-	}
-
-	ethCfg.SyncMode = downloader.LightSync
-
-	// Eth has a default RPCTxFeeCap of one eth. This prevents txn with a
-	// total gas fee higher than than one eth to fail when sending. Setting
-	// the value to zero removes the limit completely.
-	ethCfg.RPCTxFeeCap = 0
-
-	leth, err := les.New(node, &ethCfg)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := node.Start(); err != nil {
-		return nil, err
-	}
-
-	return leth, nil
 }
 
 // importKeyToNode imports an private key into an ethereum node that can be
