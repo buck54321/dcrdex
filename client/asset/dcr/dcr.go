@@ -33,9 +33,9 @@ import (
 	"decred.org/dcrdex/dex/config"
 	"decred.org/dcrdex/dex/dexnet"
 	dexdcr "decred.org/dcrdex/dex/networks/dcr"
-	walletjson "decred.org/dcrwallet/v3/rpc/jsonrpc/types"
-	"decred.org/dcrwallet/v3/wallet"
-	_ "decred.org/dcrwallet/v3/wallet/drivers/bdb"
+	walletjson "decred.org/dcrwallet/v4/rpc/jsonrpc/types"
+	"decred.org/dcrwallet/v4/wallet"
+	_ "decred.org/dcrwallet/v4/wallet/drivers/bdb"
 	"github.com/decred/dcrd/blockchain/stake/v5"
 	blockchain "github.com/decred/dcrd/blockchain/standalone/v2"
 	"github.com/decred/dcrd/chaincfg/chainhash"
@@ -50,7 +50,7 @@ import (
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/txscript/v4/stdscript"
 	"github.com/decred/dcrd/wire"
-	vspdjson "github.com/decred/vspd/types"
+	vspdjson "github.com/decred/vspd/types/v2"
 )
 
 const (
@@ -1959,7 +1959,7 @@ type fundMultiOptions struct {
 	// is no split buffer, this may necessitate a new split transaction.
 	//
 	// Use the multiSplitBufferKey const defined above in the options map to set this.
-	SplitBuffer uint64 `ini:"multisplitbuffer"`
+	SplitBuffer float64 `ini:"multisplitbuffer"`
 }
 
 func decodeFundMultiOptions(options map[string]string) (*fundMultiOptions, error) {
@@ -1998,14 +1998,14 @@ func (dcr *ExchangeWallet) orderWithLeastOverFund(maxLock, feeRate uint64, order
 
 // fundsRequiredForMultiOrders returns an slice of the required funds for each
 // of a slice of orders and the total required funds.
-func (dcr *ExchangeWallet) fundsRequiredForMultiOrders(orders []*asset.MultiOrderValue, feeRate, splitBuffer uint64) ([]uint64, uint64) {
+func (dcr *ExchangeWallet) fundsRequiredForMultiOrders(orders []*asset.MultiOrderValue, feeRate uint64, splitBuffer float64) ([]uint64, uint64) {
 	requiredForOrders := make([]uint64, len(orders))
 	var totalRequired uint64
 
 	for i, value := range orders {
 		req := calc.RequiredOrderFundsAlt(value.Value, dexdcr.P2PKHInputSize, value.MaxSwapCount,
 			dexdcr.InitTxSizeBase, dexdcr.InitTxSize, feeRate)
-		req = req * (100 + splitBuffer) / 100
+		req = uint64(math.Round(float64(req) * (100 + splitBuffer) / 100))
 		requiredForOrders[i] = req
 		totalRequired += req
 	}
@@ -2151,7 +2151,7 @@ func (dcr *ExchangeWallet) fundMultiBestEffort(keep, maxLock uint64, values []*a
 // transaction to fund each of the orders. If successful, it returns the
 // funding coins and outputs.
 func (dcr *ExchangeWallet) fundMultiSplitTx(orders []*asset.MultiOrderValue, utxos []*compositeUTXO,
-	splitTxFeeRate, maxFeeRate, splitBuffer, keep, maxLock uint64) (bool, asset.Coins, []*fundingCoin) {
+	splitTxFeeRate, maxFeeRate uint64, splitBuffer float64, keep, maxLock uint64) (bool, asset.Coins, []*fundingCoin) {
 	_, totalOutputRequired := dcr.fundsRequiredForMultiOrders(orders, maxFeeRate, splitBuffer)
 
 	var splitTxSizeWithoutInputs uint32 = dexdcr.MsgTxOverhead
@@ -2192,7 +2192,7 @@ func (dcr *ExchangeWallet) fundMultiSplitTx(orders []*asset.MultiOrderValue, utx
 // submitMultiSplitTx creates a multi-split transaction using fundingCoins with
 // one output for each order, and submits it to the network.
 func (dcr *ExchangeWallet) submitMultiSplitTx(fundingCoins asset.Coins, _ /* spents */ []*fundingCoin, orders []*asset.MultiOrderValue,
-	maxFeeRate, splitTxFeeRate, splitBuffer uint64) ([]asset.Coins, uint64, error) {
+	maxFeeRate, splitTxFeeRate uint64, splitBuffer float64) ([]asset.Coins, uint64, error) {
 	baseTx := wire.NewMsgTx()
 	_, err := dcr.addInputCoins(baseTx, fundingCoins)
 	if err != nil {
@@ -2262,7 +2262,7 @@ func (dcr *ExchangeWallet) submitMultiSplitTx(fundingCoins asset.Coins, _ /* spe
 // called after it has been determined that all of the orders cannot be funded
 // without a split transaction.
 func (dcr *ExchangeWallet) fundMultiWithSplit(keep, maxLock uint64, values []*asset.MultiOrderValue,
-	splitTxFeeRate, maxFeeRate, splitBuffer uint64) ([]asset.Coins, [][]dex.Bytes, uint64, error) {
+	splitTxFeeRate, maxFeeRate uint64, splitBuffer float64) ([]asset.Coins, [][]dex.Bytes, uint64, error) {
 	utxos, err := dcr.spendableUTXOs()
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("error getting spendable utxos: %w", err)
@@ -2393,7 +2393,7 @@ func (dcr *ExchangeWallet) fundMultiWithSplit(keep, maxLock uint64, values []*as
 // UTXOs. If a split is not allowed, it will fund the orders that it was able
 // to fund. If splitting is allowed, a split transaction will be created to fund
 // all of the orders.
-func (dcr *ExchangeWallet) fundMulti(maxLock uint64, values []*asset.MultiOrderValue, splitTxFeeRate, maxFeeRate uint64, allowSplit bool, splitBuffer uint64) ([]asset.Coins, [][]dex.Bytes, uint64, error) {
+func (dcr *ExchangeWallet) fundMulti(maxLock uint64, values []*asset.MultiOrderValue, splitTxFeeRate, maxFeeRate uint64, allowSplit bool, splitBuffer float64) ([]asset.Coins, [][]dex.Bytes, uint64, error) {
 	dcr.fundingMtx.Lock()
 	defer dcr.fundingMtx.Unlock()
 
@@ -6546,7 +6546,7 @@ func (dcr *ExchangeWallet) handleTipChange(ctx context.Context, newTipHash *chai
 	prevTip := dcr.currentTip
 	dcr.currentTip = &block{newTipHeight, newTipHash}
 
-	dcr.log.Debugf("tip change: %d (%s) => %d (%s)", prevTip.height, prevTip.hash, newTipHeight, newTipHash)
+	dcr.log.Tracef("tip change: %d (%s) => %d (%s)", prevTip.height, prevTip.hash, newTipHeight, newTipHash)
 
 	dcr.emitTipChange(newTipHeight)
 

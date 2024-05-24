@@ -18,9 +18,9 @@ import (
 
 	"decred.org/dcrdex/client/asset"
 	"decred.org/dcrdex/dex"
-	"decred.org/dcrwallet/v3/rpc/client/dcrwallet"
-	walletjson "decred.org/dcrwallet/v3/rpc/jsonrpc/types"
-	"decred.org/dcrwallet/v3/wallet"
+	"decred.org/dcrwallet/v4/rpc/client/dcrwallet"
+	walletjson "decred.org/dcrwallet/v4/rpc/jsonrpc/types"
+	"decred.org/dcrwallet/v4/wallet"
 	"github.com/decred/dcrd/chaincfg/chainhash"
 	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -53,6 +53,7 @@ const (
 	methodSignRawTransaction = "signrawtransaction"
 	methodSyncStatus         = "syncstatus"
 	methodGetPeerInfo        = "getpeerinfo"
+	methodWalletInfo         = "walletinfo"
 )
 
 // rpcWallet implements Wallet functionality using an rpc client to communicate
@@ -1235,4 +1236,16 @@ func isAccountLockedErr(err error) bool {
 	var rpcErr *dcrjson.RPCError
 	return errors.As(err, &rpcErr) && rpcErr.Code == dcrjson.ErrRPCWalletUnlockNeeded &&
 		strings.Contains(rpcErr.Message, "account is already locked")
+}
+
+func (w *rpcWallet) walletInfo(ctx context.Context) (*walletjson.WalletInfoResult, error) {
+	var walletInfo walletjson.WalletInfoResult
+	err := w.rpcClientRawRequest(ctx, methodWalletInfo, nil, &walletInfo)
+	return &walletInfo, translateRPCCancelErr(err)
+}
+
+var _ ticketPager = (*rpcWallet)(nil)
+
+func (w *rpcWallet) TicketPage(ctx context.Context, scanStart int32, n, skipN int) ([]*asset.Ticket, error) {
+	return make([]*asset.Ticket, 0), nil
 }

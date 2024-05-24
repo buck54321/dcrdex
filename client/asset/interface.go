@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"decred.org/dcrdex/dex"
-	dcrwalletjson "decred.org/dcrwallet/v3/rpc/jsonrpc/types"
+	dcrwalletjson "decred.org/dcrwallet/v4/rpc/jsonrpc/types"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
@@ -252,6 +252,7 @@ const (
 	// ErrUnapprovedToken is returned when trying to fund an order using a token
 	// that has not been approved.
 	ErrUnapprovedToken = dex.ErrorKind("token not approved")
+	ErrApprovalPending = dex.ErrorKind("approval pending")
 
 	// InternalNodeLoggerName is the name for a logger that is used to fine
 	// tune log levels for only loggers using this name.
