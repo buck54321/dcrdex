@@ -108,11 +108,11 @@ type dcrWallet interface {
 	// TODO: Rescan and DiscoverActiveAddresses can be used for a Rescanner.
 
 	// VSP client methods
-	SetPublished(ctx context.Context, hash *chainhash.Hash, published bool) error
-	AbandonTransaction(ctx context.Context, hash *chainhash.Hash) error
-	SignMessage(ctx context.Context, msg string, addr stdaddr.Address) (sig []byte, err error)
-	CreateVspPayment(ctx context.Context, tx *wire.MsgTx, fee dcrutil.Amount,
-		feeAddr stdaddr.Address, feeAcct uint32, changeAcct uint32) error
+	// SetPublished(ctx context.Context, hash *chainhash.Hash, published bool) error
+	// AbandonTransaction(ctx context.Context, hash *chainhash.Hash) error
+	// SignMessage(ctx context.Context, msg string, addr stdaddr.Address) (sig []byte, err error)
+	// CreateVspPayment(ctx context.Context, tx *wire.MsgTx, fee dcrutil.Amount,
+	// 	feeAddr stdaddr.Address, feeAcct uint32, changeAcct uint32) error
 }
 
 // Interface for *spv.Syncer so that we can test with a stub.
