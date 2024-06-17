@@ -126,11 +126,9 @@ class AppInitForm {
     const loaded = app().loading(this.form)
     // const seed = page.seedInput.value?.replace(/\s+/g, '') // strip whitespace
     const seed = page.seedInput.value ?? ''
-    const rememberPass = page.rememberPass.checked
     const res: InitResponse = await postJSON('/api/init', {
       pass: pw,
-      seed: seed,
-      rememberPass
+      seed: seed
     })
     loaded()
     if (!app().checkResponse(res)) {

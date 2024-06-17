@@ -464,12 +464,6 @@ div[data-handler=markets] {
         }
       }
     }
-
-    #vUnlockPreorder {
-      .ico-locked {
-        font-size: 35px;
-      }
-    }
   }
 
   #vDetailPane {
@@ -570,12 +564,6 @@ div[data-handler=markets] {
 
   &:not(.listopen) .ico-arrowup {
     display: none;
-  }
-
-  #vUnlockPreorder {
-    .ico-locked {
-      font-size: 35px;
-    }
   }
 }
 

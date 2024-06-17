@@ -4,7 +4,6 @@ import { postJSON, Errors } from './http'
 import {
   NewWalletForm,
   WalletConfigForm,
-  UnlockWalletForm,
   DepositAddress,
   bind as bindForm,
   showSuccess,
@@ -224,7 +223,6 @@ export default class WalletsPage extends BasePage {
   newWalletForm: NewWalletForm
   reconfigForm: WalletConfigForm
   walletCfgGuide: PageElement
-  unlockForm: UnlockWalletForm
   depositAddrForm: DepositAddress
   keyup: (e: KeyboardEvent) => void
   changeWalletPW: boolean
@@ -313,9 +311,6 @@ export default class WalletsPage extends BasePage {
 
     this.walletCfgGuide = Doc.tmplElement(page.reconfigForm, 'walletCfgGuide')
 
-    // Bind the wallet unlock form.
-    this.unlockForm = new UnlockWalletForm(page.unlockWalletForm, (assetID: number) => this.openWalletSuccess(assetID, page.unlockWalletForm))
-
     // Bind the send form.
     bindForm(page.sendForm, page.submitSendForm, async () => { this.stepSend() })
     // Send confirmation form.
@@ -366,7 +361,6 @@ export default class WalletsPage extends BasePage {
     Doc.bind(page.ticketHistoryPrevPage, 'click', () => { this.prevTicketPage() })
     Doc.bind(page.setVotes, 'click', () => { this.showSetVotesDialog() })
     Doc.bind(page.purchaseTicketsErrCloser, 'click', () => { Doc.hide(page.purchaseTicketsErrBox) })
-    bindForm(page.mixerPWForm, page.mixerPWSubmit, () => { this.startMixerWithPW() })
     Doc.bind(page.enablePrivacyButton, 'click', () => { this.enablePrivacyDefaultSettings() })
     Doc.bind(page.configureMixer, 'click', () => { this.showPrivacyConfiguration(false) })
     Doc.bind(page.mixAddrEdit, 'click', () => { this.showMixServerInput() })
@@ -641,7 +635,6 @@ export default class WalletsPage extends BasePage {
     this.unapprovingTokenVersion = version
     Doc.show(page.unapproveTokenSubmissionElements)
     Doc.hide(page.unapproveTokenTxMsg, page.unapproveTokenErr)
-    Doc.setVis(!State.passwordIsCached(), page.unapproveTokenPWBox)
     const asset = app().assets[this.selectedAssetID]
     if (!asset || !asset.token) return
     const parentAsset = app().assets[asset.token.parentID]
@@ -1191,7 +1184,6 @@ export default class WalletsPage extends BasePage {
     page.purchaserInput.value = ''
     page.purchaserAppPW.value = ''
     Doc.hide(page.purchaserErr)
-    Doc.setVis(!State.passwordIsCached(), page.purchaserAppPWBox)
     this.showForm(this.page.purchaseTicketsForm)
     page.purchaserInput.focus()
   }
@@ -1552,25 +1544,15 @@ export default class WalletsPage extends BasePage {
       this.showForm(page.mixingOffConfirmationForm)
       return
     }
-    const { wallet } = app().assets[this.selectedAssetID]
-    // Do we need a password?
-    if (wallet.open || State.passwordIsCached()) {
-      const loaded = app().loading(page.mixingBox)
-      const res = await postJSON('/api/startmixer', { assetID: this.selectedAssetID })
-      loaded()
-      if (!app().checkResponse(res)) {
-        page.mixingErr.textContent = intl.prep(intl.ID_API_ERROR, { msg: res.msg })
-        Doc.show(page.mixingErr)
-        return
-      }
-      this.setMixerStateDisplay(true)
+    const loaded = app().loading(page.mixingBox)
+    const res = await postJSON('/api/startmixer', { assetID: this.selectedAssetID })
+    loaded()
+    if (!app().checkResponse(res)) {
+      page.mixingErr.textContent = intl.prep(intl.ID_API_ERROR, { msg: res.msg })
+      Doc.show(page.mixingErr)
       return
     }
-    // Show mixer password form.
-    Doc.hide(page.mixerPWErr)
-    page.mixerPWInput.value = ''
-    await this.showForm(this.page.mixerPWForm)
-    this.page.mixerPWInput.focus()
+    this.setMixerStateDisplay(true)
   }
 
   async turnPrivacyOff () {
@@ -1593,27 +1575,6 @@ export default class WalletsPage extends BasePage {
     Doc.setVis(on, this.page.mixerOn)
     Doc.setVis(!on, this.page.mixerOff)
     this.mixerToggle.setState(on)
-  }
-
-  async startMixerWithPW () {
-    const page = this.page
-    Doc.hide(page.mixerPWErr)
-    const pw = page.mixerPWInput.value || ''
-    if (!pw) {
-      Doc.show(page.mixerPWErr)
-      page.mixerPWErr.textContent = intl.prep(intl.ID_NO_PASS_ERROR_MSG)
-      return
-    }
-    const loaded = app().loading(page.mixerPWForm)
-    const res = await postJSON('/api/startmixer', { appPW: pw, assetID: this.selectedAssetID })
-    loaded()
-    if (!app().checkResponse(res)) {
-      Doc.show(page.mixerPWErr)
-      page.mixerPWErr.textContent = intl.prep(intl.ID_API_ERROR, { msg: res.msg })
-      return
-    }
-    this.setMixerStateDisplay(true)
-    this.closePopups()
   }
 
   async disableMixer () {
@@ -2122,29 +2083,15 @@ export default class WalletsPage extends BasePage {
    * attempt to open the wallet.
    */
   async openWallet (assetID: number) {
-    if (!State.passwordIsCached()) {
-      this.showOpen(assetID)
-    } else {
-      const open = {
-        assetID: assetID
-      }
-      const res = await postJSON('/api/openwallet', open)
-      if (app().checkResponse(res)) {
-        this.openWalletSuccess(assetID)
-        this.updatePrivacy(assetID)
-      } else {
-        this.showOpen(assetID, intl.prep(intl.ID_OPEN_WALLET_ERR_MSG, { msg: res.msg }))
-      }
+    const open = {
+      assetID: assetID
     }
-  }
-
-  /* Show the form used to unlock a wallet. */
-  async showOpen (assetID: number, errorMsg?: string) {
-    const page = this.page
-    // await this.hideBox()
-    this.unlockForm.refresh(app().assets[assetID])
-    if (errorMsg) this.unlockForm.showErrorOnly(errorMsg)
-    this.showForm(page.unlockWalletForm)
+    const res = await postJSON('/api/openwallet', open)
+    if (!app().checkResponse(res)) {
+      console.error('openwallet error', res)
+      return
+    }
+    this.assetUpdated(assetID, undefined, intl.prep(intl.ID_WALLET_UNLOCKED))
   }
 
   /* Show the form used to change wallet configuration settings. */
@@ -2350,11 +2297,6 @@ export default class WalletsPage extends BasePage {
     this.updateDisplayedAsset(assetID)
   }
 
-  /* openWalletSuccess is the success callback for wallet unlocking. */
-  async openWalletSuccess (assetID: number, form?: PageElement) {
-    this.assetUpdated(assetID, form, intl.prep(intl.ID_WALLET_UNLOCKED))
-  }
-
   assetUpdated (assetID: number, oldForm?: PageElement, successMsg?: string) {
     if (assetID !== this.selectedAssetID) return
     this.updateDisplayedAsset(assetID)
@@ -2421,11 +2363,6 @@ export default class WalletsPage extends BasePage {
     const page = this.page
     const assetID = this.selectedAssetID
     Doc.hide(page.reconfigErr)
-    if (!page.appPW.value && !State.passwordIsCached()) {
-      Doc.showFormError(page.reconfigErr, intl.prep(intl.ID_NO_APP_PASS_ERROR_MSG))
-      return
-    }
-
     let walletType = app().currentWalletDefinition(assetID).type
     if (!Doc.isHidden(page.changeWalletType)) {
       walletType = page.changeWalletTypeSelect.value || ''

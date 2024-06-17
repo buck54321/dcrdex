@@ -88,11 +88,18 @@
       </label>
       <input type="password" data-tmpl="newWalletPass" autocomplete="off">
     </div>
+
+
+    
     <div class="hide-pw col-11">
       <label for="nwAppPass">[[[App Password]]]</label>
       <input type="password" id="nwAppPass" data-tmpl="appPass" autocomplete="off">
     </div>
     <span class="col-3 hide-pw"></span> {{/* flex dummy */}}
+
+
+
+
     <div class="d-grid align-items-end col-10 p-0">
       <button data-tmpl="submitAdd" type="submit" class="go">[[[Add]]]</button>
     </div>
@@ -112,29 +119,6 @@
     <img data-tmpl="childLogo" class="micro-icon"> <span data-tmpl="childName"></span> [[[wallet_wait_synced]]].
   </div>
 </div>
-{{end}}
-
-{{define "unlockWalletForm"}}
-<div class="form-closer"><span class="ico-cross"></span></div>
-<h3 class="text-center text-nowrap position-relative mb-3">
-  [[[Unlock]]]
-  <img id="uwAssetLogo" class="micro-icon mx-1">
-  <span id="uwAssetName"></span>
-  [[[Wallet]]]
-</h3>
-{{if .}}
-  <div class="fs16">{{.}}</div>
-  <hr class="dashed my-4">
-{{end}}
-<div id="uwAppPassBox" class="mb-3">
-  <label for="uwAppPass">[[[App Password]]]</label>
-  <input type="password" id="uwAppPass" autocomplete="off" autofocus>
-  <div class="mb-3 fs14 grey">[[[app_password_reminder]]]</div>
-</div>
-<div id="submitUnlockDiv" class="d-flex justify-content-end">
-  <button id="submitUnlock" type="submit" class="go">[[[Unlock]]]</button>
-</div>
-<div class="fs15 pt-3 text-center d-hide text-danger text-break" id="unlockErr"></div>
 {{end}}
 
 {{define "depositAddress"}}
@@ -214,12 +198,6 @@
   {{template "certPicker"}}
 </div>
 <div class="d-flex d-hide" data-tmpl="auth">
-  <div class="col-12 p-0">
-    <div data-tmpl="appPWBox" {{if $.UserInfo.PasswordIsCached}}class="d-hide"{{end}}>
-      <label for="dexAddrAppPW">[[[App Password]]]</label>
-      <input type="password" id="dexAddrAppPW" data-tmpl="appPW" autocomplete="current-password">
-    </div>
-  </div>
   <div class="col-12 d-flex justify-content-end align-items-end p-0">
     <button data-tmpl="submit" type="button" class="go">[[[Submit]]]</button>
   </div>
@@ -230,10 +208,6 @@
 {{define "discoverAcctForm"}}
 <h3 data-tmpl="header">[[[Create Account]]]</h3>
 <div class="fs16 text-center mb-3"><span data-tmpl="dexHost"></span></div>
-<div data-tmpl="appPWBox" class="mb-3">
-  <label for="discoverAcctAppPW">[[[App Password]]]</label>
-  <input type="password" id="discoverAcctAppPW" data-tmpl="appPW">
-</div>
 <div class="d-flex justify-content-center">
   <button data-tmpl="submit" type="button" class="go">[[[Create Account]]]</button>
 </div>
@@ -450,10 +424,6 @@
   <h3>Redeem Pre-paid Bond</h3>
   <label for="prepaidBondCode">Code</label>
   <input type="text" data-tmpl="prepaidBondCode" autocomplete="off">
-  <div data-tmpl="prepaidBondPWBox">
-    <label for="ppbAppPW">[[[Password]]]</label>
-    <input type="password" data-tmpl="prepaidBondPW" autocomplete="off">
-  </div>
   <div data-tmpl="prepaidBondErr" class="pt-2 px-2 text-danger d-hide"></div>
   <div class="text-left mt-2">
     <button data-tmpl="submitPrepaidBond" type="button" class="go">[[[Submit]]]</button>
@@ -466,12 +436,6 @@
 <div class="mb-2">
   <label for="pw">[[[Password]]]</label>
   <input type="password" data-tmpl="pw" autocomplete="current-password">
-</div>
-<div class="mb-4">
-    <div class="form-check">
-      <input class="form-check-input" type="checkbox" data-tmpl="rememberPass" id="logRememberPass">
-      <label for="logRememberPass" class="form-check-label">[[[Remember my password]]]</label>
-    </div>
 </div>
 <div class="d-flex justify-content-center mb-3">
   <button data-tmpl="submit" type="button" class="go px-5" id="loginSubmit">[[[Submit]]]</button>
@@ -514,10 +478,6 @@
       </div>
     </div>
     <div class="flex-center flex-column border-start mw50">
-      <div data-tmpl="passBox" class="text-center px-3 mt-1">
-        <span class="fs14">[[[app_pw_reg]]]</span>
-        <input type="password" class="app-pass mt-3" data-tmpl="appPass" autocomplete="current-password">
-      </div>
       <div class="flex-center p-3 mt-1">
         <button data-tmpl="submit" class="go">[[[Submit]]]</button>
       </div>
@@ -529,25 +489,6 @@
     <span class="ico-info"></span> [[[reg_confirm_submit]]]
   </div>
 </div>
-{{end}}
-
-{{define "authorizeAccountExportForm"}}
-<div class="form-closer"><span class="ico-cross"></span></div>
-<h3>
-  [[[Authorize Export]]]
-</h3>
-<p class="mb-3">
-  [[[export_app_pw_msg]]]: <span id="exportAccountHost"></span>.
-</p>
-<hr class="dashed mb-3">
-<div class="mb-3">
-  <label for="exportAccountAppPass">[[[Password]]]</label>
-  <input type="password" id="exportAccountAppPass" autocomplete="current-password">
-</div>
-<div class="d-flex justify-content-end">
-  <button id="authorizeExportAccountConfirm" type="button" class="go">[[[Authorize Export]]]</button>
-</div>
-<div class="fs15 pt-3 text-center d-hide text-danger text-break" id="exportAccountErr"></div>
 {{end}}
 
 {{define "disableAccountForm"}}
@@ -875,11 +816,6 @@
   </div>
   <hr class="dashed my-2">
   <div class="d-flex justify-content-between align-items-stretch flex-wrap">
-    <div data-tmpl="pwBox" class="col-11 p-0">
-      <label for="tokenApprovalPW" class="pt-3 ps-1">[[[App Password]]]</label>
-      <input type="password" id="tokenApprovalPW" data-tmpl="pw" data-tmpl="appPass" autocomplete="off">
-    </div>
-    <span class="col-3 hide-pw"></span> {{/* flex dummy */}}
     <div class="d-grid align-items-end col-10 p-0">
       <button data-tmpl="submit" type="button" class="fs15 feature">[[[Approve]]]</button>
     </div>

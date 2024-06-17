@@ -11,7 +11,6 @@ import {
 } from './account'
 import {
   app,
-  PasswordCache,
   SupportedAsset,
   PageElement,
   WalletDefinition,
@@ -122,22 +121,17 @@ export class Forms {
 export class NewWalletForm {
   page: Record<string, PageElement>
   form: HTMLElement
-  pwCache: PasswordCache | null
   success: (assetID: number) => void
   current: CurrentAsset
-  pwHiders: HTMLElement[]
   subform: WalletConfigForm
   walletCfgGuide: PageElement
   parentSyncer: null | ((w: WalletState) => void)
   createUpdater: null | ((note: WalletCreationNote) => void)
 
-  constructor (form: HTMLElement, success: (assetID: number) => void, pwCache?: PasswordCache, backFunc?: () => void) {
+  constructor (form: HTMLElement, success: (assetID: number) => void, backFunc?: () => void) {
     this.form = form
     this.success = success
-    this.pwCache = pwCache || null
     const page = this.page = Doc.parseTemplate(form)
-    this.pwHiders = Array.from(form.querySelectorAll('.hide-pw'))
-    this.refresh()
 
     if (backFunc) {
       Doc.show(page.goBack)
@@ -178,18 +172,11 @@ export class NewWalletForm {
     if (this.createUpdater) this.createUpdater(note)
   }
 
-  refresh () {
-    const hidePWBox = State.passwordIsCached() || (this.pwCache && this.pwCache.pw)
-    if (hidePWBox) Doc.hide(...this.pwHiders)
-    else Doc.show(...this.pwHiders)
-  }
-
-  async createWallet (assetID: number, walletType: string, pw: string, parentForm?: WalletConfig) {
+  async createWallet (assetID: number, walletType: string, parentForm?: WalletConfig) {
     const createForm = {
       assetID: assetID,
       pass: this.page.newWalletPass.value || '',
       config: this.subform.map(assetID),
-      appPass: pw,
       walletType: walletType,
       parentForm: parentForm
     }
@@ -202,14 +189,7 @@ export class NewWalletForm {
 
   async submit () {
     const page = this.page
-    const appPass = page.appPass as HTMLInputElement
     const newWalletPass = page.newWalletPass as HTMLInputElement
-    const pw = appPass.value || (this.pwCache ? this.pwCache.pw : '')
-    if (!pw && !State.passwordIsCached()) {
-      page.newWalletErr.textContent = intl.prep(intl.ID_NO_APP_PASS_ERROR_MSG)
-      Doc.show(page.newWalletErr)
-      return
-    }
     Doc.hide(page.newWalletErr)
 
     const { asset, parentAsset } = this.current
@@ -225,13 +205,11 @@ export class NewWalletForm {
       }
     }
     // Register the selected asset.
-    const res = await this.createWallet(asset.id, walletType, pw, parentForm)
+    const res = await this.createWallet(asset.id, walletType, parentForm)
     if (!app().checkResponse(res)) {
       this.setError(res.msg)
       return
     }
-    if (this.pwCache) this.pwCache.pw = pw
-    page.appPass.value = ''
     newWalletPass.value = ''
     if (parentAsset) await this.runParentSync()
     else this.success(this.current.asset.id)
@@ -369,7 +347,6 @@ export class NewWalletForm {
   async update (walletDef: WalletDefinition) {
     const page = this.page
     this.current.selectedDef = walletDef
-    const appPwCached = State.passwordIsCached() || (this.pwCache && this.pwCache.pw)
     Doc.hide(page.walletPassAndSubmitBttn, page.oneBttnBox, page.newWalletPassBox)
     const guideLink = walletDef.guidelink
     const configOpts = walletDef.configopts || []
@@ -393,7 +370,7 @@ export class NewWalletForm {
     }
     const { asset, parentAsset, winfo } = this.current
     const displayCreateBtn = walletDef.seeded || Boolean(asset.token)
-    if (appPwCached && displayCreateBtn && !containsRequired) {
+    if (displayCreateBtn && !containsRequired) {
       Doc.show(page.oneBttnBox)
     } else if (displayCreateBtn) {
       Doc.show(page.walletPassAndSubmitBttn)
@@ -429,7 +406,6 @@ export class NewWalletForm {
     if (walletDef.seeded || Boolean(this.current.asset.token)) Doc.hide(this.subform.fileSelector)
     else Doc.show(this.subform.fileSelector)
 
-    this.refresh()
     await this.loadDefaults()
   }
 
@@ -815,14 +791,12 @@ export class ConfirmRegistrationForm {
   bondAssetID: number
   tier: number
   fees: number
-  pwCache: PasswordCache
 
-  constructor (form: HTMLElement, success: () => void, goBack: () => void, pwCache: PasswordCache) {
+  constructor (form: HTMLElement, success: () => void, goBack: () => void) {
     this.form = form
     this.success = success
     this.page = Doc.parseTemplate(form)
     this.certFile = ''
-    this.pwCache = pwCache
 
     Doc.bind(this.page.goBack, 'click', () => goBack())
     bind(form, this.page.submit, () => this.submitForm())
@@ -831,10 +805,7 @@ export class ConfirmRegistrationForm {
   setExchange (xc: Exchange, certFile: string) {
     this.xc = xc
     this.certFile = certFile
-    const page = this.page
-    if (State.passwordIsCached() || (this.pwCache && this.pwCache.pw)) Doc.hide(page.passBox)
-    else Doc.show(page.passBox)
-    page.host.textContent = xc.host
+    this.page.host.textContent = xc.host
   }
 
   setAsset (assetID: number, tier: number, fees: number) {
@@ -881,7 +852,7 @@ export class ConfirmRegistrationForm {
    * submitForm is called when the form is submitted.
    */
   async submitForm () {
-    const { page, bondAssetID, xc, certFile, pwCache, tier } = this
+    const { page, bondAssetID, xc, certFile, tier } = this
     const asset = app().assets[bondAssetID]
     if (!asset) {
       page.regErr.innerText = intl.prep(intl.ID_SELECT_WALLET_FOR_FEE_PAYMENT)
@@ -891,15 +862,12 @@ export class ConfirmRegistrationForm {
     Doc.hide(page.regErr)
     const bondAsset = xc.bondAssets[asset.wallet.symbol]
     const dexAddr = xc.host
-    const pw = page.appPass.value || (pwCache ? pwCache.pw : '')
     let form: any
     let url: string
-
     if (!app().exchanges[xc.host] || app().exchanges[xc.host].viewOnly) {
       form = {
         addr: dexAddr,
         cert: certFile,
-        pass: pw,
         bond: bondAsset.amount * tier,
         asset: bondAsset.id
       }
@@ -947,11 +915,9 @@ export class FeeAssetSelectionForm {
   page: Record<string, PageElement>
   assetRows: Record<string, RegAssetRow>
   marketRows: MarketLimitsRow[]
-  pwCache: PasswordCache
 
-  constructor (form: HTMLElement, success: (assetID: number, tier: number) => Promise<void>, pwCache: PasswordCache) {
+  constructor (form: HTMLElement, success: (assetID: number, tier: number) => Promise<void>) {
     this.form = form
-    this.pwCache = pwCache
     this.certFile = ''
     this.success = success
     const page = this.page = Doc.parseTemplate(form)
@@ -1214,12 +1180,9 @@ export class FeeAssetSelectionForm {
   }
 
   showPrepaidBondForm () {
-    const { page, pwCache } = this
+    const { page } = this
     Doc.hide(page.assetForm, page.prepaidBondErr)
     page.prepaidBondCode.value = ''
-    page.prepaidBondPW.value = ''
-    const hidePWBox = State.passwordIsCached() || (pwCache && pwCache.pw)
-    Doc.setVis(!hidePWBox, page.prepaidBondPWBox)
     Doc.show(page.prepaidBonds)
   }
 
@@ -1230,7 +1193,7 @@ export class FeeAssetSelectionForm {
   }
 
   async submitPrepaidBond () {
-    const { page, xc: { host }, pwCache } = this
+    const { page, xc: { host } } = this
     Doc.hide(page.prepaidBondErr)
     const code = page.prepaidBondCode.value
     if (!code) {
@@ -1238,14 +1201,12 @@ export class FeeAssetSelectionForm {
       Doc.show(page.prepaidBondErr)
       return
     }
-    const appPW = page.prepaidBondPW.value || (pwCache ? pwCache.pw : '')
-    const res = await postJSON('/api/redeemprepaidbond', { appPW, host, code, cert: this.certFile })
+    const res = await postJSON('/api/redeemprepaidbond', { host, code, cert: this.certFile })
     if (!app().checkResponse(res)) {
       page.prepaidBondErr.textContent = res.msg
       Doc.show(page.prepaidBondErr)
       return
     }
-    if (appPW && this.pwCache) this.pwCache.pw = appPW
     this.success(PrepaidBondID, res.tier)
   }
 }
@@ -1479,79 +1440,6 @@ export class WalletWaitForm {
   }
 }
 
-export class UnlockWalletForm {
-  form: HTMLElement
-  success: (assetID: number) => void
-  pwCache: PasswordCache | null
-  page: Record<string, PageElement>
-  currentAsset: SupportedAsset
-
-  constructor (form: HTMLElement, success: (assetID: number) => void, pwCache?: PasswordCache) {
-    this.page = Doc.idDescendants(form)
-    this.form = form
-    this.pwCache = pwCache || null
-    this.success = success
-    bind(form, this.page.submitUnlock, () => this.submit())
-  }
-
-  refresh (asset: SupportedAsset) {
-    const page = this.page
-    this.currentAsset = asset
-    page.uwAssetLogo.src = Doc.logoPath(asset.symbol)
-    page.uwAssetName.textContent = asset.name
-    page.uwAppPass.value = ''
-    page.unlockErr.textContent = ''
-    Doc.hide(page.unlockErr)
-    const hidePWBox = State.passwordIsCached() || (this.pwCache && this.pwCache.pw)
-    if (hidePWBox) Doc.hide(page.uwAppPassBox)
-    else Doc.show(page.uwAppPassBox)
-  }
-
-  /*
-   * setError displays an error on the form.
-   */
-  setError (msg: string) {
-    this.page.unlockErr.textContent = msg
-    Doc.show(this.page.unlockErr)
-  }
-
-  /*
-   * showErrorOnly displays only an error on the form. Hides the
-   * app pass field and the submit button.
-   */
-  showErrorOnly (msg: string) {
-    this.setError(msg)
-    Doc.hide(this.page.uwAppPassBox)
-    Doc.hide(this.page.submitUnlockDiv)
-  }
-
-  async submit () {
-    const page = this.page
-    const pw = page.uwAppPass.value || (this.pwCache ? this.pwCache.pw : '')
-    if (!pw && !State.passwordIsCached()) {
-      page.unlockErr.textContent = intl.prep(intl.ID_NO_APP_PASS_ERROR_MSG)
-      Doc.show(page.unlockErr)
-      return
-    }
-    const assetID = this.currentAsset.id
-    Doc.hide(this.page.unlockErr)
-    const open = {
-      assetID: assetID,
-      pass: pw
-    }
-    page.uwAppPass.value = ''
-    const loaded = app().loading(this.form)
-    const res = await postJSON('/api/openwallet', open)
-    loaded()
-    if (!app().checkResponse(res)) {
-      this.setError(res.msg)
-      return
-    }
-    if (this.pwCache) this.pwCache.pw = pw
-    this.success(assetID)
-  }
-}
-
 interface EarlyAcceleration {
   timePast: number,
   wasAcceleration: boolean
@@ -1719,22 +1607,20 @@ export class AccelerateOrderForm {
 export class DEXAddressForm {
   form: HTMLElement
   success: (xc: Exchange, cert: string) => void
-  pwCache: PasswordCache | null
   page: Record<string, PageElement>
   knownExchanges: HTMLElement[]
   dexToUpdate?: string
   certPicker: CertificatePicker
 
-  constructor (form: HTMLElement, success: (xc: Exchange, cert: string) => void, pwCache?: PasswordCache, dexToUpdate?: string) {
+  constructor (form: HTMLElement, success: (xc: Exchange, cert: string) => void, dexToUpdate?: string) {
     this.form = form
     this.success = success
-    this.pwCache = pwCache || null
 
     const page = this.page = Doc.parseTemplate(form)
 
     this.certPicker = new CertificatePicker(form)
 
-    Doc.bind(page.skipRegistration, 'change', () => this.showOrHidePWBox())
+    Doc.bind(page.skipRegistration, 'change', () => this.showOrHideSubmitBttn())
     Doc.bind(page.showCustom, 'click', () => {
       Doc.hide(page.showCustom)
       Doc.show(page.customBox, page.auth)
@@ -1745,16 +1631,7 @@ export class DEXAddressForm {
       Doc.bind(div, 'click', () => {
         const host = div.dataset.host
         for (const d of this.knownExchanges) d.classList.remove('selected')
-        // If we don't intend to register or we have the password cached, we're
-        // good to go.
-        if (this.skipRegistration() || State.passwordIsCached() || (pwCache && pwCache.pw)) {
-          return this.checkDEX(host)
-        }
-        // Highlight the entry, but the user will have to enter their password
-        // and click submit.
-        div.classList.add('selected')
-        page.appPW.focus()
-        page.addr.value = host
+        return this.checkDEX(host)
       })
     }
 
@@ -1783,23 +1660,16 @@ export class DEXAddressForm {
       Doc.show(page.showCustom)
     }
     for (const div of this.knownExchanges) div.classList.remove('selected')
-    this.showOrHidePWBox()
+    this.showOrHideSubmitBttn()
   }
 
   /**
    * Show or hide appPWBox depending on if password is required. Show the
    * submit button if connecting a custom server or password is required).
    */
-  showOrHidePWBox () {
-    const passwordCached = State.passwordIsCached() || (this.pwCache && this.pwCache.pw)
-    const passwordRequired = !passwordCached && !this.skipRegistration()
+  showOrHideSubmitBttn () {
     const page = this.page
-    if (passwordRequired) {
-      Doc.show(page.appPWBox, page.auth)
-    } else {
-      Doc.hide(page.appPWBox)
-      Doc.setVis(Doc.isDisplayed(page.customBox), page.auth)
-    }
+    Doc.setVis(Doc.isDisplayed(page.customBox), page.auth)
   }
 
   skipRegistration () : boolean {
@@ -1826,25 +1696,19 @@ export class DEXAddressForm {
     }
     const cert = await this.certPicker.file()
     const skipRegistration = this.skipRegistration()
-    let pw = ''
-    if (!skipRegistration && !State.passwordIsCached()) {
-      pw = page.appPW.value || (this.pwCache ? this.pwCache.pw : '')
-    }
     let endpoint : string, req: any
     if (this.dexToUpdate) {
       endpoint = '/api/updatedexhost'
       req = {
         newHost: addr,
         cert: cert,
-        pw: pw,
         oldHost: this.dexToUpdate
       }
     } else {
       endpoint = skipRegistration ? '/api/adddex' : '/api/discoveracct'
       req = {
         addr: addr,
-        cert: cert,
-        pass: pw
+        cert: cert
       }
     }
 
@@ -1865,7 +1729,6 @@ export class DEXAddressForm {
       await app().loadPage('markets')
       return
     }
-    if (this.pwCache) this.pwCache.pw = pw
     this.success(res.xc, cert)
   }
 }
@@ -1875,14 +1738,12 @@ export class DiscoverAccountForm {
   form: HTMLElement
   addr: string
   success: (xc: Exchange) => void
-  pwCache: PasswordCache | null
   page: Record<string, PageElement>
 
-  constructor (form: HTMLElement, addr: string, success: (xc: Exchange) => void, pwCache?: PasswordCache) {
+  constructor (form: HTMLElement, addr: string, success: (xc: Exchange) => void) {
     this.form = form
     this.addr = addr
     this.success = success
-    this.pwCache = pwCache || null
 
     const page = this.page = Doc.parseTemplate(form)
     page.dexHost.textContent = addr
@@ -1895,9 +1756,6 @@ export class DiscoverAccountForm {
     const page = this.page
     page.appPW.value = ''
     Doc.hide(page.err)
-    const hidePWBox = State.passwordIsCached() || (this.pwCache && this.pwCache.pw)
-    if (hidePWBox) Doc.hide(page.appPWBox)
-    else Doc.show(page.appPWBox)
   }
 
   /* Just a small size tweak and fade-in. */
@@ -1912,13 +1770,8 @@ export class DiscoverAccountForm {
   async checkDEX () {
     const page = this.page
     Doc.hide(page.err)
-    let pw = ''
-    if (!State.passwordIsCached()) {
-      pw = page.appPW.value || (this.pwCache ? this.pwCache.pw : '')
-    }
     const req = {
-      addr: this.addr,
-      pass: pw
+      addr: this.addr
     }
     const loaded = app().loading(this.form)
     const res = await postJSON('/api/discoveracct', req)
@@ -1933,7 +1786,6 @@ export class DiscoverAccountForm {
       await app().loadPage('markets')
       return
     }
-    if (this.pwCache) this.pwCache.pw = pw
     this.success(res.xc)
   }
 }
@@ -1942,14 +1794,12 @@ export class DiscoverAccountForm {
 export class LoginForm {
   form: HTMLElement
   success: () => void
-  pwCache: PasswordCache | null
   headerTxt: string
   page: Record<string, PageElement>
 
-  constructor (form: HTMLElement, success: () => void, pwCache?: PasswordCache) {
+  constructor (form: HTMLElement, success: () => void) {
     this.success = success
     this.form = form
-    this.pwCache = pwCache || null
     const page = this.page = Doc.parseTemplate(form)
     this.headerTxt = page.header.textContent || ''
 
@@ -1974,20 +1824,18 @@ export class LoginForm {
   refresh () {
     Doc.hide(this.page.errMsg)
     this.page.pw.value = ''
-    this.page.rememberPass.checked = false
   }
 
   async submit () {
     const page = this.page
     Doc.hide(page.errMsg)
     const pw = page.pw.value || ''
-    const rememberPass = page.rememberPass.checked
     if (pw === '') {
       Doc.showFormError(page.errMsg, intl.prep(intl.ID_NO_PASS_ERROR_MSG))
       return
     }
     const loaded = app().loading(this.form)
-    const res = await postJSON('/api/login', { pass: pw, rememberPass })
+    const res = await postJSON('/api/login', { pass: pw })
     loaded()
     page.pw.value = ''
     if (!app().checkResponse(res)) {
@@ -1999,7 +1847,6 @@ export class LoginForm {
     res.notes.reverse()
     res.pokes = res.pokes || []
     app().loggedIn(res.notes, res.pokes)
-    if (this.pwCache) this.pwCache.pw = pw
     this.success()
   }
 
@@ -2246,7 +2093,6 @@ export class TokenApprovalForm {
 
     Doc.show(page.submissionElements)
     Doc.hide(page.txMsg, page.errMsg, page.addressBox, page.balanceBox, page.addressBox)
-    Doc.setVis(!State.passwordIsCached(), page.pwBox)
     page.pw.value = ''
 
     Doc.empty(page.tokenSymbol)

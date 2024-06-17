@@ -635,11 +635,6 @@
       {{template "depositAddress"}}
     </form>
 
-    {{- /* UNLOCK WALLET */ -}}
-    <form class="position-relative d-hide" id="unlockWalletForm" autocomplete="off">
-      {{template "unlockWalletForm"}}
-    </form>
-
     {{- /* RECONFIGURE WALLET */ -}}
     <form class="d-hide" id="reconfigForm" autocomplete="off">
       <div class="form-closer hoverbg"><span class="ico-cross"></span></div>
@@ -784,11 +779,6 @@
         </div>
         <hr class="dashed my-2">
         <div class="d-flex justify-content-between align-items-stretch flex-wrap">
-          <div id="unapproveTokenPWBox" class="col-11 p-0">
-            <label for="unapproveTokenPW" class="pt-3 ps-1">[[[App Password]]]</label>
-            <input type="password" id="unapproveTokenPW" autocomplete="off">
-          </div>
-          <span class="col-3 hide-pw"></span> {{/* flex dummy */}}
           <div class="d-grid align-items-end col-10 p-0">
             <button id="unapproveTokenSubmit" type="button" class="justify-content-center fs15 go">[[[Submit]]]</button>
           </div>
@@ -958,10 +948,6 @@
             <label for="purchaserInput">[[[ticket_qty_label]]]</label>
             <input type="number" id="purchaserInput" min="1" placeholder="0" class="w-50 text-center">
           </div>
-          <div id="purchaserAppPWBox" class="flex-center flex-column col-12 p-2">
-            <label for="purchaserAppPW">[[[App Password]]]</label>
-            <input type="password" id="purchaserAppPW" autocomplete="off">
-          </div>
         </div>
       </div>
       <div class="flex-center flex-column">
@@ -1123,27 +1109,6 @@
           <td><span id="txDetailsNonce"></span></td>
         </tr>
       </table>
-    </form>
-
-    {{- /* START MIXER PASSWORD FORM */ -}}
-    <form id="mixerPWForm" class="d-flex align-items-stretch flex-column p-0 m-4 mw-425">
-      <div class="form-closer hoverbg p-2 mt-2"><span class="ico-cross"></span></div>
-      <div class="flex-center px-3">
-        [[[mixing_pw_prompt]]]
-      </div>
-      <div class="d-flex flex-column align-items-stretch mt-2">
-        <div class="flex-center w-100">
-          <div class="flex-column flex-center">
-            <label for="mixerPWInput">[[[App Password]]]</label>
-            <input type="password" id="mixerPWInput" class="p-2 text-center mt-1" autocomplete="off">
-          </div>
-        </div>
-        <div id="mixerPWErr" class="p-2 flex-center text-danger d-hide"></div>
-        <div id="mixerPWSubmit" class="feature flex-center m-2 p-3 rounded3">
-          <span class="ico-arrowright me-1"></span>
-          Start
-        </div>
-      </div>
     </form>
 
     {{- /* CSPP ADDRESS CONFIG */ -}}

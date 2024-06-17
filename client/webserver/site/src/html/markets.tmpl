@@ -586,11 +586,6 @@
   {{- /* POP-UP FORMS */ -}}
   <div id="forms" class="d-hide">
 
-    {{- /* UNLOCK WALLET */ -}}
-    <form class="position-relative d-hide" id="unlockWalletForm" autocomplete="off">
-      {{template "unlockWalletForm"}}
-    </form>
-
     {{- /* DEPOSIT ADDRESS */ -}}
     <form class="mw-425 position-relative flex-center flex-column fs20 py-2 d-hide" id="deposit">
       {{template "depositAddress"}}
@@ -739,23 +734,6 @@
           </div>
           <div id="vOtherOrderOpts" class="d-hide"></div>
         </div> {{- /* END id="vPreorder" */ -}}
-
-        <div id="vUnlockPreorder">
-          <hr class="dashed mb-2 mt-3">
-          <div class="flex-center flex-column my-2 p-3">
-            <span class="ico-locked my-2"></span>
-            <span>[[[unlock_for_details]]]</span>
-            <div class="d-flex align-items-stretch w-100">
-              <div class="col-12 p-0 text-start">
-                <label for="vUnlockPass" class="ps-1">[[[Password]]]</label>
-                <input type="password" id="vUnlockPass">
-              </div>
-              <div class="col-12 p-0 d-flex align-items-end justify-content-end">
-                <button type="button" id="vUnlockSubmit" class="buygreen-bg">[[[Unlock]]]</button>
-              </div>
-            </div>
-          </div>
-        </div>
 
         <div id="vPreorderErr" class="mt-2">
           [[[estimate_unavailable]]]

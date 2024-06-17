@@ -950,9 +950,8 @@ func (s *WebServer) apiCloseWallet(w http.ResponseWriter, r *http.Request) {
 // apiInit is the handler for the '/init' API request.
 func (s *WebServer) apiInit(w http.ResponseWriter, r *http.Request) {
 	var init struct {
-		Pass         encode.PassBytes `json:"pass"`
-		Seed         string           `json:"seed,omitempty"`
-		RememberPass bool             `json:"rememberPass"`
+		Pass encode.PassBytes `json:"pass"`
+		Seed string           `json:"seed,omitempty"`
 	}
 	defer init.Pass.Clear()
 	if !readPost(w, r, &init) {
@@ -967,7 +966,7 @@ func (s *WebServer) apiInit(w http.ResponseWriter, r *http.Request) {
 		s.writeAPIError(w, fmt.Errorf("initialization error: %w", err))
 		return
 	}
-	err = s.actuallyLogin(w, r, &loginForm{Pass: init.Pass, RememberPass: init.RememberPass})
+	err = s.actuallyLogin(w, r, &loginForm{Pass: init.Pass})
 	if err != nil {
 		s.writeAPIError(w, err)
 		return
@@ -1578,19 +1577,13 @@ func (s *WebServer) actuallyLogin(w http.ResponseWriter, r *http.Request, login 
 	if !s.isAuthed(r) {
 		authToken := s.authorize()
 		setCookie(authCK, authToken, w)
-		if login.RememberPass {
-			key, err := s.cacheAppPassword(pass, authToken)
-			if err != nil {
-				return fmt.Errorf("login error: %w", err)
+		key, err := s.cacheAppPassword(pass, authToken)
+		if err != nil {
+			return fmt.Errorf("login error: %w", err)
 
-			}
-			setCookie(pwKeyCK, hex.EncodeToString(key), w)
-			zero(key)
-		} else {
-			// If bisonw was shutdown and restarted, the old pw key cookie might
-			// need to be cleared.
-			clearCookie(pwKeyCK, w)
 		}
+		setCookie(pwKeyCK, hex.EncodeToString(key), w)
+		zero(key)
 	}
 
 	return nil

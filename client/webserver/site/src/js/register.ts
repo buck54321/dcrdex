@@ -14,12 +14,10 @@ import {
 } from './forms'
 import {
   app,
-  PasswordCache,
   Exchange,
   PageElement,
   PrepaidBondID
 } from './registry'
-import State from './state'
 
 interface RegistrationPageData {
   host: string
@@ -29,7 +27,6 @@ interface RegistrationPageData {
 export default class RegistrationPage extends BasePage {
   body: HTMLElement
   data: RegistrationPageData
-  pwCache: PasswordCache
   xc: Exchange
   page: Record<string, PageElement>
   loginForm: LoginForm
@@ -45,7 +42,6 @@ export default class RegistrationPage extends BasePage {
     super()
     this.body = body
     this.data = data
-    this.pwCache = { pw: '' }
     const page = this.page = Doc.idDescendants(body)
 
     if (data.host && page.dexAddrForm.classList.contains('selected')) {
@@ -62,7 +58,7 @@ export default class RegistrationPage extends BasePage {
         this.dexAddrForm.refresh()
         slideSwap(page.loginForm, page.dexAddrForm)
       }
-    }, this.pwCache)
+    })
 
     const prepAndDisplayLoginForm = () => {
       Doc.hide(page.resetAppPWForm)
@@ -85,20 +81,19 @@ export default class RegistrationPage extends BasePage {
     this.newWalletForm = new NewWalletForm(
       page.newWalletForm,
       assetID => this.newWalletCreated(assetID, this.confirmRegisterForm.tier),
-      this.pwCache,
       () => this.animateRegAsset(page.newWalletForm)
     )
 
     // ADD DEX
     this.dexAddrForm = new DEXAddressForm(page.dexAddrForm, async (xc, certFile) => {
       this.requestFeepayment(page.dexAddrForm, xc, certFile)
-    }, this.pwCache)
+    })
 
     const addr = page.discoverAcctForm.dataset.host
     if (addr) {
       this.discoverAcctForm = new DiscoverAccountForm(page.discoverAcctForm, addr, async (xc) => {
         this.requestFeepayment(page.discoverAcctForm, xc, '')
-      }, this.pwCache)
+      })
     }
 
     // SELECT REG ASSET
@@ -124,7 +119,7 @@ export default class RegistrationPage extends BasePage {
       this.confirmRegisterForm.tier = tier
       this.newWalletForm.setAsset(assetID)
       slideSwap(page.regAssetForm, page.newWalletForm)
-    }, this.pwCache)
+    })
 
     this.walletWaitForm = new WalletWaitForm(page.walletWait, () => {
       this.animateConfirmForm(page.walletWait)
@@ -135,7 +130,7 @@ export default class RegistrationPage extends BasePage {
       this.registerDEXSuccess()
     }, () => {
       this.animateRegAsset(page.confirmRegForm)
-    }, this.pwCache)
+    })
 
     const currentForm = Doc.safeSelector(page.forms, ':scope > form.selected')
     currentForm.classList.remove('selected')
@@ -154,15 +149,11 @@ export default class RegistrationPage extends BasePage {
     // There's nothing on the page.discoverAcctForm except to receive user pass
     // before attempting to discover user account and there's no need to have
     // them click another button when we can carry on without user interaction.
-    if (currentForm === page.discoverAcctForm && (State.passwordIsCached() || this.pwCache?.pw)) {
+    if (currentForm === page.discoverAcctForm) {
       this.discoverAcctForm.page.submit.click()
     }
 
     if (app().authed) this.auth()
-  }
-
-  unload () {
-    this.pwCache.pw = ''
   }
 
   // auth should be called once user is known to be authed with the server.

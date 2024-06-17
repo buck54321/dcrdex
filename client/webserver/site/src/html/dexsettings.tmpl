@@ -98,11 +98,6 @@
       {{template "disableAccountForm"}}
     </form>
 
-    {{- /* AUTHORIZE EXPORT ACCOUNT */ -}}
-    <form class="d-hide" id="authorizeAccountExportForm">
-      {{template "authorizeAccountExportForm"}}
-    </form>
-
     {{- /* DEX ADDRESS */ -}}
     <form class="d-hide" id="dexAddrForm" autocomplete="off">
       {{template "dexAddrForm" .}}
@@ -134,11 +129,6 @@
     {{- /* Form to set up a wallet. Shown on demand when a user clicks a setupWallet button. */ -}}
     <form class="d-hide" id="newWalletForm">
       {{template "newWalletForm" }}
-    </form>
-
-    {{- /* UNLOCK WALLET */ -}}
-    <form class="position-relative d-hide" id="unlockWalletForm" autocomplete="off">
-      {{template "unlockWalletForm"}}
     </form>
 
   </div>
