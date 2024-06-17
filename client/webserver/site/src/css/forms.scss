@@ -101,40 +101,15 @@ select {
 #newWalletForm {
   width: 425px;
 
-  .wallet-tabs {
-    width: 100%;
-    display: flex;
-    justify-content: flex-start;
-    align-items: stretch;
-    
-    .wtab {
-      background-color: var(--form-bg);
-      padding: 8px 20px;
-      font-size: 15px;
-      border-style: solid solid none;
-      border-radius: 5px 5px 0 0;
-      border-width: 1px;
-      border-color: var(--border-color);
-      opacity: 0.8;
-      position: relative;
-
-      &:hover {
-        cursor: pointer;
-      }
-    }
-
-    .wtab:not(:first-child) {
-      border-left-style: none;
-    }
-
+  [data-tmpl=walletTypeTabs] {
     .wtab.selected {
       opacity: 1;
-      top: 1px;
       cursor: default;
       background-color: var(--form-selected-tab-bg);
     }
 
     .wtab:not(.selected) {
+      opacity: 0.8;
       cursor: pointer;
 
       &:hover {
@@ -167,22 +142,6 @@ select {
       opacity: 1;
     }
   }
-
-  .asset-logo {
-    width: 20px;
-    height: 20px;
-  }
-}
-
-button.form-button {
-  padding: 10px;
-  border-radius: 3px;
-  opacity: 0.9;
-  white-space: nowrap;
-
-  &:hover {
-    opacity: 1;
-  }
 }
 
 .form-check-label {
@@ -205,14 +164,9 @@ button.form-button {
 
   & > form {
     box-sizing: content-box;
-    padding: 2rem;
     margin: auto;
     text-align: left;
     position: relative;
-
-    button {
-      @extend .form-button;
-    }
 
     h3 {
       text-align: center;
@@ -262,10 +216,7 @@ div[data-handler=register] {
   }
 }
 
-#loginForm {
-  width: 325px;
-}
-
+#loginForm,
 #authorizeAccountImportForm,
 #disableAccountForm,
 #discoverAcctForm {
@@ -289,6 +240,8 @@ div[data-handler=register] {
   width: 375px;
 }
 
+#confirmRegistrationForm,
+#regAssetForm,
 #reconfigForm,
 #authorizeSeedDisplay,
 #seedBackupForm {
@@ -523,7 +476,7 @@ div[data-handler=init] {
     min-height: 55px;
   }
 
-  & > div:not(.repeatable) {
+  & > div:not(.repeatable, [data-tmpl=checkbox]) {
     width: 47%;
   }
 }

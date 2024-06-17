@@ -244,7 +244,7 @@ class QuickConfigForm {
       if (!checkbox.checked) return
       const config: Record<string, string> = {}
       const walletDef = app().walletDefinition(a.id, type)
-      for (const opt of walletDef.configopts) {
+      for (const opt of (walletDef.configopts ?? [])) {
         if (!opt.default) continue
         if (opt.isboolean) {
           config[opt.key] = opt.default ? '1' : '0'

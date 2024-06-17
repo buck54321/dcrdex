@@ -287,6 +287,15 @@ export default class MarketsPage extends BasePage {
     bind(page.approveBaseBttn, 'click', () => { this.showTokenApprovalForm(true) })
     bind(page.approveQuoteBttn, 'click', () => { this.showTokenApprovalForm(false) })
 
+    bind(page.showTradingTier, 'click', () => {
+      Doc.hide(page.showTradingTier)
+      Doc.show(page.tradingLimits)
+    })
+    bind(page.showTradingReputation, 'click', () => {
+      Doc.hide(page.showTradingReputation)
+      Doc.show(page.reputationMeter)
+    })
+
     // Buttons to set order type and side.
     bind(page.buyBttn, 'click', () => { this.setBuy() })
     bind(page.sellBttn, 'click', () => { this.setSell() })
@@ -764,7 +773,7 @@ export default class MarketsPage extends BasePage {
 
     if (this.market) {
       const { auth: { effectiveTier, pendingStrength } } = this.market.dex
-      Doc.setVis(effectiveTier > 0 || pendingStrength > 0, page.tradingLimits, page.reputationMeter)
+      Doc.setVis(effectiveTier > 0 || pendingStrength > 0, page.reputationAndTradingTierBox)
     }
 
     const mmStatus = app().mmStatus
@@ -1138,6 +1147,7 @@ export default class MarketsPage extends BasePage {
       base: baseID,
       quote: quoteID
     })
+    app().updateMarketElements(this.main, baseID, quoteID)
     this.marketList.select(host, baseID, quoteID)
     this.setLoaderMsgVisibility()
     this.setTokenApprovalVisibility()
@@ -2073,7 +2083,6 @@ export default class MarketsPage extends BasePage {
       page.vSubmit.classList.remove(sellBtnClass)
     }
     this.showVerifyForm()
-    page.vPass.focus()
 
     if (baseAsset.wallet.open && quoteAsset.wallet.open) this.preOrder(order)
     else {

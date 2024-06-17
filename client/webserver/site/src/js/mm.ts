@@ -618,7 +618,6 @@ class Bot extends BotMarket {
   }
 
   hideAllocationDialog () {
-    this.page.appPW.value = ''
     Doc.hide(this.page.allocationDialog)
   }
 

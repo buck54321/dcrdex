@@ -5,12 +5,10 @@ import {
   NewWalletForm,
   DEXAddressForm,
   DiscoverAccountForm,
-  LoginForm,
   ConfirmRegistrationForm,
   FeeAssetSelectionForm,
   WalletWaitForm,
-  slideSwap,
-  AppPassResetForm
+  slideSwap
 } from './forms'
 import {
   app,
@@ -29,8 +27,6 @@ export default class RegistrationPage extends BasePage {
   data: RegistrationPageData
   xc: Exchange
   page: Record<string, PageElement>
-  loginForm: LoginForm
-  appPassResetForm: AppPassResetForm
   dexAddrForm: DEXAddressForm
   discoverAcctForm: DiscoverAccountForm
   newWalletForm: NewWalletForm
@@ -49,30 +45,6 @@ export default class RegistrationPage extends BasePage {
       page.discoverAcctForm.classList.add('selected')
       page.discoverAcctForm.dataset.host = data.host
     }
-
-    this.loginForm = new LoginForm(page.loginForm, async () => {
-      if (this.discoverAcctForm) {
-        this.discoverAcctForm.refresh()
-        slideSwap(page.loginForm, page.discoverAcctForm)
-      } else {
-        this.dexAddrForm.refresh()
-        slideSwap(page.loginForm, page.dexAddrForm)
-      }
-    })
-
-    const prepAndDisplayLoginForm = () => {
-      Doc.hide(page.resetAppPWForm)
-      this.loginForm.refresh()
-      Doc.show(page.loginForm)
-      this.loginForm.focus()
-    }
-
-    this.appPassResetForm = new AppPassResetForm(page.resetAppPWForm, () => { prepAndDisplayLoginForm() })
-    Doc.bind(page.forgotPassBtn, 'click', () => slideSwap(page.loginForm, page.resetAppPWForm))
-    Doc.bind(page.resetPassFormCloser, 'click', () => { prepAndDisplayLoginForm() })
-    Doc.bind(page.forms, 'mousedown', (e: MouseEvent) => {
-      if (!Doc.mouseInElement(e, page.resetAppPWForm) && Doc.isDisplayed(page.resetAppPWForm)) { prepAndDisplayLoginForm() }
-    })
 
     // Hide the form closers for the registration process except for the
     // password reset form closer.
@@ -135,9 +107,6 @@ export default class RegistrationPage extends BasePage {
     const currentForm = Doc.safeSelector(page.forms, ':scope > form.selected')
     currentForm.classList.remove('selected')
     switch (currentForm) {
-      case page.loginForm:
-        this.loginForm.animate()
-        break
       case page.dexAddrForm:
         this.dexAddrForm.animate()
         break

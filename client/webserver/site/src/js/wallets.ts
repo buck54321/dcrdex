@@ -72,7 +72,7 @@ const traitTicketBuyer = 1 << 15
 const traitHistorian = 1 << 16
 const traitFundsMixer = 1 << 17
 
-const traitsExtraOpts = traitLogFiler & traitRecoverer & traitRestorer & traitRescanner & traitPeerManager & traitTokenApprover
+const traitsExtraOpts = traitLogFiler | traitRecoverer | traitRestorer | traitRescanner | traitPeerManager | traitTokenApprover
 
 export const ticketStatusUnknown = 0
 export const ticketStatusUnmined = 1
@@ -176,7 +176,6 @@ interface ReconfigRequest {
   walletType: string
   config: Record<string, string>
   newWalletPW?: string
-  appPW: string
 }
 
 interface RescanRecoveryRequest {
@@ -1018,8 +1017,6 @@ export default class WalletsPage extends BasePage {
 
       const walletDef = app().walletDefinition(assetID, walletType)
       page.walletType.textContent = walletDef.tab
-      const configurable = assetIsConfigurable(assetID)
-      Doc.setVis(configurable, page.passwordWrapper)
       if (feeState) this.updateFeeState(feeState)
 
       if (disabled) Doc.show(page.statusDisabled) // wallet is disabled
@@ -2372,12 +2369,10 @@ export default class WalletsPage extends BasePage {
     const req: ReconfigRequest = {
       assetID: assetID,
       config: this.reconfigForm.map(assetID),
-      appPW: page.appPW.value ?? '',
       walletType: walletType
     }
     if (this.changeWalletPW) req.newWalletPW = page.newPW.value
     const res = await this.safePost('/api/reconfigurewallet', req)
-    page.appPW.value = ''
     page.newPW.value = ''
     loaded()
     if (!app().checkResponse(res)) {
@@ -2467,10 +2462,8 @@ export default class WalletsPage extends BasePage {
     const page = this.page
     Doc.hide(page.recoverWalletErr)
     const req = {
-      assetID: this.selectedAssetID,
-      appPW: page.recoverWalletPW.value
+      assetID: this.selectedAssetID
     }
-    page.recoverWalletPW.value = ''
     const url = '/api/recoverwallet'
     const loaded = app().loading(page.forms)
     const res = await postJSON(url, req)
@@ -2595,20 +2588,4 @@ export default class WalletsPage extends BasePage {
 function trimStringWithEllipsis (str: string, maxLen: number): string {
   if (str.length <= maxLen) return str
   return `${str.substring(0, maxLen / 2)}...${str.substring(str.length - maxLen / 2)}`
-}
-
-/*
- * assetIsConfigurable indicates whether there are any user-configurable wallet
- * settings for the asset.
- */
-function assetIsConfigurable (assetID: number) {
-  const asset = app().assets[assetID]
-  if (asset.token) {
-    const opts = asset.token.definition.configopts
-    return opts && opts.length > 0
-  }
-  if (!asset.info) throw Error('this asset isn\'t an asset, I guess')
-  const defs = asset.info.availablewallets
-  const zerothOpts = defs[0].configopts
-  return defs.length > 1 || (zerothOpts && zerothOpts.length > 0)
 }

@@ -165,7 +165,7 @@ var DeDE = map[string]*intl.Translation{
 	"dont_share":                  {T: "Teile es nicht. Verliere es nicht."},
 	"Show Me":                     {T: "Anzeigen"},
 	"Wallet Settings":             {T: "Wallet Einstellungen"},
-	"add_a_x_wallet":              {T: `Füge ein <img data-tmpl="assetLogo" class="asset-logo mx-1"> <span data-tmpl="assetName"></span> Wallet hinzu`},
+	"add_a_x_wallet":              {T: `Füge ein <img data-tmpl="assetLogo" class="small-icon mx-1"> <span data-tmpl="assetName"></span> Wallet hinzu`},
 	"ready":                       {T: "fertig"},
 	"off":                         {T: "Ausgeschaltet"},
 	"Export Trades":               {T: "Exportiere Trades"},

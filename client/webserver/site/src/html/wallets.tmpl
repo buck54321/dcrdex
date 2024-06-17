@@ -38,7 +38,7 @@
           <section> <!-- TODO: Indent this section when there's no other UI work going on -->
             <div class="d-flex justify-content-between align-items-center p-3">
               <div class="flex-center lh1">
-                <img id="assetLogo">
+                <img id="assetLogo" class="large-icon">
                 <div class="ms-2 demi lh1" id="assetName" data-asset-name="1"></div>
               </div>
               <div id="balanceBox" class="d-flex flex-column align-items-end lh1">
@@ -637,23 +637,23 @@
 
     {{- /* RECONFIGURE WALLET */ -}}
     <form class="d-hide" id="reconfigForm" autocomplete="off">
-      <div class="form-closer hoverbg"><span class="ico-cross"></span></div>
-      <h3>
+      <div class="form-closer"><span class="ico-cross"></span></div>
+      <div class="flex-center pt-2 px-3 fs26">
         [[[Reconfigure]]]
         <img id="recfgAssetLogo" class="micro-icon mx-1">
         <span id="recfgAssetName"></span>
         [[[Wallet]]]
-      </h3>
-      <div class="py-1 mb-3" id="reconfigInputs">
+      </div>
+      <div class="mt-2 px-3 border-top" id="reconfigInputs">
         {{template "walletConfigTemplates"}}
       </div>
       {{template "walletCfgGuideTemplate"}}
-      <div id="showChangePW" class="mb-3 pointer d-flex align-items-center justify-content-start">
+      <div id="showChangePW" class="pointer d-flex align-items-center justify-content-start pt-2 px-3">
         <span id="showIcon" class="ico-plus fs8 ps-1"></span>
         <span id="hideIcon" class="ico-minus fs8 ps-1"></span>
         <span id="switchPWMsg" class="d-inline-block ps-1 pb-1"></span>
       </div>
-      <div id="changePW" class="mb-3">
+      <div id="changePW" class="pt-2 px-3">
         <div class="fs14 grey">
           [[[pw_change_instructions]]]
         </div>
@@ -663,41 +663,33 @@
         </div>
       </div>
 
-      <div id="showChangeType" class="mb-3 pointer d-flex align-items-center justify-content-start">
+      <div id="showChangeType" class="pointer d-flex align-items-center justify-content-start pt-2 px-3">
         <span id="changeTypeShowIcon" class="ico-plus fs8 ps-1"></span>
         <span id="changeTypeHideIcon" class="ico-minus fs8 ps-1 d-hide"></span>
         <span id="changeTypeMsg" class="d-inline-block ps-1 pb-1">[[[change the wallet type]]]</span>
       </div>
-      <div id="changeWalletType" class="d-hide mb-3">
+      <div id="changeWalletType" class="pt-2 px-3 d-hide">
         <select id="changeWalletTypeSelect" class="form-select w-50"></select>
         <div class="fs14 grey mb-3">
           [[[pw_change_warn]]]
         </div>
         <hr class="dashed">
       </div>
-      <div id="passwordWrapper" class="d-flex mt-1 {{if $passwordIsCached}}justify-content-end{{end}}">
-        <div class="col-12 p-0 {{if $passwordIsCached}}d-hide{{end}}">
-          <label for="appPW" class="ps-1">[[[App Password]]]</label>
-          <input type="password" id="appPW" autocomplete="off">
-        </div>
-        <div class="col-12 p-0 text-end">
-          <div>&nbsp;</div>
-          <button id="submitReconfig" type="button" class="go w-75 mb-1 justify-content-center">[[[Submit]]]</button>
-        </div>
+      <div class="flex-stretch-column pt-2 px-3">
+        <button id="submitReconfig" type="button" class="feature">[[[Submit]]]</button>
       </div>
-      <div class="fs15 pt-3 text-center d-hide text-danger text-break" id="reconfigErr"></div>
-      <div class="fs15 pt-3 d-hide text-danger text-break" id="reconfigSupportMsg"></div>
-      <hr class="dashed my-2">
-      <div class="fs18" id="otherActionsLabel">[[[other_actions]]]</div>
-      <div class="d-flex flex-row fs15 pt-1">
-        <button id="unapproveTokenAllowance" type="button" class="small me-2 ">[[[disallow_token]]]</button>
-        <button id="managePeers" type="button" class="small me-2">[[[manage_peers]]]</button>
-        <button id="downloadLogs" type="button" class="small me-2">[[[wallet_logs]]]</button>
-        <button id="exportWallet" type="button" class="small me-2">[[[export_wallet]]]</button>
-        <button id="recoverWallet" type="button" class="danger small me-2">[[[recover]]]</button>
-        <button id="rescanWallet" type="button" class="danger small  me-2">[[[Rescan]]]</button>
-        <button id="disableWallet" type="button" class="danger small me-2">[[[disable_wallet]]]</button>
-        <button id="enableWallet" type="button" class="small me-2">[[[enable_wallet]]]</button>
+      <div class="fs15 p-3 text-center d-hide text-danger text-break" id="reconfigErr"></div>
+      <div class="fs15 pt-2 px-3 d-hide text-danger text-break" id="reconfigSupportMsg"></div>
+      <div class="fs18 pt-2 mt-2 px-3 border-top" id="otherActionsLabel">[[[other_actions]]]</div>
+      <div class="d-flex flex-row fs15 pb-2 px-3 flex-wrap">
+        <button id="unapproveTokenAllowance" type="button" class="small mt-2 me-2 ">[[[disallow_token]]]</button>
+        <button id="managePeers" type="button" class="small mt-2 me-2">[[[manage_peers]]]</button>
+        <button id="downloadLogs" type="button" class="small mt-2 me-2">[[[wallet_logs]]]</button>
+        <button id="exportWallet" type="button" class="small mt-2 me-2">[[[export_wallet]]]</button>
+        <button id="recoverWallet" type="button" class="danger mt-2 small me-2">[[[recover]]]</button>
+        <button id="rescanWallet" type="button" class="danger mt-2 small  me-2">[[[Rescan]]]</button>
+        <button id="disableWallet" type="button" class="danger mt-2 small me-2">[[[disable_wallet]]]</button>
+        <button id="enableWallet" type="button" class="small mt-2 me-2">[[[enable_wallet]]]</button>
       </div>
     </form>
 
@@ -707,37 +699,40 @@
     </form>
 
     {{- /* MANAGE PEERS */ -}}
-    <form class="d-hide" id="managePeersForm">
+    <form id="managePeersForm" class="flex-stretch-column d-hide">
       <div class="form-closer hoverbg"><span class="ico-cross"></span></div>
-      <h3>
+      <div class="flex-center pt-2 px-3 fs26">
         [[[manage_peers]]]
-      </h3>
-      <table id="peersTable" class="row-border">
-        <thead>
-          <tr>
-            <th class="text-nowrap">[[[address]]]</th>
-            <th class="text-nowrap">[[[source]]]</th>
-            <th class="text-nowrap">[[[connected]]]</th>
-            <th class="text-nowrap">[[[Remove]]]</th>
-          </tr>
-        </thead>
-        <tbody id="peersTableBody">
-          <tr id="peerTableRow">
-            <td data-tmpl="addr"></td>
-            <td data-tmpl="source"></td>
-            <td data-tmpl="connected"></td>
-            <td data-tmpl="remove"></td>
-          </tr>
-        </tbody>
-      </table>
-      <div class="d-flex justify-content-end">
-        <input id="addPeerInput">
-        <button id="addPeerSubmit" type="button" class="go ms-2">[[[add_peer]]]</button>
       </div>
-      <div id="peerSpinner" class="flex-center position-relative py-2 d-hide">
+      <div class="pt-2 mt-2 px-3 border-top">
+        <table id="peersTable" class="row-border">
+          <thead>
+            <tr>
+              <th class="text-nowrap">[[[address]]]</th>
+              <th class="text-nowrap">[[[source]]]</th>
+              <th class="text-nowrap">[[[connected]]]</th>
+              <th class="text-nowrap">[[[Remove]]]</th>
+            </tr>
+          </thead>
+          <tbody id="peersTableBody">
+            <tr id="peerTableRow">
+              <td data-tmpl="addr"></td>
+              <td data-tmpl="source"></td>
+              <td data-tmpl="connected"></td>
+              <td data-tmpl="remove"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="d-flex justify-content-end py-2 px-3">
+        <input type="text" id="addPeerInput">
+        <button id="addPeerSubmit" type="button" class="feature ms-2">[[[add_peer]]]</button>
+      </div>
+      <div id="peerSpinner" class="flex-center position-relative py-2 px-3 d-hide">
         <div class="ico-spinner spinner fs15"></div>
       </div>
-      <div class="fs15 pt-3 text-center d-hide text-danger" id="managePeersErr"></div>
+      <div class="fs15 p-3 text-center d-hide text-danger" id="managePeersErr"></div>
     </form>
 
     {{- /* UNAPPROVE TOKEN VERSIONS TABLE FORM */ -}}
@@ -808,20 +803,16 @@
     {{- /* RECOVER WALLET AUTHORIZATION */ -}}
     <form class="d-hide" id="recoverWalletConfirm">
       <div class="form-closer"><span class="ico-cross"></span></div>
-      <h3>
+      <div class="flex-center pt-2 px-3 fs26">
         [[[recover_wallet]]]
-      </h3>
-      <div class="mb-3">
+      </div>
+      <div class="pt-2 mt-2 px-3 border-top">
         [[[recover_warning]]]
       </div>
-      <div class="mb-3">
-        <label for="recoverWalletPW">[[[Password]]]</label>
-        <input type="password" id="recoverWalletPW" autocomplete="current-password">
+      <div class="flex-stretch-column py-2 px-3">
+        <button id="recoverWalletSubmit" type="button" class="feature">[[[Submit]]]</button>
       </div>
-      <div class="d-flex justify-content-end">
-        <button id="recoverWalletSubmit" type="button" class="go">[[[Submit]]]</button>
-      </div>
-      <div class="pt-3 text-center d-hide text-danger" id="recoverWalletErr"></div>
+      <div class="p-3 text-center d-hide text-danger" id="recoverWalletErr"></div>
     </form>
 
     {{- /* EXPORT WALLET AUTHORIZATION */ -}}

@@ -309,8 +309,6 @@ export default class SettingsPage extends BasePage {
   // importAccount imports the account
   async importAccount () {
     const page = this.page
-    const pw = page.importAccountAppPass.value
-    page.importAccountAppPass.value = ''
     let accountString = ''
     if (page.accountFile.value) {
       const files = page.accountFile.files
@@ -334,7 +332,6 @@ export default class SettingsPage extends BasePage {
     }
     const { bonds = [], ...acctInf } = account
     const req = {
-      pw: pw,
       account: acctInf,
       bonds: bonds
     }

@@ -73,7 +73,7 @@ header a:hover,
   color: var(--subtle-link-hover);
 }
 
-div.spinner {
+.spinner {
   animation: spin 2s infinite linear;
 
   &.fast {
@@ -246,7 +246,7 @@ z-index: 1000;
 }
 
 #loader {
-  background-color: var(--loader-bg);
+  @extend .blurry-bg
 }
 
 #requiredActions {

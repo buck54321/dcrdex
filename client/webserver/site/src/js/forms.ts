@@ -287,7 +287,6 @@ export class NewWalletForm {
 
     Doc.empty(tabs)
     Doc.hide(tabs, page.newWalletErr, page.tokenMsgBox)
-    page.header.classList.remove('bordertop')
     this.page.assetLogo.src = Doc.logoPath(asset.symbol)
     if (parentAsset) {
       page.tokenParentLogo.src = Doc.logoPath(parentAsset.symbol)
@@ -371,13 +370,14 @@ export class NewWalletForm {
     const { asset, parentAsset, winfo } = this.current
     const displayCreateBtn = walletDef.seeded || Boolean(asset.token)
     if (displayCreateBtn && !containsRequired) {
+      Doc.hide(page.walletSettingsHeader)
       Doc.show(page.oneBttnBox)
     } else if (displayCreateBtn) {
-      Doc.show(page.walletPassAndSubmitBttn)
+      Doc.show(page.walletPassAndSubmitBttn, page.walletSettingsHeader)
       page.newWalletPass.value = ''
       page.submitAdd.textContent = intl.prep(intl.ID_CREATE)
     } else {
-      Doc.show(page.walletPassAndSubmitBttn)
+      Doc.show(page.walletPassAndSubmitBttn, page.walletSettingsHeader)
       if (!walletDef.noauth) Doc.show(page.newWalletPassBox)
       page.submitAdd.textContent = intl.prep(intl.ID_ADD)
     }
@@ -398,9 +398,6 @@ export class NewWalletForm {
     } else this.subform.update(asset.id, configOpts, false)
     this.setGuideLink(guideLink)
 
-    if (this.subform.dynamicOpts.children.length || this.subform.defaultSettings.children.length) {
-      Doc.show(page.walletSettingsHeader)
-    } else Doc.hide(page.walletSettingsHeader)
     // A seeded or token wallet is internal to Bison Wallet and as such does
     // not have an external config file to select.
     if (walletDef.seeded || Boolean(this.current.asset.token)) Doc.hide(this.subform.fileSelector)
@@ -880,7 +877,6 @@ export class ConfirmRegistrationForm {
       }
       url = '/api/updatebondoptions'
     }
-    page.appPass.value = ''
     const loaded = app().loading(this.form)
     const res = await postJSON(url, form)
     loaded()
@@ -1649,7 +1645,6 @@ export class DEXAddressForm {
   refresh () {
     const page = this.page
     page.addr.value = ''
-    page.appPW.value = ''
     this.certPicker.clearCertFile()
     Doc.hide(page.err)
     if (this.knownExchanges.length === 0 || this.dexToUpdate) {
@@ -1748,14 +1743,6 @@ export class DiscoverAccountForm {
     const page = this.page = Doc.parseTemplate(form)
     page.dexHost.textContent = addr
     bind(form, page.submit, () => this.checkDEX())
-
-    this.refresh()
-  }
-
-  refresh () {
-    const page = this.page
-    page.appPW.value = ''
-    Doc.hide(page.err)
   }
 
   /* Just a small size tweak and fade-in. */
@@ -1794,17 +1781,13 @@ export class DiscoverAccountForm {
 export class LoginForm {
   form: HTMLElement
   success: () => void
-  headerTxt: string
   page: Record<string, PageElement>
 
   constructor (form: HTMLElement, success: () => void) {
     this.success = success
     this.form = form
     const page = this.page = Doc.parseTemplate(form)
-    this.headerTxt = page.header.textContent || ''
-
     bind(form, page.submit, () => { this.submit() })
-
     app().registerNoteFeeder({
       login: (note: CoreNote) => { this.handleLoginNote(note) }
     })

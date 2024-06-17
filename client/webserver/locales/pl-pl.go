@@ -162,7 +162,7 @@ var PlPL = map[string]*intl.Translation{
 	"dont_share":                    {T: "Nie udostępniaj nikomu. Nie zgub go."},
 	"Show Me":                       {T: "Pokaż"},
 	"Wallet Settings":               {T: "Ustawienia portfela"},
-	"add_a_x_wallet":                {T: `Dodaj portfel <img data-tmpl="assetLogo" class="asset-logo mx-1"> <span data-tmpl="assetName"></span>`},
+	"add_a_x_wallet":                {T: `Dodaj portfel <img data-tmpl="assetLogo" class="small-icon mx-1"> <span data-tmpl="assetName"></span>`},
 	"ready":                         {T: "gotowy"},
 	"off":                           {T: "wyłączony"},
 	"Export Trades":                 {T: "Eksportuj zlecenia wymiany"},

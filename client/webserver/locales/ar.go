@@ -167,7 +167,7 @@ var Ar = map[string]*intl.Translation{
 	"dont_share":                      {T: "لا تشاركها. ولا تفقدها."},
 	"Show Me":                         {T: "أرني"},
 	"Wallet Settings":                 {T: "اعدادات المحفظة"},
-	"add_a_x_wallet":                  {T: `أضف <img data-tmpl="assetLogo" class="asset-logo mx-1"> <span data-tmpl="assetName"></span> محفظة`},
+	"add_a_x_wallet":                  {T: `أضف <img data-tmpl="assetLogo" class="small-icon mx-1"> <span data-tmpl="assetName"></span> محفظة`},
 	"ready":                           {T: "جاهز"},
 	"off":                             {T: "انطلق"},
 	"Export Trades":                   {T: "تصدير التداولات"},

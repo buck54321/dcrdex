@@ -165,7 +165,7 @@ var ZhCN = map[string]*intl.Translation{
 	"dont_share":                  {T: "不要分享，不要丢失。"},
 	"Show Me":                     {T: "查看"},
 	"Wallet Settings":             {T: "钱包设置"},
-	"add_a_x_wallet":              {T: `添加一个 <img data-tmpl="assetLogo" class="asset-logo mx-1"> <span data-tmpl="assetName"></span> 钱包`},
+	"add_a_x_wallet":              {T: `添加一个 <img data-tmpl="assetLogo" class="small-icon mx-1"> <span data-tmpl="assetName"></span> 钱包`},
 	"off":                         {T: "关"},
 	"Export Trades":               {T: "退出交易"},
 	"change the wallet type":      {T: "更改钱包类型"},
