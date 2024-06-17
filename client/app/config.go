@@ -24,15 +24,13 @@ import (
 const (
 	defaultRPCCertFile = "rpc.cert"
 	defaultRPCKeyFile  = "rpc.key"
-	defaultMainnetHost = "127.0.0.1"
-	defaultTestnetHost = "127.0.0.2"
-	defaultSimnetHost  = "127.0.0.3"
 	walletPairOneHost  = "127.0.0.6"
 	walletPairTwoHost  = "127.0.0.7"
 	defaultRPCPort     = "5757"
 	defaultWebPort     = "5758"
 	defaultLogLevel    = "debug"
 	configFilename     = "dexc.conf"
+	useTestnetDefault  = false
 )
 
 var (
@@ -145,8 +143,7 @@ type Config struct {
 	// are assigned, defaults will be used.
 	AppData    string `long:"appdata" description:"Path to application directory."`
 	ConfigPath string `long:"config" description:"Path to an INI configuration file."`
-	// Testnet and Simnet are used to set the derivative CoreConfig.Net
-	// dex.Network field.
+	Mainnet    bool   `long:"mainnet" description:"use mainnet. this is the default"`
 	Testnet    bool   `long:"testnet" description:"use testnet"`
 	Simnet     bool   `long:"simnet" description:"use simnet"`
 	RPCOn      bool   `long:"rpc" description:"turn on the rpc server"`
@@ -297,7 +294,7 @@ func ResolveConfig(appData string, cfg *Config) error {
 
 	var defaultDBPath, defaultLogPath, defaultMMEventLogDBPath, defaultMMConfigPath string
 	switch {
-	case cfg.Testnet:
+	case cfg.Testnet || (useTestnetDefault && !cfg.Mainnet && !cfg.Simnet):
 		cfg.Net = dex.Testnet
 		defaultDBPath, defaultLogPath, defaultMMEventLogDBPath, defaultMMConfigPath = setNet(appData, "testnet")
 	case cfg.Simnet:
