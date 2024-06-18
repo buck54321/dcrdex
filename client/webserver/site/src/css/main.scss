@@ -246,7 +246,7 @@ z-index: 1000;
 }
 
 #loader {
-  @extend .blurry-bg
+  background-color: var(--body-bg-lower-opacity);
 }
 
 #requiredActions {

@@ -3,6 +3,7 @@
 body:not(.dark) {
   // body & text
   --body-bg: #fafafa;
+  --body-bg-lower-opacity: #fafafa88;
   --section-bg: #f6f6f6;
   --form-bg: #f0f0f0;
   --tertiary-bg: #7772;
@@ -70,6 +71,7 @@ body:not(.dark) {
 body.dark {
   // body & text
   --body-bg: #040b14;
+  --body-bg-lower-opacity: #040b1488;
   --section-bg: #071627;
   --form-bg: #0a1e34;
   --tertiary-bg: #78787822;
