@@ -1504,11 +1504,9 @@ export class AccelerateOrderForm {
     const order = this.order
     const page = this.page
     const req = {
-      pw: page.acceleratePass.value,
       orderID: order.id,
       newRate: this.acceleratedRate
     }
-    page.acceleratePass.value = ''
     const loaded = app().loading(page.accelerateMainDiv)
     const res = await postJSON('/api/accelerateorder', req)
     loaded()
@@ -2076,7 +2074,6 @@ export class TokenApprovalForm {
 
     Doc.show(page.submissionElements)
     Doc.hide(page.txMsg, page.errMsg, page.addressBox, page.balanceBox, page.addressBox)
-    page.pw.value = ''
 
     Doc.empty(page.tokenSymbol)
     page.tokenSymbol.appendChild(Doc.symbolize(tokenAsset, true))
@@ -2118,8 +2115,7 @@ export class TokenApprovalForm {
     const tokenAsset = app().assets[assetID]
     const res = await postJSON(path, {
       assetID: tokenAsset.id,
-      dexAddr: host,
-      pass: page.pw.value
+      dexAddr: host
     })
     if (!app().checkResponse(res)) {
       page.errMsg.textContent = res.msg

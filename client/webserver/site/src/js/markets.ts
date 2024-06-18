@@ -1,4 +1,4 @@
-import Doc, { WalletIcons } from './doc'
+import Doc, { WalletIcons, parseFloatDefault } from './doc'
 import State from './state'
 import BasePage from './basepage'
 import OrderBook from './orderbook'
@@ -305,7 +305,7 @@ export default class MarketsPage extends BasePage {
       this.setOrderVisibility()
       if (!page.rateField.value) return
       this.depthLines.input = [{
-        rate: parseFloat(page.rateField.value || '0'),
+        rate: parseFloatDefault(page.rateField.value, 0),
         color: this.isSell() ? this.depthChart.theme.sellLine : this.depthChart.theme.buyLine
       }]
       this.drawChartLines()
@@ -401,7 +401,6 @@ export default class MarketsPage extends BasePage {
 
     const closePopups = () => {
       Doc.hide(page.forms)
-      page.vPass.value = ''
     }
 
     // If the user clicks outside of a form, it should close the page overlay.
@@ -2665,12 +2664,7 @@ export default class MarketsPage extends BasePage {
     const page = this.page
     Doc.hide(page.orderErr, page.vErr)
     const order = this.currentOrder
-    const pw = page.vPass.value
-    page.vPass.value = ''
-    const req = {
-      order: wireOrder(order),
-      pw: pw
-    }
+    const req = { order: wireOrder(order) }
     if (!this.validateOrder(order)) return
     // Show loader and hide submit button.
     page.vSubmit.classList.add('d-hide')

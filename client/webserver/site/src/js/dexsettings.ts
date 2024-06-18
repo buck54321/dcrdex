@@ -100,7 +100,7 @@ export default class DexSettingsPage extends BasePage {
     this.reputationMeter = new ReputationMeter(page.repMeter)
     this.reputationMeter.setHost(host)
 
-    Doc.bind(page.exportDexBtn, 'click', () => this.prepareAccountExport())
+    Doc.bind(page.exportDexBtn, 'click', () => this.exportAccount())
     Doc.bind(page.disableAcctBtn, 'click', () => this.prepareAccountDisable(page.disableAccountForm))
     Doc.bind(page.updateCertBtn, 'click', () => page.certFileInput.click())
     Doc.bind(page.updateHostBtn, 'click', () => this.prepareUpdateHost())
@@ -173,7 +173,6 @@ export default class DexSettingsPage extends BasePage {
     }, this.host)
 
     // forms.bind(page.bondDetailsForm, page.updateBondOptionsConfirm, () => this.updateBondOptions())
-    forms.bind(page.authorizeAccountExportForm, page.authorizeExportAccountConfirm, () => this.exportAccount())
     forms.bind(page.disableAccountForm, page.disableAccountConfirm, () => this.disableAccount())
 
     Doc.bind(page.forms, 'mousedown', (e: MouseEvent) => {
@@ -303,14 +302,8 @@ export default class DexSettingsPage extends BasePage {
 
   // exportAccount exports and downloads the account info.
   async exportAccount () {
-    const page = this.page
-    const pw = page.exportAccountAppPass.value
-    const host = page.exportAccountHost.textContent
-    page.exportAccountAppPass.value = ''
-    const req = {
-      pw,
-      host
-    }
+    const { page, host } = this
+    const req = { host }
     const loaded = app().loading(this.body)
     const res = await postJSON('/api/exportaccount', req)
     loaded()
@@ -331,13 +324,8 @@ export default class DexSettingsPage extends BasePage {
   // disableAccount disables the account associated with the provided host.
   async disableAccount () {
     const page = this.page
-    const pw = page.disableAccountAppPW.value
     const host = page.disableAccountHost.textContent
-    page.disableAccountAppPW.value = ''
-    const req = {
-      pw,
-      host
-    }
+    const req = { host }
     const loaded = app().loading(this.body)
     const res = await postJSON('/api/disableaccount', req)
     loaded()
@@ -348,13 +336,6 @@ export default class DexSettingsPage extends BasePage {
     }
     Doc.hide(page.forms)
     window.location.assign('/settings')
-  }
-
-  async prepareAccountExport () {
-    const page = this.page
-    page.exportAccountHost.textContent = this.host
-    page.exportAccountErr.textContent = ''
-    this.exportAccount()
   }
 
   async prepareAccountDisable (disableAccountForm: HTMLElement) {

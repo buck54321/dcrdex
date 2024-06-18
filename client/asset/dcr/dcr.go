@@ -1161,6 +1161,10 @@ func (dcr *ExchangeWallet) balance() (*asset.Balance, error) {
 		Other:  make(map[asset.BalanceCategory]asset.CustomBalance),
 	}
 
+	bal.Other[asset.BalanceCategoryStaked] = asset.CustomBalance{
+		Amount: toAtoms(ab.LockedByTickets),
+	}
+
 	if accts.UnmixedAccount == "" {
 		return bal, nil
 	}

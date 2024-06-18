@@ -897,7 +897,7 @@ if (process.env.NODE_ENV === 'development') {
       })
       for (const k in decimalFormatters) delete decimalFormatters[k] // cleanup
       for (const k in fullPrecisionFormatters) delete fullPrecisionFormatters[k] // cleanup
-      const s = formatSigFigsWithFormatters(intFormatter, sigFigFormatter, parseFloat(unformatted), maxDecimals, code)
+      const s = formatSigFigsWithFormatters(intFormatter, sigFigFormatter, parseFloatDefault(unformatted), maxDecimals, code)
       if (s !== expected) console.log(`TEST FAILED: f('${code}', ${unformatted}, ${maxDecimals}) => '${s}' != '${expected}'}`)
       else console.log(`✔️ f('${code}', ${unformatted}, ${maxDecimals}) => ${s} ✔️`)
     }
@@ -1000,9 +1000,7 @@ export interface IncrementalInputOpts extends NumberInputOpts {
 }
 
 export class IncrementalInput extends NumberInput {
-  input: PageElement
   inc: number
-  min: number
   opts: IncrementalInputOpts
 
   constructor (box: PageElement, opts: IncrementalInputOpts) {
@@ -1107,10 +1105,10 @@ export function toFourSigFigs (v: number, maxPrec: number): [number, string] {
   return toPrecision(v, prec)
 }
 
-export function parseFloatDefault (inputValue: string | undefined, defaultValue: number) {
-  const v = parseFloat(inputValue ?? '')
+export function parseFloatDefault (inputValue: string | undefined, defaultValue?: number) {
+  const v = parseFloat((inputValue ?? '').replace(/,/g, ''))
   if (!isNaN(v)) return v
-  return defaultValue
+  return defaultValue ?? 0
 }
 
 /* clamp returns v if min <= v <= max, else min or max. */

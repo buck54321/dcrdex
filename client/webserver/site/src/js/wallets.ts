@@ -1,4 +1,4 @@
-import Doc, { Animation, AniToggle } from './doc'
+import Doc, { Animation, AniToggle, parseFloatDefault } from './doc'
 import BasePage from './basepage'
 import { postJSON, Errors } from './http'
 import {
@@ -383,7 +383,7 @@ export default class WalletsPage extends BasePage {
     // Display fiat value for current send amount.
     Doc.bind(page.sendAmt, 'input', () => {
       const { unitInfo: ui } = app().assets[this.selectedAssetID]
-      const amt = parseFloat(page.sendAmt.value || '0')
+      const amt = parseFloatDefault(page.sendAmt.value)
       const conversionFactor = ui.conventional.conversionFactor
       Doc.showFiatValue(page.sendValue, amt * conversionFactor, app().fiatRatesMap[this.selectedAssetID], ui)
     })
@@ -465,7 +465,7 @@ export default class WalletsPage extends BasePage {
     const token = app().assets[assetID].token
     const subtract = page.subtractCheckBox.checked || false
     const conversionFactor = app().unitInfo(assetID).conventional.conversionFactor
-    const value = Math.round(parseFloat(page.sendAmt.value || '') * conversionFactor)
+    const value = Math.round(parseFloatDefault(page.sendAmt.value, 0) * conversionFactor)
     const addr = page.sendAddr.value || ''
     if (addr === '') return Doc.showFormError(page.sendErr, intl.prep(intl.ID_INVALID_ADDRESS_MSG, { address: addr }))
     const { wallet, unitInfo: ui, symbol } = app().assets[assetID]
@@ -607,7 +607,6 @@ export default class WalletsPage extends BasePage {
     const path = '/api/unapprovetoken'
     const res = await postJSON(path, {
       assetID: this.selectedAssetID,
-      pass: page.unapproveTokenPW.value,
       version: this.unapprovingTokenVersion
     })
     if (!app().checkResponse(res)) {
@@ -1179,7 +1178,6 @@ export default class WalletsPage extends BasePage {
   showPurchaseTicketsDialog () {
     const page = this.page
     page.purchaserInput.value = ''
-    page.purchaserAppPW.value = ''
     Doc.hide(page.purchaserErr)
     this.showForm(this.page.purchaseTicketsForm)
     page.purchaserInput.focus()
@@ -1206,7 +1204,7 @@ export default class WalletsPage extends BasePage {
     if (n < 1) return
     // TODO: Add confirmation dialog.
     const loaded = app().loading(page.purchaseTicketsForm)
-    const res = await this.safePost('/api/purchasetickets', { assetID, n, appPW: page.purchaserAppPW.value || '' })
+    const res = await this.safePost('/api/purchasetickets', { assetID, n })
     loaded()
     if (!app().checkResponse(res)) {
       page.purchaserErr.textContent = res.msg
@@ -1374,7 +1372,6 @@ export default class WalletsPage extends BasePage {
       const tmpl = Doc.parseTemplate(div)
       tmpl.description.textContent = agenda.description
       for (const choice of agenda.choices) {
-        if (choice.id === 'abstain') continue
         const div = page.votingChoiceTmpl.cloneNode(true) as PageElement
         tmpl.choices.appendChild(div)
         const choiceTmpl = Doc.parseTemplate(div)
@@ -1652,9 +1649,12 @@ export default class WalletsPage extends BasePage {
     if (bal.contractlocked > 0) addSubBalance(intl.prep(intl.ID_SWAPPING), bal.contractlocked, intl.prep(intl.ID_LOCKED_SWAPPING_BAL_MSG))
     if (bal.bondlocked > 0) addSubBalance(intl.prep(intl.ID_BONDED), bal.bondlocked, intl.prep(intl.ID_LOCKED_BOND_BAL_MSG))
     if (bal.bondReserves > 0) addSubBalance(intl.prep(intl.ID_BOND_RESERVES), bal.bondReserves, intl.prep(intl.ID_BOND_RESERVES_MSG))
+    if (bal?.other?.Staked !== undefined) addSubBalance('Staked', bal.other.Staked.amt)
     setRowClasses()
 
     if (bal.immature) addPrimaryBalance(intl.prep(intl.ID_IMMATURE_TITLE), bal.immature, intl.prep(intl.ID_IMMATURE_BAL_MSG))
+    if (bal?.other?.Unmixed !== undefined) addSubBalance('Unmixed', bal.other.Unmixed.amt)
+    setRowClasses()
 
     // TODO: handle reserves deficit with a notification.
     // if (bal.reservesDeficit > 0) addPrimaryBalance(intl.prep(intl.ID_RESERVES_DEFICIT), bal.reservesDeficit, intl.prep(intl.ID_RESERVES_DEFICIT_MSG))
@@ -2341,7 +2341,7 @@ export default class WalletsPage extends BasePage {
       assetID: assetID,
       address: page.sendAddr.value,
       subtract: subtract,
-      value: Math.round(parseFloat(page.sendAmt.value ?? '') * conversionFactor),
+      value: Math.round(parseFloatDefault(page.sendAmt.value) * conversionFactor),
       pw: pw
     }
     const loaded = app().loading(page.vSendForm)

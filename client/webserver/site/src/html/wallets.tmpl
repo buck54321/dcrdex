@@ -93,7 +93,7 @@
               </div>
 
               <div class="d-flex justify-content-start align-items-stretch flex-column border-start col-sm-24 col-md-12 p-2" id="walletInfo">
-                <table id="walletInfoTable" class="fs14 w-100">
+                <table id="walletInfoTable" class="w-100">
                   <tbody>
                     <tr id="statusLocked">
                       <td class="grey">[[[Status]]]</td>
@@ -514,38 +514,38 @@
     {{- /* SEND */ -}}
     <form class="d-hide" id="sendForm" autocomplete="off">
       <div class="form-closer"><span class="ico-cross"></span></div>
-      <h3>
+      <div class="flex-center pt-2 px-3 fs26">
         [[[Send]]]
         <img id="sendLogo" class="mini-icon mx-2">
         <span id="sendName"></span>
-      </h3>
-      <div class="flex-center mb-3 d-hide fs18 sans" id="sendTokenMsgBox">
+      </div>
+      <div class="flex-center pt-2 mt-2 px-3 border-top d-hide fs18 sans" id="sendTokenMsgBox">
         <span>[[[Token on]]]</span>
         <img id="sendTokenParentLogo" class="ms-1 micro-icon">
         <span id="sendTokenParentName"></span>
       </div>
-      <div class="mb-3">
+      <div class="pt-2 px-3">
         <label for="sendAddr">[[[Address]]]</label>
         <div class="d-flex">
-        <input type="text" class="col-1" id="sendAddr" spellcheck="false">
-        <span id="validAddr" class="ico-check mx-2 pt-2 d-hide"></span>
+          <input type="text" class="col-1" id="sendAddr" spellcheck="false">
+          <span id="validAddr" class="ico-check mx-2 pt-2 d-hide"></span>
         </div>
       </div>
-      <div class="d-flex align-items-stretch mb-1">
+      <div class="d-flex align-items-stretch pt-2 px-3">
         <div class="col-10 p-0">
           <label for="sendAmt">[[[Amount]]]</label>
           <input type="text" id="sendAmt">
         </div>
-        <div class="col-14 px-0 flex-center flex-column fs15 pt-4 justify-content-between">
+        <div class="col-14 px-0 flex-center flex-column fs15 pt-2 justify-content-between">
           <div class="d-inline pt-3"><span class="grey">[[[Balance]]]:</span> <span class="pointer" id="walletBal"></span></div>
         </div>
       </div>
-      <div class="d-hide mb-3 grey">~<span id="sendValue" class="mx-1"></span>USD</div>
-      <div id="toggleSubtract" class="form-check mb-3">
+      <div class="d-hide pt-2 px-3 grey">~<span id="sendValue" class="mx-1"></span>USD</div>
+      <div id="toggleSubtract" class="form-check pt-2 px-3">
           <input class="form-check-input" type="checkbox" id="subtractCheckBox">
           <label for="subtractCheckBox" class="form-check-label">[[[subtract_fees_from_amount]]]</label>
       </div>
-      <div id="maxSendDisplay" class="mb-3">
+      <div id="maxSendDisplay" class="pt-2 px-3">
         <hr class="dashed mb-3">
         <div class="d-flex justify-content-between mb-3">
           <span data-tooltip="[[[max_estimated_send_tooltip]]]">
@@ -564,31 +564,30 @@
           ~<span id="maxSendFeeFiat" class="mx-1"></span>USD
         </span>
       </div>
-      <hr class="dashed mb-3">
-      <div class="d-flex justify-content-end">
-          <button id="submitSendForm" type="button" class="go px-4">[[[Send]]]</button>
+      <div class="flex-stretch-column py-2 px-3">
+          <button id="submitSendForm" type="button" class="feature">[[[Send]]]</button>
       </div>
-      <div class="fs15 pt-3 text-center text-danger text-break" id="sendErr"></div>
+      <div class="fs15 p-3 text-center text-danger text-break" id="sendErr"></div>
     </form>
 
     {{- /* Verify Send */ -}}
     <form class="pb-3 d-hide" id="vSendForm">
       <div class="form-closer hoverbg"><span class="ico-cross"></span></div>
-      <h3>
+      <div class="flex-center pt-2 px-3 fs26">
         [[[confirm]]]
-        <img id="vSendLogo" class="micro-icon mx-1">
+        <img id="vSendLogo" class="mini-icon mx-1">
         [[[transfer]]]
-      </h3>
-      <div class="grey fs18 text-center mb-2">[[[sending]]]</div>
-      <div class="text-center">
+      </div>
+      <div class="grey fs18 text-center pt-2 mt-2 px-3 border-top">[[[sending]]]</div>
+      <div class="text-center pt-2 px-3">
         <span class="d-hide" id="approxSign">&cong;</span>
         <span class="fs22 font-weight-bold" id="vSendDestinationAmt"></span>
         <span id="vSendSymbol"></span>
       </div>
-      <div class="text-center mb-1">[[[to]]]</div>
-      <div id="vSendAddr" class="text-center mb-3"></div>
-      <hr class="dashed mb-3">
-      <div id="vSendEstimates" class="d-hide mb-3">
+      <div class="text-center pt-2 px-3">[[[to]]]</div>
+      <div id="vSendAddr" class="text-center pt-2 px-3"></div>
+      <hr class="dashed pt-2 px-3">
+      <div id="vSendEstimates" class="d-hide pt-2 px-3">
         <div class="d-flex align-items-center justify-content-between">[[[estimated_fee]]]: 
          <span id="vSendFee"></span>
         </div>
@@ -609,29 +608,23 @@
          ~<span id="balanceAfterSendFiat" class="mx-1"></span>USD
         </span>
       </div>
-      <div id="txFeeNotAvailable" class="d-hide mb-3" data-tooltip="[[[Fee unavailable]]]">[[[txfee_not_available]]]
+      <div id="txFeeNotAvailable" class="d-hide pt-2 px-3" data-tooltip="[[[Fee unavailable]]]">[[[txfee_not_available]]]
         <span class="ico-info text-danger"></span>
       </div>
-      <hr class="dashed mb-3">
-      <div class="px-4 text-center mb-3">[[[Authorize the transfer with your app password.]]]</div>
-      <div class="mb-3">
+      <div class="flex-center pt-2 mt-2 px-3 border-top">[[[Authorize the transfer with your app password.]]]</div>
+      <div class="pt-2 px-3">
         <label for="vSendPw">[[[Password]]]: </label>
         <input type="password" id="vSendPw" autocomplete="off" autofocus>
       </div>
-      <div class="d-flex justify-content-between align-items-stretch flex-wrap">
-        <div class="col-12 p-0">
-          <button id="vCancelSend" type="button" class="px-4">[[[cancel]]]</button>
-        </div>
-        <div class="col-12 p-0 text-end">
-          <button id="vSend" type="button"
-           class="go px-3">[[[confirm]]]</button>
-        </div>
+      <div class="d-flex align-items-stretch py-2 px-3">
+        <button id="vCancelSend" type="button" class="flex-grow-1 me-1">[[[cancel]]]</button>
+        <button id="vSend" type="button" class="flex-grow-1 ms-1">[[[confirm]]]</button>
       </div>
-      <div class="fs15 pt-3 text-center text-danger text-break" id="vSendErr"></div>
+      <div class="fs15 p-3 text-center text-danger text-break" id="vSendErr"></div>
     </form>
 
     {{- /* DEPOSIT ADDRESS */ -}}
-    <form class="mw-425 position-relative flex-center flex-column fs20 py-2 d-hide" id="deposit">
+    <form class="mw-425 d-hide" id="deposit">
       {{template "depositAddress"}}
     </form>
 
@@ -738,50 +731,51 @@
     {{- /* UNAPPROVE TOKEN VERSIONS TABLE FORM */ -}}
     <form class="d-hide" id="unapproveTokenTableForm">
       <div class="form-closer hoverbg"><span class="ico-cross"></span></div>
-      <div class="px-2 py-1 text-center position-relative fs24">
+      <div class="px-2 py-1 mt-2 text-center position-relative fs18">
         [[[unapprove_token_for]]]
       </div>
-      <div id="tokenVersionNone" class="fs15">
+      <div id="tokenVersionNone" class="fs15 py-1 px-2">
         [[[no_token_allowances]]]
       </div>
-      <table id="tokenVersionTable">
-        <thead>
-          <tr>
-            <th class="text-nowrap">[[[version]]]</th>
-            <th class="text-nowrap">[[[used_by_dex]]]</th>
-            <th class="text-nowrap">[[[Remove]]]</th>
-          </tr>
-        </thead>
-        <tbody id="tokenVersionBody">
-          <tr id="tokenVersionRow">
-            <td data-tmpl="version"></td>
-            <td data-tmpl="usedBy"></td>
-            <td data-tmpl="remove"></td>
-          </tr>
-        </tbody>
-      </table>
+      <div id="tokenVersionTable" class="py-1 px-2">
+        <table>
+          <thead>
+            <tr>
+              <th class="text-nowrap">[[[version]]]</th>
+              <th class="text-nowrap">[[[used_by_dex]]]</th>
+              <th class="text-nowrap">[[[Remove]]]</th>
+            </tr>
+          </thead>
+          <tbody id="tokenVersionBody">
+            <tr id="tokenVersionRow">
+              <td data-tmpl="version"></td>
+              <td data-tmpl="usedBy"></td>
+              <td data-tmpl="remove"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </form>
 
     {{- /* UNAPPROVE SPECIFIC TOKEN VERSION FORM */ -}}
-    <form class="position-relative flex-center flex-column fs20 d-hide" id="unapproveTokenForm">
+    <form class="flex-stretch-column d-hide" id="unapproveTokenForm">
       <div class="form-closer hoverbg"><span class="ico-cross"></span></div>
-      <div class="px-2 py-1 text-center fs24 text-nowrap position-relative">
+      <div class="pt-4 px-4 text-center position-relative">
         [[[unapprove_token_version]]]
       </div>
-      <div id="unapproveTokenSubmissionElements">
+      <div id="unapproveTokenSubmissionElements" class="pt-2 px-4">
         <div class="fs15 text-start mt-2">
           [[[unapprove_token_text]]]
         </div>
-        <hr class="dashed my-2">
-        <div class="d-flex justify-content-between align-items-stretch flex-wrap">
-          <div class="d-grid align-items-end col-10 p-0">
-            <button id="unapproveTokenSubmit" type="button" class="justify-content-center fs15 go">[[[Submit]]]</button>
-          </div>
+        <div class="flex-stretch-column pt-2">
+          <button id="unapproveTokenSubmit" type="button" class="feature">[[[Submit]]]</button>
         </div>
       </div>
-      <span id="unapproveTokenTxMsg" class="text-center fs18 d-hide">[[[token_unapproval_tx_msg]]]</span>
-      <a target="_blank" class="subtlelink" id="unapproveTokenTxID"></a>
-      <div class="fs15 pt-3 text-center d-hide text-danger" id="unapproveTokenErr"></div>
+      <div class="py-2 px-4">
+        <span id="unapproveTokenTxMsg" class="text-center word-break-all d-hide">[[[token_unapproval_tx_msg]]]</span>
+        <a target="_blank" class="subtlelink word-break-all" id="unapproveTokenTxID"></a>
+      </div>
+      <div class="fs15 p-3 text-center d-hide text-danger" id="unapproveTokenErr"></div>
     </form>
 
     {{- /* CONFIRM FORCE FORM */ -}}
@@ -818,23 +812,23 @@
     {{- /* EXPORT WALLET AUTHORIZATION */ -}}
     <form class="d-hide" id="exportWalletAuth">
       <div class="form-closer"><span class="ico-cross"></span></div>
-      <h3>
+      <div class="flex-center pt-2 px-3 fs26">
         [[[export_wallet]]]
-      </h3>
-      <div class="mb-3">
+      </div>
+      <div class="pt-2 mt-2 px-3 border-top">
         [[[pw_for_wallet_seed]]]
       </div>
-      <div id="exportDisclaimer" class="mb-3">
+      <div id="exportDisclaimer" class="pt-2 px-3">
         [[[export_wallet_disclaimer]]]
       </div>
-      <div class="text-start mb-3">
+      <div class="text-start pt-2 px-3">
         <label for="exportWalletPW">[[[Password]]]</label>
         <input type="password" id="exportWalletPW" autocomplete="current-password">
       </div>
-      <div class="d-flex justify-content-end">
-        <button id="exportWalletAuthSubmit" type="button" class="go">[[[Show Me]]]</button>
+      <div class="flex-stretch-column py-2 px-3">
+        <button id="exportWalletAuthSubmit" type="button" class="feature">[[[Show Me]]]</button>
       </div>
-      <div class="fs15 pt-3 text-center d-hide text-danger text-break" id="exportWalletErr"></div>
+      <div class="fs15 p-3 text-center d-hide text-danger text-break" id="exportWalletErr"></div>
     </form>
 
     {{- /* RESTORE WALLET INFO */ -}}
@@ -877,9 +871,9 @@
     {{- /* PICK A VOTING SERVICE PROVIDER */ -}}
     <form id="vspPicker" class="flex-center flex-column m-4">
       <div class="form-closer hoverbg"><span class="ico-cross"></span></div>
-      <div class="px-3 pb-3">
-        <h3>[[[select_vsp_from_list]]]</h3>
-        <table id="vspPickerTable" class="row-border row-hover rounded3 mb-3">
+      <div class="pt-41 px-3">
+        <div class="flex-center">[[[select_vsp_from_list]]]</div>
+        <table id="vspPickerTable" class="row-border row-hover rounded3 mt-2">
           <thead>
             <tr>
               <th>[[[URL]]]</th>
@@ -895,7 +889,7 @@
             </tr>
           </tbody>
         </table>
-        <div>
+        <div class="pt-2">
           <label for="customVspUrl">[[[Or add custom VSP URL:]]]</label>
           <div class="d-flex align-items-stretch w-100">
             <input
@@ -912,10 +906,10 @@
     </form>
 
     {{- /* PURCHASE TICKETS */ -}}
-    <form id="purchaseTicketsForm" class="flex-center flex-column mw-425">
+    <form id="purchaseTicketsForm" class="flex-stretch-column mw-425">
       <div class="form-closer hoverbg"><span class="ico-cross"></span></div>
-      <h3>[[[Purchase Tickets]]]</h3>
-      <div class="px-3 mb-3">
+      <div class="flex-center pt-2 px-3 fs26">[[[Purchase Tickets]]]</div>
+      <div class="pt-2 px-3">
         <div class="d-flex flex-wrap">
           <div class="flex-center flex-column col-12 p-4 text-nowrap">
             <span>[[[Current Price]]]</span>
@@ -933,62 +927,63 @@
             <h5 id="formQueuedTix">a</h5>
           </div>
         </div>
-        <hr class="dotted w-100">
-        <div class="d-flex w-100 flex-wrap">
+        <div class="d-flex flex-wrap pt-2 mt-2 border-top">
           <div class="flex-center flex-column col-12 py-2 border-end">
             <label for="purchaserInput">[[[ticket_qty_label]]]</label>
             <input type="number" id="purchaserInput" min="1" placeholder="0" class="w-50 text-center">
           </div>
         </div>
       </div>
-      <div class="flex-center flex-column">
-        <button id="purchaserSubmit" class="go px-4">[[[Buy]]]</button>
+      <div class="flex-stretch-column py-2 mt-2 px-3 border-top">
+        <button id="purchaserSubmit" class="feature">[[[Buy]]]</button>
       </div>
-      <div id="purchaserErr" class="text-danger d-hide py-2 d-hide"></div>
-  </form>
+      <div id="purchaserErr" class="text-danger d-hide p-3 d-hide"></div>
+    </form>
 
     {{- /* TICKET HISTORY */ -}}
     <form id="ticketHistoryForm" class="flex-center flex-column align-items-stretch">
       <div class="form-closer hoverbg"><span class="ico-cross"></span></div>
-      <h3>[[[Ticket History]]]</h3>
-      <table id="ticketHistoryTable" class="row-border rounded3">
-        <thead>
-          <tr>
-            <th>[[[Age]]]</th>
-            <th>[[[Price]]]</th>
-            <th>[[[Status]]]</th>
-            <th>[[[Ticket]]]</th>
-          </tr>
-        </thead>
-        <tbody id="ticketHistoryRows">
-          <tr id="ticketHistoryRowTmpl">
-            <td data-tmpl="age"></td>
-            <td data-tmpl="price" class="text-end"></td>
-            <td data-tmpl="status" class="text-end"></td>
-            <td data-tmpl="detailsLink" class="pointer hoverbg text-end">
-              <span class="mono">
-                <a href="" data-tmpl="detailsLinkUrl" target="_blank"><span data-tmpl="hashStart"></span>…<span data-tmpl="hashEnd"></span></a>
-              </span>
-              <small class="ico-open ms-1"></small>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div id="ticketHistoryPagination" class="d-flex justify-content-end align-items-center fs18">
+      <div class="flex-center pt-2 px-3 fs26">[[[Ticket History]]]</div>
+      <div class="pt-2 mt-2 px-3 border-top">
+        <table id="ticketHistoryTable" class="row-border rounded3">
+          <thead>
+            <tr>
+              <th>[[[Age]]]</th>
+              <th>[[[Price]]]</th>
+              <th>[[[Status]]]</th>
+              <th>[[[Ticket]]]</th>
+            </tr>
+          </thead>
+          <tbody id="ticketHistoryRows">
+            <tr id="ticketHistoryRowTmpl">
+              <td data-tmpl="age"></td>
+              <td data-tmpl="price" class="text-end"></td>
+              <td data-tmpl="status" class="text-end"></td>
+              <td data-tmpl="detailsLink" class="pointer hoverbg text-end">
+                <span class="mono">
+                  <a href="" data-tmpl="detailsLinkUrl" target="_blank"><span data-tmpl="hashStart"></span>…<span data-tmpl="hashEnd"></span></a>
+                </span>
+                <small class="ico-open ms-1"></small>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div> 
+      <div id="ticketHistoryPagination" class="d-flex justify-content-end align-items-center fs18 py-2 px-3">
         <span id="ticketHistoryPrevPage" class="ico-arrowleft me-1 p-1 hoverbg pointer"></span>
         <span id="ticketHistoryPage" class="me-1"></span>
         <span id="ticketHistoryNextPage" class="ico-arrowright p-1 hoverbg pointer"></span>
       </div>
-      <div id="noTicketsMessage" class="text-center p-2">[[[No tickets to show]]]</div>
+      <div id="noTicketsMessage" class="text-center p-3">[[[No tickets to show]]]</div>
     </form>
 
     {{- /* SET VOTES */ -}}
     <form id="votingForm">
       <div class="form-closer"><span class="ico-cross"></span></div>
-      <h3>[[[Agendas]]]</h3>
-      <div>
+      <div class="flex-center pt-2 px-3 fs26">[[[Agendas]]]</div>
+      <div class="pt-2 mt-2 px-3 border-top">
         {{- /* AGENDAS */ -}}
-        <div id="votingAgendas" class="flex-stretch-column w-100 mb-3 border-bottom">
+        <div id="votingAgendas" class="flex-stretch-column">
           <div id="votingAgendaTmpl" class="d-flex justify-content-between py-2 border-top">
             <div class="d-flex flex-grow-1 align-items-end pe-3">
               <div data-tmpl="description" class="w-100"></div>
@@ -1003,8 +998,8 @@
         </div>
 
         {{- /* TREASURY SPENDS */ -}}
-        <h3>[[[Treasury Spends]]]</h3>
-        <div id="votingTspends" class="flex-stretch-column w-100 mb-3 border-bottom">
+        <div class="flex-center pt-2 mt-2 border-top fs26">[[[Treasury Spends]]]</div>
+        <div id="votingTspends" class="flex-stretch-column w-100 pt-2 mt-2 px-3 border-top">
           <div id="tspendTmpl" class="d-flex justify-content-between align-items-stretch py-2 border-top">
             <div class="flex-center flex-grow-1 pe-3">
               <div data-tmpl="value" class="flex-center pe-2"></div>
@@ -1025,8 +1020,8 @@
         </div>
 
         {{- /* TREASURY KEYS */ -}}
-        <h3>[[[Treasury Keys]]]</h3>
-        <div id="votingTKeys" class="flex-stretch-column w-100 mb-3">
+        <div class="flex-center fs26 py-2 mt-2 border-top">[[[Treasury Keys]]]</div>
+        <div id="votingTKeys" class="flex-stretch-column pt-2 px-3">
           <div id="tkeyTmpl" class="d-flex justify-content-between align-items-stretch py-2 border-top">
             <div class="flex-center flex-grow-1 justify-content-start pe-3">
               <div data-tmpl="key" class="user-select-all fs14 p-1"></div>
@@ -1050,71 +1045,73 @@
     {{- /* TX DETAILS */ -}}
     <form id="txDetails" class="position-relative flex-stretch-column d-hide">
       <div class="form-closer hoverbg"><span class="ico-cross"></span></div>
-      <h3>[[[tx_details]]]</h3>
-      <div class="flex-center mb-3">
+      <div class="flex-center pt-2 px-3 fs26">[[[tx_details]]]</div>
+      <div class="flex-center pt-2 mt-2 px-3 border-top">
         <small><a target="_blank" id="txViewBlockExplorer"><span>View in block explorer</span><span class="mx-2 ico-open"></span></a></small>
       </div>
-      <table class="compact">
-        <tr>
-          <td class="grey">[[[Type]]]</td>
-          <td><span><span id="txDetailsType"></span><span id="txTypeTooltip" data-tooltip="" class="ico-info ms-1"></span></span></td>
-        </tr>
-        <tr id="txDetailsAmtSection">
-          <td class="grey">[[[Amount]]]</td>
-          <td><span id="txDetailsAmount"></span></td>
-        </tr>
-        <tr>
-          <td class="grey">[[[fee]]]</td>
-          <td><span id="txDetailsFee"></span></td>
-        </tr>
-        <tr>
-          <td class="grey">[[[block]]]</td>
-          <td><span id="txDetailsBlockNumber"></span><div class="ico-spinner spinner d-hide fs-14 px-2 d-inline-block" id="blockNumberPending"></div></td>
-        </tr>
-        <tr>
-          <td class="grey">[[[timestamp]]]</td>
-          <td><span id="txDetailsTimestamp"></span><div class="ico-spinner spinner d-hide fs-14 px-2 d-inline-block" id="timestampPending"></div></td>
-        </tr>
-        <tr>
-          <td class="grey">[[[tx_id]]]</td>
-          <td><span id="txDetailsID" class="ease-color"></span><span id="copyTxIDBtn" class="ease-color ico-copy pt-0"></span></td>
-        </tr>
-        <tr id="txDetailsRecipientSection" class="border-top">
-          <td class="grey">[[[recipient]]]</td>
-          <td><span id="txDetailsRecipient" class="ease-color"></span><span id="copyRecipientBtn" class="ease-color ico-copy pt-0"></span></td>
-        </tr>
-        <tr id="txDetailsBondIDSection" class="border-top">
-          <td class="grey">[[[bond_id]]]</td>
-          <td><span id="txDetailsBondID" class="ease-color"></span><span id="copyBondIDBtn" class="ease-color ico-copy pt-0"></span></td>
-        </tr>
-        <tr id="txDetailsBondLocktimeSection">
-          <td class="grey">[[[locktime]]]</td>
-          <td><span id="txDetailsBondLocktime" class="ease-color"></span></td>
-        </tr>
-        <tr id="txDetailsBondAccountIDSection">
-          <td class="grey">[[[Account ID]]]</td>
-          <td><span id="txDetailsBondAccountID" class="ease-color"></span><span id="copyBondAccountIDBtn" class="ease-color ico-copy pt-0"></span></td>
-        </tr>
-        <tr id="txDetailsNonceSection" class="border-top">
-          <td class="grey">[[[nonce]]]</td>
-          <td><span id="txDetailsNonce"></span></td>
-        </tr>
-      </table>
+      <div class="py-2 px-3">
+        <table class="compact">
+          <tr>
+            <td class="grey">[[[Type]]]</td>
+            <td><span><span id="txDetailsType"></span><span id="txTypeTooltip" data-tooltip="" class="ico-info ms-1"></span></span></td>
+          </tr>
+          <tr id="txDetailsAmtSection">
+            <td class="grey">[[[Amount]]]</td>
+            <td><span id="txDetailsAmount"></span></td>
+          </tr>
+          <tr>
+            <td class="grey">[[[fee]]]</td>
+            <td><span id="txDetailsFee"></span></td>
+          </tr>
+          <tr>
+            <td class="grey">[[[block]]]</td>
+            <td><span id="txDetailsBlockNumber"></span><div class="ico-spinner spinner d-hide fs-14 px-2 d-inline-block" id="blockNumberPending"></div></td>
+          </tr>
+          <tr>
+            <td class="grey">[[[timestamp]]]</td>
+            <td><span id="txDetailsTimestamp"></span><div class="ico-spinner spinner d-hide fs-14 px-2 d-inline-block" id="timestampPending"></div></td>
+          </tr>
+          <tr>
+            <td class="grey">[[[tx_id]]]</td>
+            <td><span id="txDetailsID" class="ease-color"></span><span id="copyTxIDBtn" class="ease-color ico-copy pt-0"></span></td>
+          </tr>
+          <tr id="txDetailsRecipientSection" class="border-top">
+            <td class="grey">[[[recipient]]]</td>
+            <td><span id="txDetailsRecipient" class="ease-color"></span><span id="copyRecipientBtn" class="ease-color ico-copy pt-0"></span></td>
+          </tr>
+          <tr id="txDetailsBondIDSection" class="border-top">
+            <td class="grey">[[[bond_id]]]</td>
+            <td><span id="txDetailsBondID" class="ease-color"></span><span id="copyBondIDBtn" class="ease-color ico-copy pt-0"></span></td>
+          </tr>
+          <tr id="txDetailsBondLocktimeSection">
+            <td class="grey">[[[locktime]]]</td>
+            <td><span id="txDetailsBondLocktime" class="ease-color"></span></td>
+          </tr>
+          <tr id="txDetailsBondAccountIDSection">
+            <td class="grey">[[[Account ID]]]</td>
+            <td><span id="txDetailsBondAccountID" class="ease-color"></span><span id="copyBondAccountIDBtn" class="ease-color ico-copy pt-0"></span></td>
+          </tr>
+          <tr id="txDetailsNonceSection" class="border-top">
+            <td class="grey">[[[nonce]]]</td>
+            <td><span id="txDetailsNonce"></span></td>
+          </tr>
+        </table>
+      </div>
     </form>
 
     {{- /* CSPP ADDRESS CONFIG */ -}}
-    <form id="mixerConfigForm" class="d-flex align-items-stretch flex-column mw-425">
+    <form id="mixerConfigForm" class="flex-stretch-column mw-425">
       <div class="form-closer"><span class="ico-cross"></span></div>
-      <h3>
+      <div class="flex-center pt-2 px-3 fs26">
         <span class="ico-secretagent fs35 me-1"></span>
         <span id="mixerEnableLabel">[[[Enable Privacy]]]</span>
         <span id="mixerConfigureLabel">[[[Configure Privacy]]]</span>
-      </h3>
-      <div id="mixAddrDisplayBox" class="flex-center fs18 mb-3 px-3">
+      </div>
+      <div id="mixAddrDisplayBox" class="flex-center fs18 pt-2 mt-2 px-3 border-top">
         <span id="mixAddrDisplay"></span>
         <div id="mixAddrEdit" class="d-inline-block ico-edit fs14 p-2 hoverbg pointer"></div>
       </div>
-      <div id="mixAddrInputBox" class="flex-column mb-3">
+      <div id="mixAddrInputBox" class="flex-column pt-2 px-3">
         <div class="mb-3">
           <label for="mixAddrInput">[[[cspp_addr]]]</label>
           <input type="text" id="mixAddrInput">
@@ -1123,15 +1120,15 @@
           {{template "certPicker"}}
         </div>
       </div>
-      <div class="d-flex justify-content-between w-100">
-        <button id="mixerDisable" type="button" class="danger me-4">[[[Disable Privacy]]]</button>
-        <button id="mixConfigSubmit" type="button" class="go ms-auto">[[[Submit]]]</button>
+      <div class="flex-stretch-column py-2 px-3">
+        <button id="mixerDisable" type="button" class="danger">[[[Disable Privacy]]]</button>
+        <button id="mixConfigSubmit" type="button" class="feature">[[[Submit]]]</button>
       </div>
-      <div id="mixConfigErr" class="pt-3 flex-center text-danger d-hide"></div>
+      <div id="mixConfigErr" class="p-3 flex-center text-danger d-hide"></div>
     </form>
 
     {{- /* CSPP INFO */ -}}
-    <form id="mixingInfo" class="mw-425">
+    <form id="mixingInfo" class="mw-425 p-3">
       <div class="form-closer"><span class="ico-cross"></span></div>
       <ul class="px-3 mb-0">
         <li>
@@ -1152,14 +1149,14 @@
     {{- /* CSPP INFO */ -}}
     <form id="mixingOffConfirmationForm" class="mw-425">
       <div class="form-closer"><span class="ico-cross"></span></div>
-      <h3 class="w-100 px-3 mb-4">
+      <div class="flex-center pt-4 px-3">
         Are you sure that you want to turn off the privacy engine?
-      </h3>
-      <div class="flex-center w-100 mb-3">
+      </div>
+      <div class="flex-center pt-2 px-3">
         Newly received funds will not become available for
         use until privacy is turned back on.
       </div>
-      <div class="d-flex justify-content-between mt-4">
+      <div class="flex-stretch-column py-2 px-3">
         <button id="mixingOffNo" type="button">Nevermind</button>
         <button id="mixingOffGo" type="button" class="danger">Turn it off</button>
       </div>

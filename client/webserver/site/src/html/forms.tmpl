@@ -73,7 +73,7 @@
   <div data-tmpl="walletTabTmpl" class="wtab px-3 py-2 border-end"></div>
 </div>
 <div class="position-relative pt-2 px-3 border-top" data-tmpl="mainForm">
-  <div class="flex-center pt-2" data-tmpl="oneBttnBox">
+  <div class="flex-center pt-2 pb-3" data-tmpl="oneBttnBox">
     <button class="one-bttn w-auto" data-tmpl="oneBttn">[[[Create]]]!</button>
   </div>
   <div data-tmpl="goBack" class="mt-2 d-flex align-items-center fs14 grey d-hide">
@@ -111,30 +111,31 @@
 
 {{define "depositAddress"}}
 <div class="form-closer"><span class="ico-cross"></span></div>
-<h3 class="text-center position-relative mb-4">
+<div class="flex-center pt-2 px-3 fs26">
   [[[Receive]]]
   <img id="depositLogo" class="mini-icon mx-1">
   <span id="depositName"></span>
-</h3>
-  <div class="flex-center pt-1 d-hide fs18 sans" id="depositTokenMsgBox">
-    <span>[[[Token on]]]</span>
-    <img id="depositTokenParentLogo" class="ms-1 micro-icon">
-    <span id="depositTokenParentName"></span>
-  </div>
-</h3>
-<img class="mb-4" id="qrcode" />
-<div class="mono fs15 p-2 border word-break-all border mb-3 mx-3">
+</div>
+<div class="flex-center pt-2 mt-2 px-3 border-top d-hide fs18 sans" id="depositTokenMsgBox">
+  <span>[[[Token on]]]</span>
+  <img id="depositTokenParentLogo" class="ms-1 micro-icon">
+  <span id="depositTokenParentName"></span>
+</div>
+<div class="flex-center pt-2 mt-2 px-3 border-top">
+  <img class="pt-2 px-3" id="qrcode" />
+</div>
+<div class="mono fs15 p-2 mx-3 mt-2 border word-break-all border">
   <span id="depositAddress" class="user-select-all"></span>
   <span id="copyAddressBtn" class="ico-copy mt-2 ml-2 fs18 pointer"></span>
   <span id="copyAlert" class="d-hide text-nowrap">[[[copied]]]</span>
 </div>
-<div id="unifiedReceivers" class="d-flex align-items-stretch mb-3 mt-1">
+<div id="unifiedReceivers" class="d-flex align-items-stretch pt-2 px-3">
   <div id="unifiedReceiverTmpl" class="p-1 me-2 hoverbg lh1 fs15 pointer brdr selectable"></div>
 </div>
-<div class="d-flex">
-  <button id="newDepAddrBttn" type="button" class="go justify-content-center">[[[New Address]]]</button>
+<div class="flex-stretch-column py-2 px-3">
+  <button id="newDepAddrBttn" type="button" class="feature">[[[New Address]]]</button>
 </div>
-<div class="fs15 pt-3 text-center d-hide text-danger text-break mb-3" id="depositErr"></div>
+<div class="fs15 p-3 text-center d-hide text-danger text-break mb-3" id="depositErr"></div>
 {{end}}
 
 {{define "certPicker"}}
@@ -185,21 +186,19 @@
   </div>
   {{template "certPicker"}}
 </div>
-<div class="d-flex d-hide" data-tmpl="auth">
-  <div class="col-12 d-flex justify-content-end align-items-end p-0">
-    <button data-tmpl="submit" type="button" class="go">[[[Submit]]]</button>
-  </div>
+<div class="flex-stretch-column py-2 px-3 d-hide" data-tmpl="auth">
+  <button data-tmpl="submit" type="button" class="feature">[[[Submit]]]</button>
 </div>
 <div class="fs15 pt-3 text-center d-hide text-danger text-break" data-tmpl="err"></div>
 {{end}}
 
 {{define "discoverAcctForm"}}
-<h3 data-tmpl="header">[[[Create Account]]]</h3>
-<div class="fs16 text-center mb-3"><span data-tmpl="dexHost"></span></div>
-<div class="d-flex justify-content-center">
-  <button data-tmpl="submit" type="button" class="go">[[[Create Account]]]</button>
+<div class="flex-center pt-2 px-3 fs26" data-tmpl="header">[[[Create Account]]]</div>
+<div class="fs16 text-center pt-2 mt-2 px-3 border-top"><span data-tmpl="dexHost"></span></div>
+<div class="flex-stretch-column py-2 px-3">
+  <button data-tmpl="submit" type="button" class="feature">[[[Create Account]]]</button>
 </div>
-<div class="fs15 pt-3 text-center d-hide text-danger text-break" data-tmpl="err"></div>
+<div class="fs15 p-3 text-center d-hide text-danger text-break" data-tmpl="err"></div>
 {{end}}
 
 {{define "regAssetForm"}}
@@ -487,25 +486,19 @@
 
 {{define "disableAccountForm"}}
 <div class="form-closer"><span class="ico-cross"></span></div>
-<h3>
+<div class="flex-center pt-2 px-3 fs26">
   [[[Disable Account]]]
-</h3>
-<div class="mb-3">
+</div>
+<div class="pt-2 px-3">
   [[[disable_app_pw_msg]]]: <span id="disableAccountHost"></span>.
 </div>
-<hr class="dashed mb-3">
-<div class="mb-3">
+<div class="pt-2 mt-2 px-3 border-top">
   [[[disable_dex_server]]]
 </div>
-<hr class="dashed mb-3">
-<div class="mb-3">
-  <label for="disableAccountAppPW">[[[Password]]]</label>
-  <input type="password" id="disableAccountAppPW" autocomplete="current-password">
+<div class="flex-stretch-column py-2 px-3">
+  <button id="disableAccountConfirm" type="button" class="feature">[[[Disable Account]]]</button>
 </div>
-<div class="d-flex justify-content-end">
-  <button id="disableAccountConfirm" type="button" class="go">[[[Disable Account]]]</button>
-</div>
-<div class="fs15 pt-3 text-center d-hide text-danger text-break" id="disableAccountErr"></div>
+<div class="fs15 py-2 px-3 text-center d-hide text-danger text-break" id="disableAccountErr"></div>
 {{end}}
 
 {{define "authorizeAccountImportForm"}}
@@ -556,27 +549,26 @@
 {{define "cancelOrderForm"}}
 {{$passwordIsCached := .UserInfo.PasswordIsCached}}
 <div class="form-closer"><span class="ico-cross"></span></div>
-<h3>
+<div class="flex-center pt-2 px-3 fs26">
   [[[:title:cancel_order]]]
-</h3>
-<div class="mb-3">
+</div>
+<div class="pt-2 px-3">
   [[[cancel_no_pw]]]
   <span id="cancelRemain" class="fs16 sans"></span>
   <span id="cancelUnit" class="fs14 sans"></span>.<br>
   [[[cancel_remain]]]
 </div>
-<hr class="dashed mb-3">
-<div class="d-flex justify-content-end">
-  <button id="cancelSubmit" type="button" class="go px-4">[[[Submit]]]</button>
+<div class="flex-stretch-column py-2 px-3">
+  <button id="cancelSubmit" type="button" class="feature">[[[Submit]]]</button>
 </div>
-<div class="fs15 pt-3 text-center d-hide text-danger" id="cancelErr"></div>
+<div class="fs15 p-3 text-center d-hide text-danger" id="cancelErr"></div>
 {{end}}
 
 {{define "accelerateForm"}}
 {{$passwordIsCached := .UserInfo.PasswordIsCached}}
 <div class="form-closer"><span class="ico-cross"></span></div>
-<h3>[[[:title:accelerate_order]]]</h3>
-<div id=accelerateMainDiv>
+<div class="flex-center pt-2 px-3 fs26">[[[:title:accelerate_order]]]</div>
+<div id="accelerateMainDiv" class="pt-2 mt-2 px-3 border-top">
   <div id="configureAccelerationDiv">
     [[[acceleration_text]]]
     <br />
@@ -616,7 +608,7 @@
   <div class="fs15 pt-3 text-center d-hide text-danger text-break" id="accelerateErr"></div>
 </div>
   {{/* range option template goes here */}}
-<div id="accelerateMsgDiv" class="d-hide">
+<div id="accelerateMsgDiv" class="py-2 px-3 d-hide">
   <div class="fs15 pt-3 text-center d-hide text-danger text-break" id="preAccelerateErr"></div>
   <div class="fs15 pt-3 text-left d-hide text-break" id="accelerateSuccess">
     [[[accelerate_success]]]
@@ -744,26 +736,25 @@
 
 {{define "appPassResetForm"}}
  <div class="form-closer" id="resetPassFormCloser"><span class="ico-cross"></span></div>
- <h3>[[[Reset App Password]]]</h3>
- <div class="fs18 mb-3">[[[reset_app_pw_msg]]]</div>
- <hr class="dashed mb-3">
- <div class="mb-3">
+ <div class="flex-center pt-2 px-3 fs26">[[[Reset App Password]]]</div>
+ <div class="fs18 pt-2 px-3">[[[reset_app_pw_msg]]]</div>
+ <div class="pt-2 mt-2 px-3 border-top">
    <label for="newAppPassword">[[[New Password]]]</label>
    <input type="password" id="newAppPassword" autocomplete="new-password">
  </div>
- <div class="mb-3">
+ <div class="pt-2 px-3">
    <label for="confirmNewAppPassword">[[[Confirm New Password]]]</label>
    <input type="password" id="confirmNewAppPassword" autocomplete="off">
  </div>
- <div class="mb-3">
+ <div class="pt-2 px-3">
    <label for="seedInput">[[[Restoration Seed]]]</label>
    <textarea class="mono" id="seedInput" rows="4" autocomplete="off" spellcheck="false"></textarea>
  </div>
- <div class="d-flex justify-content-end">
-    <button id="resetAppPWSubmitBtn" type="button" class="go">[[[Submit]]]</button>
+ <div class="flex-stretch-column py-2 px-3">
+    <button id="resetAppPWSubmitBtn" type="button" class="feature">[[[Submit]]]</button>
  </div>
- <div class="fs15 pt-3 text-center d-hide text-danger text-break" id="appPWResetErrMsg"></div>
- <div id="appPWResetSuccessMsg" class="d-hide text-break text-center pt-3 fs15"></div> 
+ <div class="fs15 p-2 px-3 text-center d-hide text-danger text-break" id="appPWResetErrMsg"></div>
+ <div id="appPWResetSuccessMsg" class="d-hide text-break text-center p-3 fs15"></div> 
 {{end}}
 
 {{define "reputationMeter"}}
@@ -799,24 +790,23 @@
 <div class="px-2 py-1 text-center fs22 text-nowrap position-relative">
   [[[:title:Approve]]] <div data-tmpl="tokenSymbol" class="d-inline-block"></div>
 </div>
-<div data-tmpl="submissionElements">
+<div data-tmpl="submissionElements" class="pt-2 mt-2 px-3 border-top">
   <div class="fs15 text-start mt-2">
     [[[approve_token_text]]]
   </div>
-  <hr class="dashed my-2">
-  <div class="d-flex justify-content-between align-items-stretch flex-wrap">
-    <div class="d-grid align-items-end col-10 p-0">
-      <button data-tmpl="submit" type="button" class="fs15 feature">[[[Approve]]]</button>
-    </div>
+  <div class="flex-stretch-column mt-2 flex-wrap">
+    <button data-tmpl="submit" type="button" class="fs15 feature">[[[Approve]]]</button>
   </div>
 </div>
-<span data-tmpl="txMsg" class="text-center fs17 d-hide">[[[token_approval_tx_msg]]]</span>
-<a target="_blank" class="subtlelink fs14" data-tmpl="txid"></a>
-<div class="fs15 pt-3 text-center d-hide text-danger text-break" data-tmpl="errMsg"></div>
-<div data-tmpl="balanceBox" class="flex-center w-100 mt-3 pt-3 border-top fs15">
+<div data-tmpl="txMsg" class="pt-2 px-3">
+  <span class="text-center fs17 pt-2 px-3 d-hide">[[[token_approval_tx_msg]]]</span>
+  <a target="_blank" class="subtlelink word-break-all fs14" data-tmpl="txid"></a>
+</div>
+<div class="fs15 p-3 text-center d-hide text-danger text-break" data-tmpl="errMsg"></div>
+<div data-tmpl="balanceBox" class="flex-center w-100 py-2 mt-2 px-3 border-top fs15">
   [[[Available fee balance]]]: <span data-tmpl="balance" class="ms-2"></span> <span data-tmpl="parentTicker" class="grey ms-1"></span>
 </div>
-<div data-tmpl="addressBox" class="flex-center mt-2 fs15 d-hide">
+<div data-tmpl="addressBox" class="flex-center py-2 px-3 fs15 d-hide">
   [[[approve_token_wallet_addr]]] <span data-tmpl="address" class="ms-2"></span>
 </div>
 {{end}}
