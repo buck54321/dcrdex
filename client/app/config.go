@@ -30,7 +30,7 @@ const (
 	defaultWebPort     = "5758"
 	defaultLogLevel    = "debug"
 	configFilename     = "dexc.conf"
-	useTestnetDefault  = false
+	useTestnetDefault  = true
 )
 
 var (
