@@ -221,6 +221,9 @@ var DefaultConfig = Config{
 	RPCConfig: RPCConfig{
 		CertHosts: []string{defaultTestnetHost, defaultSimnetHost, defaultMainnetHost},
 	},
+	WebConfig: WebConfig{
+		Experimental: true,
+	},
 }
 
 // ParseCLIConfig parses the command-line arguments into the provided struct
