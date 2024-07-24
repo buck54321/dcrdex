@@ -2754,6 +2754,7 @@ func (btc *baseWallet) fundMultiWithSplit(keep, maxLock uint64, values []*asset.
 			coins[i] = make(asset.Coins, len(fundingUTXOs))
 			redeemScripts[i] = make([]dex.Bytes, len(fundingUTXOs))
 			for j, unspent := range fundingUTXOs {
+				fmt.Println("--fundMultiWithSplit.2", i, unspent.Amount)
 				output := NewOutput(unspent.TxHash, unspent.Vout, unspent.Amount)
 				locks = append(locks, &UTxO{
 					TxHash:  unspent.TxHash,
@@ -2767,6 +2768,9 @@ func (btc *baseWallet) fundMultiWithSplit(keep, maxLock uint64, values []*asset.
 			}
 		} else {
 			coins[i] = splitOutputCoins[splitIndex]
+			for _, c := range coins[i] {
+				fmt.Println("--fundMultiWithSplit.4", i, c.Value())
+			}
 			redeemScripts[i] = []dex.Bytes{nil}
 			splitIndex++
 		}
@@ -2775,6 +2779,8 @@ func (btc *baseWallet) fundMultiWithSplit(keep, maxLock uint64, values []*asset.
 	btc.cm.LockOutputs(locks)
 
 	btc.node.lockUnspent(false, spents)
+
+	fmt.Println("--fundMultiWithSplit.4", len(coins), splitFees)
 
 	return coins, redeemScripts, splitFees, nil
 }
@@ -2791,6 +2797,7 @@ func (btc *baseWallet) fundMulti(maxLock uint64, values []*asset.MultiOrderValue
 		return nil, nil, 0, err
 	}
 	if len(coins) == len(values) || !allowSplit {
+		fmt.Println("--fundMulti", len(coins))
 		btc.cm.LockOutputsMap(fundingCoins)
 		btc.node.lockUnspent(false, spents)
 		return coins, redeemScripts, 0, nil
@@ -5495,6 +5502,7 @@ func (btc *baseWallet) FundMultiOrder(mo *asset.MultiOrder, maxLock uint64) ([]a
 		req := calc.RequiredOrderFunds(value.Value, swapInputSize, value.MaxSwapCount,
 			btc.initTxSizeBase, btc.initTxSize, mo.MaxFeeRate)
 		totalRequiredForOrders += req
+		fmt.Println("--FundMultiOrder.10", req, value.Value, swapInputSize, value.MaxSwapCount, btc.initTxSizeBase, btc.initTxSize, mo.MaxFeeRate)
 	}
 
 	if maxLock < totalRequiredForOrders && maxLock != 0 {
@@ -5525,7 +5533,19 @@ func (btc *baseWallet) FundMultiOrder(mo *asset.MultiOrder, maxLock uint64) ([]a
 		return nil, nil, 0, fmt.Errorf("error decoding options: %w", err)
 	}
 
-	return btc.fundMulti(maxLock, mo.Values, mo.FeeSuggestion, mo.MaxFeeRate, customCfg.Split, customCfg.SplitBuffer)
+	coins, redeemScripts, splitFees, err := btc.fundMulti(maxLock, mo.Values, mo.FeeSuggestion, mo.MaxFeeRate, customCfg.Split, customCfg.SplitBuffer)
+	for i, cs := range coins {
+		var sum uint64
+		for _, c := range cs {
+			sum += c.Value()
+		}
+		n := len(cs)
+		req := calc.RequiredOrderFunds(mo.Values[i].Value, uint64(n)*swapInputSize, mo.Values[i].MaxSwapCount,
+			btc.initTxSizeBase, btc.initTxSize, mo.MaxFeeRate)
+		fmt.Println("--FundMultiOrder.abc", i, sum, req, mo.Values[i].Value, uint64(n)*swapInputSize, mo.Values[i].MaxSwapCount, btc.initTxSizeBase, btc.initTxSize, mo.MaxFeeRate)
+
+	}
+	return coins, redeemScripts, splitFees, err
 }
 
 // MaxFundingFees returns the maximum funding fees for an order/multi-order.
