@@ -630,6 +630,7 @@ func (c *Core) sendCancelOrder(dc *dexConnection, oid order.OrderID, base, quote
 		c.sentCommitsMtx.Unlock()
 		return preImg, nil, nil, nil, fmt.Errorf("failed to submit cancel order targeting trade %v: %w", oid, err)
 	}
+
 	err = validateOrderResponse(dc, result, co, msgOrder)
 	if err != nil {
 		c.sentCommitsMtx.Lock()
@@ -10721,6 +10722,16 @@ func (c *Core) checkEpochResolution(host string, mktID string) {
 	}
 	currentEpoch := dc.marketEpoch(mktID, time.Now())
 	lastEpoch := currentEpoch - 1
+
+	// Short path if we're already resolved.
+	dc.epochMtx.RLock()
+	resolvedEpoch := dc.resolvedEpoch[mktID]
+	dc.epochMtx.RUnlock()
+	if lastEpoch == resolvedEpoch {
+		return
+	}
+
+	// Check if any orders from the last epoch haven't resolved yet.
 	ts, inFlights := dc.marketTrades(mktID)
 	for _, ord := range inFlights {
 		if ord.Epoch == lastEpoch {
@@ -10728,18 +10739,23 @@ func (c *Core) checkEpochResolution(host string, mktID string) {
 		}
 	}
 	for _, t := range ts {
+		// Is this order from the last epoch and still not booked or executed?
 		if t.epochIdx() == lastEpoch && t.status() == order.OrderStatusEpoch {
 			return
 		}
-		if t.cancel != nil && t.cancelEpochIdx() == lastEpoch {
-			t.mtx.RLock()
-			matched := t.cancel.matches.taker != nil
-			t.mtx.RUnlock()
-			if !matched {
-				return
-			}
+		// Does this order have an in-flight cancel order that is not yet
+		// resolved?
+		t.mtx.RLock()
+		unresolvedCancel := t.cancel != nil && t.cancelEpochIdx() == lastEpoch && t.cancel.matches.taker == nil
+		t.mtx.RUnlock()
+		if unresolvedCancel {
+			return
 		}
 	}
+
+	// We don't have any unresolved orders or cancel orders from the last epoch.
+	// Just make sure that not other thread has resolved the epoch and then send
+	// the notification.
 	dc.epochMtx.Lock()
 	sendUpdate := lastEpoch > dc.resolvedEpoch[mktID]
 	dc.resolvedEpoch[mktID] = lastEpoch
@@ -10756,7 +10772,6 @@ func (c *Core) checkEpochResolution(host string, mktID string) {
 				},
 			})
 		}
-
 	}
 }
 
