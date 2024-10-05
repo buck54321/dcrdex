@@ -98,6 +98,7 @@ type WsConn interface {
 	RequestWithTimeout(msg *msgjson.Message, respHandler func(*msgjson.Message), expireTime time.Duration, expire func()) error
 	Connect(ctx context.Context) (*sync.WaitGroup, error)
 	MessageSource() <-chan *msgjson.Message
+	UpdateURL(string)
 }
 
 // When the DEX sends a request to the client, a responseHandler is created
@@ -117,6 +118,10 @@ type WsCfg struct {
 	// should be larger than the server's ping interval to allow for network
 	// latency.
 	PingWait time.Duration
+
+	// AutoReconnect, if non-zero, will reconnect to the server after each
+	// interval of the amount of time specified.
+	AutoReconnect time.Duration
 
 	// The server's certificate.
 	Cert []byte
@@ -161,6 +166,7 @@ type wsConn struct {
 	cfg    *WsCfg
 	tlsCfg *tls.Config
 	readCh chan *msgjson.Message
+	urlV   atomic.Value // string
 
 	wsMtx sync.Mutex
 	ws    *websocket.Conn
@@ -171,6 +177,7 @@ type wsConn struct {
 	respHandlers map[uint64]*responseHandler
 
 	reconnectCh chan struct{} // trigger for immediate reconnect
+	connected   atomic.Int64
 }
 
 var _ WsConn = (*wsConn)(nil)
@@ -203,14 +210,26 @@ func NewWsConn(cfg *WsCfg) (WsConn, error) {
 		ServerName: uri.Hostname(),
 	}
 
-	return &wsConn{
+	conn := &wsConn{
 		cfg:          cfg,
 		log:          cfg.Logger,
 		tlsCfg:       tlsConfig,
 		readCh:       make(chan *msgjson.Message, readBuffSize),
 		respHandlers: make(map[uint64]*responseHandler),
 		reconnectCh:  make(chan struct{}, 1),
-	}, nil
+	}
+
+	conn.urlV.Store(cfg.URL)
+
+	return conn, nil
+}
+
+func (conn *wsConn) UpdateURL(uri string) {
+	conn.urlV.Store(uri)
+}
+
+func (conn *wsConn) url() string {
+	return conn.urlV.Load().(string)
 }
 
 // IsDown indicates if the connection is known to be down.
@@ -240,7 +259,7 @@ func (conn *wsConn) connect(ctx context.Context) error {
 		dialer.Proxy = http.ProxyFromEnvironment
 	}
 
-	ws, _, err := dialer.DialContext(ctx, conn.cfg.URL, conn.cfg.ConnectHeaders)
+	ws, _, err := dialer.DialContext(ctx, conn.url(), conn.cfg.ConnectHeaders)
 	if err != nil {
 		if isErrorInvalidCert(err) {
 			conn.setConnectionStatus(InvalidCert)
@@ -252,6 +271,7 @@ func (conn *wsConn) connect(ctx context.Context) error {
 		conn.setConnectionStatus(Disconnected)
 		return err
 	}
+	conn.connected.Store(time.Now().Unix())
 
 	// Set the initial read deadline for the first ping. Subsequent read
 	// deadlines are set in the ping handler.
@@ -331,7 +351,7 @@ func (conn *wsConn) handleReadError(err error) {
 
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
-		conn.log.Errorf("Read timeout on connection to %s.", conn.cfg.URL)
+		conn.log.Errorf("Read timeout on connection to %s.", conn.url())
 		reconnect()
 		return
 	}
@@ -457,11 +477,11 @@ func (conn *wsConn) keepAlive(ctx context.Context) {
 				return
 			}
 
-			conn.log.Infof("Attempting to reconnect to %s...", conn.cfg.URL)
+			conn.log.Infof("Attempting to reconnect to %s...", conn.url())
 			err := conn.connect(ctx)
 			if err != nil {
 				conn.log.Errorf("Reconnect failed. Scheduling reconnect to %s in %.1f seconds.",
-					conn.cfg.URL, rcInt.Seconds())
+					conn.url(), rcInt.Seconds())
 				time.AfterFunc(rcInt, func() {
 					conn.reconnectCh <- struct{}{}
 				})
@@ -550,6 +570,29 @@ func (conn *wsConn) Connect(ctx context.Context) (*sync.WaitGroup, error) {
 
 		close(conn.readCh) // signal to MessageSource receivers that the wsConn is dead
 	}()
+
+	if interval := conn.cfg.AutoReconnect; interval > 0 {
+		conn.wg.Add(1)
+		go func() {
+			defer conn.wg.Done()
+			tick := time.After(interval)
+			for {
+				select {
+				case <-tick:
+				case <-ctx.Done():
+					return
+				}
+				lastConnect := time.Unix(conn.connected.Load(), 0)
+				if since := time.Since(lastConnect); since >= interval {
+					conn.reconnectCh <- struct{}{}
+					tick = time.After(interval)
+				} else {
+					tick = time.After(interval - since)
+				}
+			}
+
+		}()
+	}
 
 	return &conn.wg, err
 }
