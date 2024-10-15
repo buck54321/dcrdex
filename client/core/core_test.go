@@ -3031,7 +3031,7 @@ func trade(t *testing.T, async bool) {
 
 	setWalletSyncStatus := func(w *xcWallet, status bool) {
 		w.mtx.Lock()
-		w.syncStatus.Synced = status
+		w.syncStatus = &asset.SyncStatus{Synced: status}
 		w.mtx.Unlock()
 	}
 
