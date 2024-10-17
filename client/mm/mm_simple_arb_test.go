@@ -516,7 +516,7 @@ func TestArbRebalance(t *testing.T) {
 		a.CEX = tcex
 		tcex.asksVWAP[lotSize] = vwapResult{avg: buyRate}
 		tcex.bidsVWAP[lotSize] = vwapResult{avg: sellRate}
-		a.buyFees = &orderFees{
+		a.buyFees = &OrderFees{
 			LotFeeRange: &LotFeeRange{
 				Max: &LotFees{
 					Redeem: buyRedeemFees,
@@ -526,9 +526,9 @@ func TestArbRebalance(t *testing.T) {
 					Redeem: buyRedeemFees,
 				},
 			},
-			bookingFeesPerLot: buySwapFees,
+			BookingFeesPerLot: buySwapFees,
 		}
-		a.sellFees = &orderFees{
+		a.sellFees = &OrderFees{
 			LotFeeRange: &LotFeeRange{
 				Max: &LotFees{
 					Redeem: sellRedeemFees,
@@ -538,7 +538,7 @@ func TestArbRebalance(t *testing.T) {
 					Redeem: sellRedeemFees,
 				},
 			},
-			bookingFeesPerLot: sellSwapFees,
+			BookingFeesPerLot: sellSwapFees,
 		}
 		// arbEngine.setBotLoop(arbEngine.botLoop)
 		a.cfgV.Store(&SimpleArbConfig{

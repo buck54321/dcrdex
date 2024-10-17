@@ -85,18 +85,18 @@ func (db *tEventLogDB) runEvents(startTime int64, mkt *MarketWithHost, n uint64,
 	return nil, nil
 }
 
-func tFees(swap, redeem, refund, funding uint64) *orderFees {
+func tFees(swap, redeem, refund, funding uint64) *OrderFees {
 	lotFees := &LotFees{
 		Swap:   swap,
 		Redeem: redeem,
 		Refund: refund,
 	}
-	return &orderFees{
+	return &OrderFees{
 		LotFeeRange: &LotFeeRange{
 			Max:       lotFees,
 			Estimated: lotFees,
 		},
-		funding: funding,
+		Funding: funding,
 	}
 }
 
@@ -541,7 +541,7 @@ func testDistribution(t *testing.T, baseID, quoteID uint32) {
 
 	buyBookingFees, sellBookingFees := u.bookingFees(maxBuyFees, maxSellFees)
 
-	a.buyFees = &orderFees{
+	a.buyFees = &OrderFees{
 		LotFeeRange: &LotFeeRange{
 			Max: maxBuyFees,
 			Estimated: &LotFees{
@@ -550,10 +550,10 @@ func testDistribution(t *testing.T, baseID, quoteID uint32) {
 				Refund: buyRefundFees,
 			},
 		},
-		funding:           buyFundingFees,
-		bookingFeesPerLot: buyBookingFees,
+		Funding:           buyFundingFees,
+		BookingFeesPerLot: buyBookingFees,
 	}
-	a.sellFees = &orderFees{
+	a.sellFees = &OrderFees{
 		LotFeeRange: &LotFeeRange{
 			Max: maxSellFees,
 			Estimated: &LotFees{
@@ -561,8 +561,8 @@ func testDistribution(t *testing.T, baseID, quoteID uint32) {
 				Redeem: sellRedeemFees,
 			},
 		},
-		funding:           sellFundingFees,
-		bookingFeesPerLot: sellBookingFees,
+		Funding:           sellFundingFees,
+		BookingFeesPerLot: sellBookingFees,
 	}
 
 	buyRate, _ := a.dexPlacementRate(buyVWAP, false)
@@ -590,7 +590,7 @@ func testDistribution(t *testing.T, baseID, quoteID uint32) {
 		cex.bidsVWAP[lotSize*sellLots] = vwapResult{avg: sellVWAP}
 		minDexBase = sellLots*lotSize + sellFundingFees
 		if baseID == u.baseFeeID {
-			minDexBase += sellLots * u.sellFees.bookingFeesPerLot
+			minDexBase += sellLots * u.sellFees.BookingFeesPerLot
 		}
 		if baseID == u.quoteFeeID {
 			addBaseFees += buyRedeemFees * buyLots
@@ -600,7 +600,7 @@ func testDistribution(t *testing.T, baseID, quoteID uint32) {
 
 		minDexQuote = calc.BaseToQuote(buyRate, buyLots*lotSize) + buyFundingFees
 		if quoteID == u.quoteFeeID {
-			minDexQuote += buyLots * a.buyFees.bookingFeesPerLot
+			minDexQuote += buyLots * a.buyFees.BookingFeesPerLot
 		}
 		if quoteID == u.baseFeeID {
 			addQuoteFees += sellRedeemFees * sellLots
@@ -902,38 +902,38 @@ func TestMultiTrade(t *testing.T) {
 		return edge + rateStep
 	}
 
-	sellPlacements := []*multiTradePlacement{
-		{lots: 1, rate: 1e7, counterTradeRate: 0.9e7},
-		{lots: 2, rate: 2e7, counterTradeRate: 1.9e7},
-		{lots: 3, rate: 3e7, counterTradeRate: 2.9e7},
-		{lots: 2, rate: 4e7, counterTradeRate: 3.9e7},
+	sellPlacements := []*TradePlacement{
+		{Lots: 1, Rate: 1e7, CounterTradeRate: 0.9e7},
+		{Lots: 2, Rate: 2e7, CounterTradeRate: 1.9e7},
+		{Lots: 3, Rate: 3e7, CounterTradeRate: 2.9e7},
+		{Lots: 2, Rate: 4e7, CounterTradeRate: 3.9e7},
 	}
 
-	buyPlacements := []*multiTradePlacement{
-		{lots: 1, rate: 4e7, counterTradeRate: 4.1e7},
-		{lots: 2, rate: 3e7, counterTradeRate: 3.1e7},
-		{lots: 3, rate: 2e7, counterTradeRate: 2.1e7},
-		{lots: 2, rate: 1e7, counterTradeRate: 1.1e7},
+	buyPlacements := []*TradePlacement{
+		{Lots: 1, Rate: 4e7, CounterTradeRate: 4.1e7},
+		{Lots: 2, Rate: 3e7, CounterTradeRate: 3.1e7},
+		{Lots: 3, Rate: 2e7, CounterTradeRate: 2.1e7},
+		{Lots: 2, Rate: 1e7, CounterTradeRate: 1.1e7},
 	}
 
 	// cancelLastPlacement is the same as placements, but with the rate
 	// and lots of the last order set to zero, which should cause pending
 	// orders at that placementIndex to be cancelled.
-	cancelLastPlacement := func(sell bool) []*multiTradePlacement {
-		placements := make([]*multiTradePlacement, len(sellPlacements))
+	cancelLastPlacement := func(sell bool) []*TradePlacement {
+		placements := make([]*TradePlacement, len(sellPlacements))
 		if sell {
 			copy(placements, sellPlacements)
 		} else {
 			copy(placements, buyPlacements)
 		}
-		placements[len(placements)-1] = &multiTradePlacement{}
+		placements[len(placements)-1] = &TradePlacement{}
 		return placements
 	}
 
 	// removeLastPlacement simulates a reconfiguration is which the
 	// last placement is removed.
-	removeLastPlacement := func(sell bool) []*multiTradePlacement {
-		placements := make([]*multiTradePlacement, len(sellPlacements))
+	removeLastPlacement := func(sell bool) []*TradePlacement {
+		placements := make([]*TradePlacement, len(sellPlacements))
 		if sell {
 			copy(placements, sellPlacements)
 		} else {
@@ -944,23 +944,23 @@ func TestMultiTrade(t *testing.T) {
 
 	// reconfigToMorePlacements simulates a reconfiguration in which
 	// the lots allocated to the placement at index 1 is reduced by 1.
-	reconfigToLessPlacements := func(sell bool) []*multiTradePlacement {
-		placements := make([]*multiTradePlacement, len(sellPlacements))
+	reconfigToLessPlacements := func(sell bool) []*TradePlacement {
+		placements := make([]*TradePlacement, len(sellPlacements))
 		if sell {
 			copy(placements, sellPlacements)
 		} else {
 			copy(placements, buyPlacements)
 		}
-		placements[1] = &multiTradePlacement{
-			lots:             placements[1].lots - 1,
-			rate:             placements[1].rate,
-			counterTradeRate: placements[1].counterTradeRate,
+		placements[1] = &TradePlacement{
+			Lots:             placements[1].Lots - 1,
+			Rate:             placements[1].Rate,
+			CounterTradeRate: placements[1].CounterTradeRate,
 		}
 		return placements
 	}
 
 	pendingOrders := func(sell bool, baseID, quoteID uint32) map[order.OrderID]*pendingDEXOrder {
-		var placements []*multiTradePlacement
+		var placements []*TradePlacement
 		if sell {
 			placements = sellPlacements
 		} else {
@@ -977,7 +977,7 @@ func TestMultiTrade(t *testing.T) {
 				Qty:     1 * lotSize,
 				Sell:    sell,
 				ID:      orderIDs[0][:],
-				Rate:    driftToleranceEdge(placements[0].rate, true),
+				Rate:    driftToleranceEdge(placements[0].Rate, true),
 				Epoch:   currEpoch - 1,
 				BaseID:  baseID,
 				QuoteID: quoteID,
@@ -987,7 +987,7 @@ func TestMultiTrade(t *testing.T) {
 				Filled:  lotSize,
 				Sell:    sell,
 				ID:      orderIDs[1][:],
-				Rate:    driftToleranceEdge(placements[1].rate, true),
+				Rate:    driftToleranceEdge(placements[1].Rate, true),
 				Epoch:   currEpoch - 2,
 				BaseID:  baseID,
 				QuoteID: quoteID,
@@ -996,7 +996,7 @@ func TestMultiTrade(t *testing.T) {
 				Qty:     lotSize,
 				Sell:    sell,
 				ID:      orderIDs[2][:],
-				Rate:    driftToleranceEdge(placements[2].rate, false),
+				Rate:    driftToleranceEdge(placements[2].Rate, false),
 				Epoch:   currEpoch - 2,
 				BaseID:  baseID,
 				QuoteID: quoteID,
@@ -1005,7 +1005,7 @@ func TestMultiTrade(t *testing.T) {
 				Qty:     lotSize,
 				Sell:    sell,
 				ID:      orderIDs[3][:],
-				Rate:    driftToleranceEdge(placements[3].rate, true),
+				Rate:    driftToleranceEdge(placements[3].Rate, true),
 				Epoch:   currEpoch - 2,
 				BaseID:  baseID,
 				QuoteID: quoteID,
@@ -1015,19 +1015,19 @@ func TestMultiTrade(t *testing.T) {
 		toReturn := map[order.OrderID]*pendingDEXOrder{
 			orderIDs[0]: { // Should cancel, but cannot due to epoch > currEpoch - 2
 				placementIndex:   0,
-				counterTradeRate: placements[0].counterTradeRate,
+				counterTradeRate: placements[0].CounterTradeRate,
 			},
 			orderIDs[1]: {
 				placementIndex:   1,
-				counterTradeRate: placements[1].counterTradeRate,
+				counterTradeRate: placements[1].CounterTradeRate,
 			},
 			orderIDs[2]: {
 				placementIndex:   2,
-				counterTradeRate: placements[2].counterTradeRate,
+				counterTradeRate: placements[2].CounterTradeRate,
 			},
 			orderIDs[3]: {
 				placementIndex:   3,
-				counterTradeRate: placements[3].counterTradeRate,
+				counterTradeRate: placements[3].CounterTradeRate,
 			},
 		}
 
@@ -1119,12 +1119,12 @@ func TestMultiTrade(t *testing.T) {
 
 		sellDexBalances   map[uint32]uint64
 		sellCexBalances   map[uint32]uint64
-		sellPlacements    []*multiTradePlacement
+		sellPlacements    []*TradePlacement
 		sellPendingOrders map[order.OrderID]*pendingDEXOrder
 
 		buyCexBalances   map[uint32]uint64
 		buyDexBalances   map[uint32]uint64
-		buyPlacements    []*multiTradePlacement
+		buyPlacements    []*TradePlacement
 		buyPendingOrders map[order.OrderID]*pendingDEXOrder
 
 		isAccountLocker               map[uint32]bool
@@ -1152,35 +1152,35 @@ func TestMultiTrade(t *testing.T) {
 
 			// ---- Sell ----
 			sellDexBalances: map[uint32]uint64{
-				42: 4*lotSize + 4*sellFees.Max.Swap + sellFees.funding,
+				42: 4*lotSize + 4*sellFees.Max.Swap + sellFees.Funding,
 				0:  0,
 			},
 			sellCexBalances: map[uint32]uint64{
 				42: 0,
-				0: b2q(sellPlacements[0].counterTradeRate, lotSize) +
-					b2q(sellPlacements[1].counterTradeRate, 2*lotSize) +
-					b2q(sellPlacements[2].counterTradeRate, 3*lotSize) +
-					b2q(sellPlacements[3].counterTradeRate, 2*lotSize),
+				0: b2q(sellPlacements[0].CounterTradeRate, lotSize) +
+					b2q(sellPlacements[1].CounterTradeRate, 2*lotSize) +
+					b2q(sellPlacements[2].CounterTradeRate, 3*lotSize) +
+					b2q(sellPlacements[3].CounterTradeRate, 2*lotSize),
 			},
 			sellPlacements:    sellPlacements,
 			sellPendingOrders: pendingOrders(true, 42, 0),
 			expectedSellPlacements: []*core.QtyRate{
-				{Qty: lotSize, Rate: sellPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: sellPlacements[2].rate},
-				{Qty: lotSize, Rate: sellPlacements[3].rate},
+				{Qty: lotSize, Rate: sellPlacements[1].Rate},
+				{Qty: 2 * lotSize, Rate: sellPlacements[2].Rate},
+				{Qty: lotSize, Rate: sellPlacements[3].Rate},
 			},
 			expectedSellPlacementsWithDecrement: []*core.QtyRate{
-				{Qty: lotSize, Rate: sellPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: sellPlacements[2].rate},
+				{Qty: lotSize, Rate: sellPlacements[1].Rate},
+				{Qty: 2 * lotSize, Rate: sellPlacements[2].Rate},
 			},
 
 			// ---- Buy ----
 			buyDexBalances: map[uint32]uint64{
 				42: 0,
-				0: b2q(buyPlacements[1].rate, lotSize) +
-					b2q(buyPlacements[2].rate, 2*lotSize) +
-					b2q(buyPlacements[3].rate, lotSize) +
-					4*buyFees.Max.Swap + buyFees.funding,
+				0: b2q(buyPlacements[1].Rate, lotSize) +
+					b2q(buyPlacements[2].Rate, 2*lotSize) +
+					b2q(buyPlacements[3].Rate, lotSize) +
+					4*buyFees.Max.Swap + buyFees.Funding,
 			},
 			buyCexBalances: map[uint32]uint64{
 				42: 8 * lotSize,
@@ -1189,13 +1189,13 @@ func TestMultiTrade(t *testing.T) {
 			buyPlacements:    buyPlacements,
 			buyPendingOrders: pendingOrders(false, 42, 0),
 			expectedBuyPlacements: []*core.QtyRate{
-				{Qty: lotSize, Rate: buyPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: buyPlacements[2].rate},
-				{Qty: lotSize, Rate: buyPlacements[3].rate},
+				{Qty: lotSize, Rate: buyPlacements[1].Rate},
+				{Qty: 2 * lotSize, Rate: buyPlacements[2].Rate},
+				{Qty: lotSize, Rate: buyPlacements[3].Rate},
 			},
 			expectedBuyPlacementsWithDecrement: []*core.QtyRate{
-				{Qty: lotSize, Rate: buyPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: buyPlacements[2].rate},
+				{Qty: lotSize, Rate: buyPlacements[1].Rate},
+				{Qty: 2 * lotSize, Rate: buyPlacements[2].Rate},
 			},
 
 			expectedCancels:              []order.OrderID{orderIDs[2]},
@@ -1223,34 +1223,34 @@ func TestMultiTrade(t *testing.T) {
 
 			// ---- Sell ----
 			sellDexBalances: map[uint32]uint64{
-				42: 3*lotSize + 3*sellFees.Max.Swap + sellFees.funding,
+				42: 3*lotSize + 3*sellFees.Max.Swap + sellFees.Funding,
 				0:  0,
 			},
 			sellCexBalances: map[uint32]uint64{
 				42: 0,
-				0: b2q(sellPlacements[0].counterTradeRate, lotSize) +
-					b2q(sellPlacements[1].counterTradeRate, 2*lotSize) +
-					b2q(sellPlacements[2].counterTradeRate, 3*lotSize) +
-					b2q(sellPlacements[3].counterTradeRate, 2*lotSize),
+				0: b2q(sellPlacements[0].CounterTradeRate, lotSize) +
+					b2q(sellPlacements[1].CounterTradeRate, 2*lotSize) +
+					b2q(sellPlacements[2].CounterTradeRate, 3*lotSize) +
+					b2q(sellPlacements[3].CounterTradeRate, 2*lotSize),
 			},
 			sellPlacements:    reconfigToLessPlacements(true),
 			sellPendingOrders: secondPendingOrderNotFilled(true, 42, 0),
 			expectedSellPlacements: []*core.QtyRate{
 				// {Qty: lotSize, Rate: sellPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: sellPlacements[2].rate},
-				{Qty: lotSize, Rate: sellPlacements[3].rate},
+				{Qty: 2 * lotSize, Rate: sellPlacements[2].Rate},
+				{Qty: lotSize, Rate: sellPlacements[3].Rate},
 			},
 			expectedSellPlacementsWithDecrement: []*core.QtyRate{
 				// {Qty: lotSize, Rate: sellPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: sellPlacements[2].rate},
+				{Qty: 2 * lotSize, Rate: sellPlacements[2].Rate},
 			},
 
 			// ---- Buy ----
 			buyDexBalances: map[uint32]uint64{
 				42: 0,
-				0: b2q(buyPlacements[2].rate, 2*lotSize) +
-					b2q(buyPlacements[3].rate, lotSize) +
-					3*buyFees.Max.Swap + buyFees.funding,
+				0: b2q(buyPlacements[2].Rate, 2*lotSize) +
+					b2q(buyPlacements[3].Rate, lotSize) +
+					3*buyFees.Max.Swap + buyFees.Funding,
 			},
 			buyCexBalances: map[uint32]uint64{
 				42: 8 * lotSize,
@@ -1260,12 +1260,12 @@ func TestMultiTrade(t *testing.T) {
 			buyPendingOrders: secondPendingOrderNotFilled(false, 42, 0),
 			expectedBuyPlacements: []*core.QtyRate{
 				// {Qty: lotSize, Rate: buyPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: buyPlacements[2].rate},
-				{Qty: lotSize, Rate: buyPlacements[3].rate},
+				{Qty: 2 * lotSize, Rate: buyPlacements[2].Rate},
+				{Qty: lotSize, Rate: buyPlacements[3].Rate},
 			},
 			expectedBuyPlacementsWithDecrement: []*core.QtyRate{
 				// {Qty: lotSize, Rate: buyPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: buyPlacements[2].rate},
+				{Qty: 2 * lotSize, Rate: buyPlacements[2].Rate},
 			},
 
 			expectedCancels:              []order.OrderID{orderIDs[1], orderIDs[2]},
@@ -1293,32 +1293,32 @@ func TestMultiTrade(t *testing.T) {
 
 			// ---- Sell ----
 			sellDexBalances: map[uint32]uint64{
-				42: 3*lotSize + 3*sellFees.Max.Swap + sellFees.funding,
+				42: 3*lotSize + 3*sellFees.Max.Swap + sellFees.Funding,
 				0:  0,
 			},
 			sellCexBalances: map[uint32]uint64{
 				42: 0,
-				0: b2q(sellPlacements[0].counterTradeRate, lotSize) +
-					b2q(sellPlacements[1].counterTradeRate, lotSize) +
-					b2q(sellPlacements[2].counterTradeRate, 3*lotSize) +
-					b2q(sellPlacements[3].counterTradeRate, 2*lotSize),
+				0: b2q(sellPlacements[0].CounterTradeRate, lotSize) +
+					b2q(sellPlacements[1].CounterTradeRate, lotSize) +
+					b2q(sellPlacements[2].CounterTradeRate, 3*lotSize) +
+					b2q(sellPlacements[3].CounterTradeRate, 2*lotSize),
 			},
 			sellPlacements:    sellPlacements,
 			sellPendingOrders: pendingOrdersSelfMatch(true, 42, 0),
 			expectedSellPlacements: []*core.QtyRate{
-				{Qty: 2 * lotSize, Rate: sellPlacements[2].rate},
-				{Qty: lotSize, Rate: sellPlacements[3].rate},
+				{Qty: 2 * lotSize, Rate: sellPlacements[2].Rate},
+				{Qty: lotSize, Rate: sellPlacements[3].Rate},
 			},
 			expectedSellPlacementsWithDecrement: []*core.QtyRate{
-				{Qty: 2 * lotSize, Rate: sellPlacements[2].rate},
+				{Qty: 2 * lotSize, Rate: sellPlacements[2].Rate},
 			},
 
 			// ---- Buy ----
 			buyDexBalances: map[uint32]uint64{
 				42: 0,
-				0: b2q(buyPlacements[2].rate, 2*lotSize) +
-					b2q(buyPlacements[3].rate, lotSize) +
-					3*buyFees.Max.Swap + buyFees.funding,
+				0: b2q(buyPlacements[2].Rate, 2*lotSize) +
+					b2q(buyPlacements[3].Rate, lotSize) +
+					3*buyFees.Max.Swap + buyFees.Funding,
 			},
 			buyCexBalances: map[uint32]uint64{
 				42: 7 * lotSize,
@@ -1327,11 +1327,11 @@ func TestMultiTrade(t *testing.T) {
 			buyPlacements:    buyPlacements,
 			buyPendingOrders: pendingOrdersSelfMatch(false, 42, 0),
 			expectedBuyPlacements: []*core.QtyRate{
-				{Qty: 2 * lotSize, Rate: buyPlacements[2].rate},
-				{Qty: lotSize, Rate: buyPlacements[3].rate},
+				{Qty: 2 * lotSize, Rate: buyPlacements[2].Rate},
+				{Qty: lotSize, Rate: buyPlacements[3].Rate},
 			},
 			expectedBuyPlacementsWithDecrement: []*core.QtyRate{
-				{Qty: 2 * lotSize, Rate: buyPlacements[2].rate},
+				{Qty: 2 * lotSize, Rate: buyPlacements[2].Rate},
 			},
 
 			expectedCancels:              []order.OrderID{orderIDs[2]},
@@ -1356,33 +1356,33 @@ func TestMultiTrade(t *testing.T) {
 			quoteID: 0,
 			// ---- Sell ----
 			sellDexBalances: map[uint32]uint64{
-				42: 3*lotSize + 3*sellFees.Max.Swap + sellFees.funding,
+				42: 3*lotSize + 3*sellFees.Max.Swap + sellFees.Funding,
 				0:  0,
 			},
 			sellCexBalances: map[uint32]uint64{
 				42: 0,
-				0: b2q(sellPlacements[0].counterTradeRate, lotSize) +
-					b2q(sellPlacements[1].counterTradeRate, 2*lotSize) +
-					b2q(sellPlacements[2].counterTradeRate, 3*lotSize) +
-					b2q(sellPlacements[3].counterTradeRate, lotSize),
+				0: b2q(sellPlacements[0].CounterTradeRate, lotSize) +
+					b2q(sellPlacements[1].CounterTradeRate, 2*lotSize) +
+					b2q(sellPlacements[2].CounterTradeRate, 3*lotSize) +
+					b2q(sellPlacements[3].CounterTradeRate, lotSize),
 			},
 			sellPlacements:    cancelLastPlacement(true),
 			sellPendingOrders: pendingOrders(true, 42, 0),
 			expectedSellPlacements: []*core.QtyRate{
-				{Qty: lotSize, Rate: sellPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: sellPlacements[2].rate},
+				{Qty: lotSize, Rate: sellPlacements[1].Rate},
+				{Qty: 2 * lotSize, Rate: sellPlacements[2].Rate},
 			},
 			expectedSellPlacementsWithDecrement: []*core.QtyRate{
-				{Qty: lotSize, Rate: sellPlacements[1].rate},
-				{Qty: lotSize, Rate: sellPlacements[2].rate},
+				{Qty: lotSize, Rate: sellPlacements[1].Rate},
+				{Qty: lotSize, Rate: sellPlacements[2].Rate},
 			},
 
 			// ---- Buy ----
 			buyDexBalances: map[uint32]uint64{
 				42: 0,
-				0: b2q(buyPlacements[1].rate, lotSize) +
-					b2q(buyPlacements[2].rate, 2*lotSize) +
-					3*buyFees.Max.Swap + buyFees.funding,
+				0: b2q(buyPlacements[1].Rate, lotSize) +
+					b2q(buyPlacements[2].Rate, 2*lotSize) +
+					3*buyFees.Max.Swap + buyFees.Funding,
 			},
 			buyCexBalances: map[uint32]uint64{
 				42: 7 * lotSize,
@@ -1391,12 +1391,12 @@ func TestMultiTrade(t *testing.T) {
 			buyPlacements:    cancelLastPlacement(false),
 			buyPendingOrders: pendingOrders(false, 42, 0),
 			expectedBuyPlacements: []*core.QtyRate{
-				{Qty: lotSize, Rate: buyPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: buyPlacements[2].rate},
+				{Qty: lotSize, Rate: buyPlacements[1].Rate},
+				{Qty: 2 * lotSize, Rate: buyPlacements[2].Rate},
 			},
 			expectedBuyPlacementsWithDecrement: []*core.QtyRate{
-				{Qty: lotSize, Rate: buyPlacements[1].rate},
-				{Qty: lotSize, Rate: buyPlacements[2].rate},
+				{Qty: lotSize, Rate: buyPlacements[1].Rate},
+				{Qty: lotSize, Rate: buyPlacements[2].Rate},
 			},
 
 			expectedCancels:              []order.OrderID{orderIDs[3], orderIDs[2]},
@@ -1422,33 +1422,33 @@ func TestMultiTrade(t *testing.T) {
 			quoteID: 0,
 			// ---- Sell ----
 			sellDexBalances: map[uint32]uint64{
-				42: 3*lotSize + 3*sellFees.Max.Swap + sellFees.funding,
+				42: 3*lotSize + 3*sellFees.Max.Swap + sellFees.Funding,
 				0:  0,
 			},
 			sellCexBalances: map[uint32]uint64{
 				42: 0,
-				0: b2q(sellPlacements[0].counterTradeRate, lotSize) +
-					b2q(sellPlacements[1].counterTradeRate, 2*lotSize) +
-					b2q(sellPlacements[2].counterTradeRate, 3*lotSize) +
-					b2q(sellPlacements[3].counterTradeRate, lotSize),
+				0: b2q(sellPlacements[0].CounterTradeRate, lotSize) +
+					b2q(sellPlacements[1].CounterTradeRate, 2*lotSize) +
+					b2q(sellPlacements[2].CounterTradeRate, 3*lotSize) +
+					b2q(sellPlacements[3].CounterTradeRate, lotSize),
 			},
 			sellPlacements:    removeLastPlacement(true),
 			sellPendingOrders: pendingOrders(true, 42, 0),
 			expectedSellPlacements: []*core.QtyRate{
-				{Qty: lotSize, Rate: sellPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: sellPlacements[2].rate},
+				{Qty: lotSize, Rate: sellPlacements[1].Rate},
+				{Qty: 2 * lotSize, Rate: sellPlacements[2].Rate},
 			},
 			expectedSellPlacementsWithDecrement: []*core.QtyRate{
-				{Qty: lotSize, Rate: sellPlacements[1].rate},
-				{Qty: lotSize, Rate: sellPlacements[2].rate},
+				{Qty: lotSize, Rate: sellPlacements[1].Rate},
+				{Qty: lotSize, Rate: sellPlacements[2].Rate},
 			},
 
 			// ---- Buy ----
 			buyDexBalances: map[uint32]uint64{
 				42: 0,
-				0: b2q(buyPlacements[1].rate, lotSize) +
-					b2q(buyPlacements[2].rate, 2*lotSize) +
-					3*buyFees.Max.Swap + buyFees.funding,
+				0: b2q(buyPlacements[1].Rate, lotSize) +
+					b2q(buyPlacements[2].Rate, 2*lotSize) +
+					3*buyFees.Max.Swap + buyFees.Funding,
 			},
 			buyCexBalances: map[uint32]uint64{
 				42: 7 * lotSize,
@@ -1457,12 +1457,12 @@ func TestMultiTrade(t *testing.T) {
 			buyPlacements:    removeLastPlacement(false),
 			buyPendingOrders: pendingOrders(false, 42, 0),
 			expectedBuyPlacements: []*core.QtyRate{
-				{Qty: lotSize, Rate: buyPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: buyPlacements[2].rate},
+				{Qty: lotSize, Rate: buyPlacements[1].Rate},
+				{Qty: 2 * lotSize, Rate: buyPlacements[2].Rate},
 			},
 			expectedBuyPlacementsWithDecrement: []*core.QtyRate{
-				{Qty: lotSize, Rate: buyPlacements[1].rate},
-				{Qty: lotSize, Rate: buyPlacements[2].rate},
+				{Qty: lotSize, Rate: buyPlacements[1].Rate},
+				{Qty: lotSize, Rate: buyPlacements[2].Rate},
 			},
 
 			expectedCancels:              []order.OrderID{orderIDs[3], orderIDs[2]},
@@ -1494,35 +1494,35 @@ func TestMultiTrade(t *testing.T) {
 			// ---- Sell ----
 			sellDexBalances: map[uint32]uint64{
 				966001: 4 * lotSize,
-				966:    4*(sellFees.Max.Swap+sellFees.Max.Refund) + sellFees.funding,
+				966:    4*(sellFees.Max.Swap+sellFees.Max.Refund) + sellFees.Funding,
 				60:     4 * sellFees.Max.Redeem,
 			},
 			sellCexBalances: map[uint32]uint64{
 				96601: 0,
-				60: b2q(sellPlacements[0].counterTradeRate, lotSize) +
-					b2q(sellPlacements[1].counterTradeRate, 2*lotSize) +
-					b2q(sellPlacements[2].counterTradeRate, 3*lotSize) +
-					b2q(sellPlacements[3].counterTradeRate, 2*lotSize),
+				60: b2q(sellPlacements[0].CounterTradeRate, lotSize) +
+					b2q(sellPlacements[1].CounterTradeRate, 2*lotSize) +
+					b2q(sellPlacements[2].CounterTradeRate, 3*lotSize) +
+					b2q(sellPlacements[3].CounterTradeRate, 2*lotSize),
 			},
 			sellPlacements:    sellPlacements,
 			sellPendingOrders: pendingOrders(true, 966001, 60),
 			expectedSellPlacements: []*core.QtyRate{
-				{Qty: lotSize, Rate: sellPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: sellPlacements[2].rate},
-				{Qty: lotSize, Rate: sellPlacements[3].rate},
+				{Qty: lotSize, Rate: sellPlacements[1].Rate},
+				{Qty: 2 * lotSize, Rate: sellPlacements[2].Rate},
+				{Qty: lotSize, Rate: sellPlacements[3].Rate},
 			},
 			expectedSellPlacementsWithDecrement: []*core.QtyRate{
-				{Qty: lotSize, Rate: sellPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: sellPlacements[2].rate},
+				{Qty: lotSize, Rate: sellPlacements[1].Rate},
+				{Qty: 2 * lotSize, Rate: sellPlacements[2].Rate},
 			},
 
 			// ---- Buy ----
 			buyDexBalances: map[uint32]uint64{
 				966: 4 * buyFees.Max.Redeem,
-				60: b2q(buyPlacements[1].rate, lotSize) +
-					b2q(buyPlacements[2].rate, 2*lotSize) +
-					b2q(buyPlacements[3].rate, lotSize) +
-					4*buyFees.Max.Swap + 4*buyFees.Max.Refund + buyFees.funding,
+				60: b2q(buyPlacements[1].Rate, lotSize) +
+					b2q(buyPlacements[2].Rate, 2*lotSize) +
+					b2q(buyPlacements[3].Rate, lotSize) +
+					4*buyFees.Max.Swap + 4*buyFees.Max.Refund + buyFees.Funding,
 			},
 			buyCexBalances: map[uint32]uint64{
 				966001: 8 * lotSize,
@@ -1531,13 +1531,13 @@ func TestMultiTrade(t *testing.T) {
 			buyPlacements:    buyPlacements,
 			buyPendingOrders: pendingOrders(false, 966001, 60),
 			expectedBuyPlacements: []*core.QtyRate{
-				{Qty: lotSize, Rate: buyPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: buyPlacements[2].rate},
-				{Qty: lotSize, Rate: buyPlacements[3].rate},
+				{Qty: lotSize, Rate: buyPlacements[1].Rate},
+				{Qty: 2 * lotSize, Rate: buyPlacements[2].Rate},
+				{Qty: lotSize, Rate: buyPlacements[3].Rate},
 			},
 			expectedBuyPlacementsWithDecrement: []*core.QtyRate{
-				{Qty: lotSize, Rate: buyPlacements[1].rate},
-				{Qty: 2 * lotSize, Rate: buyPlacements[2].rate},
+				{Qty: lotSize, Rate: buyPlacements[1].Rate},
+				{Qty: 2 * lotSize, Rate: buyPlacements[2].Rate},
 			},
 
 			expectedCancels:              []order.OrderID{orderIDs[2]},
@@ -1613,13 +1613,13 @@ func TestMultiTrade(t *testing.T) {
 					adaptor.buyFees = buyFees
 					adaptor.sellFees = sellFees
 
-					var placements []*multiTradePlacement
+					var placements []*TradePlacement
 					if sell {
 						placements = test.sellPlacements
 					} else {
 						placements = test.buyPlacements
 					}
-					res := adaptor.multiTrade(placements, sell, driftTolerance, currEpoch)
+					res, _ := adaptor.multiTrade(placements, sell, driftTolerance, currEpoch)
 
 					expectedOrderIDs := test.expectedOrderIDs
 					if decrement {
@@ -1813,7 +1813,7 @@ func TestDEXTrade(t *testing.T) {
 		baseID             uint32
 		quoteID            uint32
 		sell               bool
-		placements         []*multiTradePlacement
+		placements         []*TradePlacement
 		initialLockedFunds []*orderLockedFunds
 
 		postTradeBalances  map[uint32]*BotBalance
@@ -1839,9 +1839,9 @@ func TestDEXTrade(t *testing.T) {
 			sell:    true,
 			baseID:  42,
 			quoteID: 0,
-			placements: []*multiTradePlacement{
-				{lots: 5, rate: rate1},
-				{lots: 5, rate: rate2},
+			placements: []*TradePlacement{
+				{Lots: 5, Rate: rate1},
+				{Lots: 5, Rate: rate2},
 			},
 			initialLockedFunds: []*orderLockedFunds{
 				newOrderLockedFunds(orderIDs[0], basePerLot*5, 0, 0, 0),
@@ -1970,9 +1970,9 @@ func TestDEXTrade(t *testing.T) {
 			},
 			baseID:  42,
 			quoteID: 0,
-			placements: []*multiTradePlacement{
-				{lots: 5, rate: rate1},
-				{lots: 5, rate: rate2},
+			placements: []*TradePlacement{
+				{Lots: 5, Rate: rate1},
+				{Lots: 5, Rate: rate2},
 			},
 			initialLockedFunds: []*orderLockedFunds{
 				newOrderLockedFunds(orderIDs[0], 5*quotePerLot1, 0, 0, 0),
@@ -2108,9 +2108,9 @@ func TestDEXTrade(t *testing.T) {
 			sell:    true,
 			baseID:  60,
 			quoteID: 966001,
-			placements: []*multiTradePlacement{
-				{lots: 5, rate: rate1},
-				{lots: 5, rate: rate2},
+			placements: []*TradePlacement{
+				{Lots: 5, Rate: rate1},
+				{Lots: 5, Rate: rate2},
 			},
 			initialLockedFunds: []*orderLockedFunds{
 				newOrderLockedFunds(orderIDs[1], 5*basePerLot, 0, 5*redeemFees, 5*refundFees),
@@ -2251,9 +2251,9 @@ func TestDEXTrade(t *testing.T) {
 			},
 			baseID:  60,
 			quoteID: 966001,
-			placements: []*multiTradePlacement{
-				{lots: 5, rate: rate1},
-				{lots: 5, rate: rate2},
+			placements: []*TradePlacement{
+				{Lots: 5, Rate: rate1},
+				{Lots: 5, Rate: rate2},
 			},
 			initialLockedFunds: []*orderLockedFunds{
 				newOrderLockedFunds(orderIDs[0], 5*quoteLot1, 5*buyFees, 5*redeemFees, 5*refundFees),
@@ -2405,8 +2405,8 @@ func TestDEXTrade(t *testing.T) {
 				ParentAssetLockedAmt: o.parentAssetLockedAmt,
 				RedeemLockedAmt:      o.redeemLockedAmt,
 				RefundLockedAmt:      o.refundLockedAmt,
-				Rate:                 test.placements[i].rate,
-				Qty:                  test.placements[i].lots * lotSize,
+				Rate:                 test.placements[i].Rate,
+				Qty:                  test.placements[i].Lots * lotSize,
 			})
 		}
 		tCore.multiTradeResult = multiTradeResult
@@ -2436,7 +2436,7 @@ func TestDEXTrade(t *testing.T) {
 			t.Fatalf("%s: Connect error: %v", test.name, err)
 		}
 
-		orders := adaptor.multiTrade(test.placements, test.sell, 0.01, 100)
+		orders, _ := adaptor.multiTrade(test.placements, test.sell, 0.01, 100)
 		if len(orders) == 0 {
 			t.Fatalf("%s: multi trade did not place orders", test.name)
 		}
@@ -2472,8 +2472,8 @@ func TestDEXTrade(t *testing.T) {
 				ID: uint64(i + 1),
 				DEXOrderEvent: &DEXOrderEvent{
 					ID:           o.id.String(),
-					Rate:         trade.rate,
-					Qty:          trade.lots * lotSize,
+					Rate:         trade.Rate,
+					Qty:          trade.Lots * lotSize,
 					Sell:         test.sell,
 					Transactions: []*asset.WalletTransaction{},
 				},
@@ -3681,8 +3681,8 @@ func TestCEXTrade(t *testing.T) {
 func TestOrderFeesInUnits(t *testing.T) {
 	type test struct {
 		name      string
-		buyFees   *orderFees
-		sellFees  *orderFees
+		buyFees   *OrderFees
+		sellFees  *OrderFees
 		rate      uint64
 		market    *MarketWithHost
 		fiatRates map[uint32]float64

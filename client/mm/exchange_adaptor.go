@@ -35,30 +35,36 @@ type BotBalance struct {
 	Reserved  uint64 `json:"reserved"`
 }
 
-// multiTradePlacement represents a placement to be made on a DEX order book
+// TradePlacement represents a placement to be made on a DEX order book
 // using the MultiTrade function. A non-zero counterTradeRate indicates that
 // the bot intends to make a counter-trade on a CEX when matches are made on
 // the DEX, and this must be taken into consideration in combination with the
 // bot's balance on the CEX when deciding how many lots to place. This
 // information is also used when considering deposits and withdrawals.
-type multiTradePlacement struct {
-	lots             uint64
-	rate             uint64
-	counterTradeRate uint64
+type TradePlacement struct {
+	Lots             uint64            `json:"lots"`
+	Rate             uint64            `json:"rate"`
+	CounterTradeRate uint64            `json:"counterTradeRate"`
+	RequiredDEX      map[uint32]uint64 `json:"requiredDex"`
+	RequiredCEX      uint64            `json:"requiredCex"`
+	OrderedLots      uint64            `json:"orderedLots"`
+	UsedDEX          map[uint32]uint64 `json:"usedDex"`
+	UsedCEX          uint64            `json:"usedCex"`
+	Order            *core.Order       `json:"order"`
 }
 
-// orderFees represents the fees that will be required for a single lot of a
+// OrderFees represents the fees that will be required for a single lot of a
 // dex order.
-type orderFees struct {
+type OrderFees struct {
 	*LotFeeRange
-	funding uint64
-	// bookingFeesPerLot is the amount of fee asset that needs to be reserved
+	Funding uint64 `json:"funding"`
+	// BookingFeesPerLot is the amount of fee asset that needs to be reserved
 	// for fees, per ordered lot. For all assets, this will include
 	// LotFeeRange.Max.Swap. For non-token EVM assets (eth, matic) Max.Refund
 	// will be added. If the asset is the parent chain of a token counter-asset,
 	// Max.Redeem is added. This is a commonly needed sum in various validation
 	// and optimization functions.
-	bookingFeesPerLot uint64
+	BookingFeesPerLot uint64 `json:"bookingFeesPerLot"`
 }
 
 // botCoreAdaptor is an interface used by bots to access DEX related
@@ -433,8 +439,8 @@ type unifiedExchangeAdaptor struct {
 	subscriptionID    *int
 
 	feesMtx  sync.RWMutex
-	buyFees  *orderFees
-	sellFees *orderFees
+	buyFees  *OrderFees
+	sellFees *OrderFees
 
 	startTime  atomic.Int64
 	eventLogID atomic.Uint64
@@ -626,9 +632,9 @@ func (u *unifiedExchangeAdaptor) SufficientBalanceForDEXTrade(rate, qty uint64, 
 	if err != nil {
 		return false, err
 	}
-	fees, fundingFees := buyFees.Max, buyFees.funding
+	fees, fundingFees := buyFees.Max, buyFees.Funding
 	if sell {
-		fees, fundingFees = sellFees.Max, sellFees.funding
+		fees, fundingFees = sellFees.Max, sellFees.Funding
 	}
 
 	if balances[fromFeeAsset] < fundingFees {
@@ -1013,6 +1019,164 @@ func (u *unifiedExchangeAdaptor) placeMultiTrade(placements []*dexOrderInfo, sel
 	return orders, nil
 }
 
+type OrderReport struct {
+	FromID            uint32                 `json:"fromID"`
+	FromFeeID         uint32                 `json:"fromFeeID"`
+	ToID              uint32                 `json:"toID"`
+	ToFeeID           uint32                 `json:"toFeeID"`
+	Sell              bool                   `json:"sell"`
+	Fees              *OrderFees             `json:"buyFees"`
+	AvailableDEXBals  map[uint32]*BotBalance `json:"availableDexBals"`
+	RequiredDEXBals   map[uint32]uint64      `json:"requiredDexBals"`
+	RemainingBalances map[uint32]uint64      `json:"remainingBalances"`
+	AvailableCEXBal   *BotBalance            `json:"availableCexBal"`
+	RequiredCEXBal    uint64                 `json:"requiredCexBal"`
+	RemainingCEXBal   uint64                 `json:"remainingCexBal"`
+	Placements        []*TradePlacement      `json:"placements"`
+	LotsStanding      uint64                 `json:"lotsStanding"`
+	// RequiredPlacements is a copy of placements where the lots field is
+	// adjusted to take into account pending orders that are already on
+	// the books.
+	RequiredPlacements []*TradePlacement `json:"requiredPlacements"`
+	Cancels            []*core.Order     `json:"cancels"`
+	OrderError         string            `json:"orderError"`
+}
+
+func (u *unifiedExchangeAdaptor) newOrderReport(sell bool, placements []*TradePlacement) *OrderReport {
+	buyFees, sellFees, err := u.orderFees()
+	if err != nil {
+		u.log.Errorf("multiTrade: error getting order fees: %v", err)
+		return nil
+	}
+	fees := buyFees
+	if sell {
+		fees = sellFees
+	}
+	requiredPlacements := make([]*TradePlacement, len(placements))
+	for i, p := range placements {
+		pCopy := *p
+		requiredPlacements[i] = &pCopy
+	}
+	remainingBalances := make(map[uint32]uint64, 2)
+	availableBalances := make(map[uint32]*BotBalance, 2)
+	// First, determine the amount of balances the bot has available to place
+	// DEX trades taking into account dexReserves.
+	fromID, fromFeeID, toID, toFeeID := orderAssets(u.baseID, u.quoteID, sell)
+	for _, assetID := range []uint32{fromID, fromFeeID, toID, toFeeID} {
+		if _, found := availableBalances[assetID]; !found {
+			bal := u.DEXBalance(assetID)
+			availableBalances[assetID] = bal
+			remainingBalances[assetID] = bal.Available
+		}
+	}
+	// If the placements include a counterTradeRate, the CEX balance must also
+	// be taken into account to determine how many trades can be placed.
+	var remainingCEXBal uint64
+	var availableCEXBal *BotBalance
+	if placements[0].CounterTradeRate > 0 {
+		availableCEXBal = u.CEXBalance(toID)
+		remainingCEXBal = availableCEXBal.Available
+	}
+	return &OrderReport{
+		FromID:             fromID,
+		FromFeeID:          fromFeeID,
+		ToID:               toID,
+		ToFeeID:            toFeeID,
+		Sell:               sell,
+		Fees:               fees,
+		AvailableDEXBals:   utils.CopyMap(availableBalances),
+		RequiredDEXBals:    make(map[uint32]uint64, 2), // Filled in by multiTrade
+		RemainingBalances:  remainingBalances,
+		AvailableCEXBal:    availableCEXBal,
+		RemainingCEXBal:    remainingCEXBal,
+		RequiredPlacements: requiredPlacements,
+		Cancels:            make([]*core.Order, 0, len(placements)),
+	}
+}
+
+func (u *unifiedExchangeAdaptor) logOrderReport(or *OrderReport) {
+	if u.log.Level() != dex.LevelTrace {
+		return
+	}
+
+	fiatRates := u.fiatRates.Load().(map[uint32]float64)
+	uis := make(map[uint32]*dex.UnitInfo, 2)
+	for _, assetID := range []uint32{or.FromID, or.ToID, or.FromFeeID, or.ToFeeID} {
+		if _, found := fiatRates[assetID]; !found {
+			u.log.Error("Cannot log order report because fiat rate info for %d is missing", assetID)
+			return
+		}
+		if _, found := uis[assetID]; found {
+			continue
+		}
+		ui, err := asset.UnitInfo(assetID)
+		if err != nil {
+			u.log.Error("Cannot log order report because unit info for %d is missing", assetID)
+			return
+		}
+		uis[assetID] = &ui
+	}
+
+	fiatValue := func(assetID uint32, v uint64) float64 {
+		return float64(v) / float64(uis[assetID].Conventional.ConversionFactor) * fiatRates[assetID]
+	}
+
+	var lotsNeeded, lotsOrdered uint64
+	var usedUSD, overLockedUSD float64
+	lockedUSD := fiatValue(or.ToID, or.AvailableCEXBal.Pending+or.AvailableCEXBal.Locked)
+	for _, p := range or.RequiredPlacements {
+		lotsNeeded += p.Lots
+		lotsOrdered += p.OrderedLots
+		if p.Order != nil {
+			var used float64
+			for assetID, v := range p.UsedDEX {
+				used += fiatValue(assetID, v)
+			}
+			// usedUSD += fiatValue(or.ToID, p.UsedCEX)
+			locked := fiatValue(or.FromID, p.Order.LockedAmt)
+			locked += fiatValue(or.FromFeeID, p.Order.ParentAssetLockedAmt)
+			locked += fiatValue(or.ToFeeID, p.Order.RedeemLockedAmt)
+			locked += fiatValue(or.FromFeeID, p.Order.RefundLockedAmt)
+			usedUSD += used
+			overLockedUSD += locked - used
+		}
+	}
+
+	dexBals := make([]string, 0, 2)
+	requiredUSD := fiatValue(or.ToID, or.RequiredCEXBal)
+	for assetID, req := range or.RequiredDEXBals {
+		requiredUSD += fiatValue(assetID, req)
+		ui := uis[assetID]
+		bal := or.AvailableDEXBals[assetID]
+		pct := float64(bal.Available) / float64(req) * 100
+		dexBals = append(dexBals, fmt.Sprintf(
+			"%s: %s/%s(%.2f%%)/%s", ui.Conventional.Unit, ui.FormatAtoms(req), ui.FormatAtoms(bal.Available), pct, ui.FormatAtoms(bal.Pending+bal.Locked),
+		))
+	}
+	availableUSD := fiatValue(or.ToID, or.AvailableCEXBal.Available)
+	for assetID, b := range or.AvailableDEXBals {
+		availableUSD += fiatValue(assetID, b.Available)
+	}
+
+	var lotsCanceled uint64
+	for _, o := range or.Cancels {
+		lotsCanceled += (o.Qty - o.Filled) / u.lotSize
+	}
+
+	u.log.Tracef(
+		"Summary for %s %s placements: %d lots standing, %d lots needed, %d lots ordered, %d lots canceled, %.2f USD available, "+
+			"%.2f USD required, %.2f USD locked, %.2f USD over-locked",
+		u.mwh, sellStr(or.Sell), or.LotsStanding, lotsNeeded, lotsOrdered, lotsCanceled, availableUSD, requiredUSD, lockedUSD,
+	)
+	toUI := uis[or.ToID]
+	dexPct := float64(or.AvailableCEXBal.Available) / float64(or.RequiredCEXBal) * 100
+	u.log.Tracef(
+		"Balances (r/a/l): dex: %s, cex: %s: %s/%s(%.2f%%)/%s",
+		dexBals, toUI.Conventional.Unit, toUI.FormatAtoms(or.AvailableCEXBal.Available),
+		toUI.FormatAtoms(or.RequiredCEXBal), dexPct, toUI.FormatAtoms(or.AvailableCEXBal.Locked+or.AvailableCEXBal.Reserved),
+	)
+}
+
 // MultiTrade places multiple orders on the DEX order book. The placements
 // arguments does not represent the trades that should be placed at this time,
 // but rather the amount of lots that the caller expects consistently have on
@@ -1041,48 +1205,27 @@ func (u *unifiedExchangeAdaptor) placeMultiTrade(placements []*dexOrderInfo, sel
 // enough balance to place all of the orders, the lower priority trades that
 // were made in previous calls will be cancelled.
 func (u *unifiedExchangeAdaptor) multiTrade(
-	placements []*multiTradePlacement,
+	placements []*TradePlacement,
 	sell bool,
 	driftTolerance float64,
 	currEpoch uint64,
-) map[order.OrderID]*dexOrderInfo {
+) (_ map[order.OrderID]*dexOrderInfo, or *OrderReport) {
+	or = u.newOrderReport(sell, placements)
+	defer u.logOrderReport(or)
+
 	if len(placements) == 0 {
-		return nil
-	}
-	buyFees, sellFees, err := u.orderFees()
-	if err != nil {
-		u.log.Errorf("multiTrade: error getting order fees: %v", err)
-		return nil
+		return
 	}
 
-	fromID, fromFeeID, toID, toFeeID := orderAssets(u.baseID, u.quoteID, sell)
-	fees, fundingFees := buyFees.Max, buyFees.funding
-	if sell {
-		fees, fundingFees = sellFees.Max, sellFees.funding
-	}
+	fees, remainingBalances := or.Fees, or.RemainingBalances
+	fromFeeID, requiredPlacements := or.FromFeeID, or.RequiredPlacements
 
-	// First, determine the amount of balances the bot has available to place
-	// DEX trades taking into account dexReserves.
-	remainingBalances := map[uint32]uint64{}
-	for _, assetID := range []uint32{fromID, fromFeeID, toID, toFeeID} {
-		if _, found := remainingBalances[assetID]; !found {
-			remainingBalances[assetID] = u.DEXBalance(assetID).Available
-		}
-	}
-	if remainingBalances[fromFeeID] < fundingFees {
+	if remainingBalances[fromFeeID] < fees.Funding {
 		u.log.Debugf("multiTrade: insufficient balance for funding fees. required: %d, have: %d",
-			fundingFees, remainingBalances[fromFeeID])
-		return nil
+			fees.Funding, remainingBalances[fromFeeID])
+		return
 	}
-	remainingBalances[fromFeeID] -= fundingFees
-
-	// If the placements include a counterTradeRate, the CEX balance must also
-	// be taken into account to determine how many trades can be placed.
-	accountForCEXBal := placements[0].counterTradeRate > 0
-	var remainingCEXBal uint64
-	if accountForCEXBal {
-		remainingCEXBal = u.CEXBalance(toID).Available
-	}
+	remainingBalances[fromFeeID] -= fees.Funding
 
 	cancels := make([]dex.Bytes, 0, len(placements))
 	addCancel := func(o *core.Order) {
@@ -1090,27 +1233,21 @@ func (u *unifiedExchangeAdaptor) multiTrade(
 			u.log.Debugf("multiTrade: skipping cancel not past free cancel threshold")
 			return
 		}
+		or.Cancels = append(or.Cancels, o)
 		cancels = append(cancels, o.ID)
 	}
 
-	pendingOrders := u.groupedBookedOrders(sell)
-
-	// requiredPlacements is a copy of placements where the lots field is
-	// adjusted to take into account pending orders that are already on
-	// the books.
-	requiredPlacements := make([]*multiTradePlacement, 0, len(placements))
 	// keptOrders is a list of pending orders that are not being cancelled, in
 	// decreasing order of placementIndex. If the bot doesn't have enough
 	// balance to place an order with a higher priority (lower placementIndex)
 	// then the lower priority orders in this list will be cancelled.
 	keptOrders := make([]*pendingDEXOrder, 0, len(placements))
-	for _, p := range placements {
-		pCopy := *p
-		requiredPlacements = append(requiredPlacements, &pCopy)
-	}
-	for _, groupedOrders := range pendingOrders {
+
+	for _, groupedOrders := range u.groupedBookedOrders(sell) {
 		for _, o := range groupedOrders {
 			order := o.currentState().order
+			lotsRemaining := (order.Qty - order.Filled) / u.lotSize
+			or.LotsStanding += lotsRemaining
 			if o.placementIndex >= uint64(len(requiredPlacements)) {
 				// This will happen if there is a reconfig in which there are
 				// now less placements than before.
@@ -1118,19 +1255,19 @@ func (u *unifiedExchangeAdaptor) multiTrade(
 				continue
 			}
 
-			mustCancel := !withinTolerance(order.Rate, placements[o.placementIndex].rate, driftTolerance)
-			if requiredPlacements[o.placementIndex].lots >= (order.Qty-order.Filled)/u.lotSize {
-				requiredPlacements[o.placementIndex].lots -= (order.Qty - order.Filled) / u.lotSize
+			mustCancel := !withinTolerance(order.Rate, placements[o.placementIndex].Rate, driftTolerance)
+			if requiredPlacements[o.placementIndex].Lots >= lotsRemaining {
+				requiredPlacements[o.placementIndex].Lots -= lotsRemaining
 			} else {
 				// This will happen if there is a reconfig in which this
 				// placement index now requires less lots than before.
 				mustCancel = true
-				requiredPlacements[o.placementIndex].lots = 0
+				requiredPlacements[o.placementIndex].Lots = 0
 			}
 
 			if mustCancel {
 				u.log.Tracef("%s cancel with order rate = %s, placement rate = %s, drift tolerance = %.4f%%",
-					u.mwh, u.fmtRate(order.Rate), u.fmtRate(placements[o.placementIndex].rate), driftTolerance*100,
+					u.mwh, u.fmtRate(order.Rate), u.fmtRate(placements[o.placementIndex].Rate), driftTolerance*100,
 				)
 				addCancel(order)
 			} else {
@@ -1142,20 +1279,21 @@ func (u *unifiedExchangeAdaptor) multiTrade(
 	rateCausesSelfMatch := u.rateCausesSelfMatchFunc(sell)
 
 	fundingReq := func(rate, lots, counterTradeRate uint64) (dexReq map[uint32]uint64, cexReq uint64) {
+		fromID, fromFeeID, toID, toFeeID := orderAssets(u.baseID, u.quoteID, sell)
 		qty := u.lotSize * lots
 		if !sell {
 			qty = calc.BaseToQuote(rate, qty)
 		}
 		dexReq = make(map[uint32]uint64)
 		dexReq[fromID] += qty
-		dexReq[fromFeeID] += fees.Swap * lots
+		dexReq[fromFeeID] += fees.Max.Swap * lots
 		if u.isAccountLocker(fromID) {
-			dexReq[fromFeeID] += fees.Refund * lots
+			dexReq[fromFeeID] += fees.Max.Refund * lots
 		}
 		if u.isAccountLocker(toID) {
-			dexReq[toFeeID] += fees.Redeem * lots
+			dexReq[toFeeID] += fees.Max.Redeem * lots
 		}
-		if accountForCEXBal {
+		if counterTradeRate > 0 {
 			if sell {
 				cexReq = calc.BaseToQuote(counterTradeRate, u.lotSize*lots)
 			} else {
@@ -1172,50 +1310,57 @@ func (u *unifiedExchangeAdaptor) multiTrade(
 				return false
 			}
 		}
-		return remainingCEXBal >= cexReq
+		return or.RemainingCEXBal >= cexReq
 	}
 
 	orderInfos := make([]*dexOrderInfo, 0, len(requiredPlacements))
 
 	for i, placement := range requiredPlacements {
-		if placement.lots == 0 {
+		if placement.Lots == 0 {
 			continue
 		}
 
-		if rateCausesSelfMatch(placement.rate) {
-			u.log.Warnf("multiTrade: rate %d causes self match. Placements should be farther from mid-gap.", placement.rate)
+		placement.RequiredDEX, placement.RequiredCEX = fundingReq(placement.Rate, placement.Lots, placement.CounterTradeRate)
+		or.RequiredCEXBal += placement.RequiredCEX
+		for assetID, req := range placement.RequiredDEX {
+			or.RequiredDEXBals[assetID] += req
+		}
+
+		if rateCausesSelfMatch(placement.Rate) {
+			u.log.Warnf("multiTrade: rate %d causes self match. Placements should be farther from mid-gap.", placement.Rate)
 			continue
 		}
 
-		searchN := int(placement.lots) + 1
+		searchN := int(placement.Lots) + 1
 		lotsPlus1 := sort.Search(searchN, func(lotsi int) bool {
-			return !canAffordLots(placement.rate, uint64(lotsi), placement.counterTradeRate)
+			return !canAffordLots(placement.Rate, uint64(lotsi), placement.CounterTradeRate)
 		})
 
 		var lotsToPlace uint64
 		if lotsPlus1 > 1 {
 			lotsToPlace = uint64(lotsPlus1) - 1
-			dexReq, cexReq := fundingReq(placement.rate, lotsToPlace, placement.counterTradeRate)
-			for assetID, v := range dexReq {
+			placement.UsedDEX, placement.UsedCEX = fundingReq(placement.Rate, lotsToPlace, placement.CounterTradeRate)
+			for assetID, v := range placement.UsedDEX {
 				remainingBalances[assetID] -= v
 			}
-			remainingCEXBal -= cexReq
+			or.RemainingCEXBal -= placement.UsedCEX
 
 			orderInfos = append(orderInfos, &dexOrderInfo{
 				placementIndex:   uint64(i),
-				counterTradeRate: placement.counterTradeRate,
+				counterTradeRate: placement.CounterTradeRate,
 				placement: &core.QtyRate{
 					Qty:  lotsToPlace * u.lotSize,
-					Rate: placement.rate,
+					Rate: placement.Rate,
 				},
 			})
+			placement.OrderedLots = lotsToPlace
 		}
 
 		// If there is insufficient balance to place a higher priority order,
 		// cancel the lower priority orders.
-		if lotsToPlace < placement.lots {
+		if lotsToPlace < placement.Lots {
 			u.log.Tracef("multiTrade(%s,%d) out of funds for more placements. %d of %d lots for rate %s",
-				sellStr(sell), i, lotsToPlace, placement.lots, u.fmtRate(placement.rate))
+				sellStr(sell), i, lotsToPlace, placement.Lots, u.fmtRate(placement.Rate))
 			for _, o := range keptOrders {
 				if o.placementIndex > uint64(i) {
 					order := o.currentState().order
@@ -1236,20 +1381,23 @@ func (u *unifiedExchangeAdaptor) multiTrade(
 	if len(orderInfos) > 0 {
 		orders, err := u.placeMultiTrade(orderInfos, sell)
 		if err != nil {
+			or.OrderError = err.Error()
 			u.log.Errorf("multiTrade: error placing orders: %v", err)
-			return nil
+			return
 		}
 
 		ordered := make(map[order.OrderID]*dexOrderInfo, len(placements))
 		for i, o := range orders {
 			var orderID order.OrderID
 			copy(orderID[:], o.ID)
-			ordered[orderID] = orderInfos[i]
+			oi := orderInfos[i]
+			ordered[orderID] = oi
+			placements[oi.placementIndex].Order = o
 		}
-		return ordered
+		return ordered, or
 	}
 
-	return nil
+	return nil, or
 }
 
 // DEXTrade places a single order on the DEX order book.
@@ -2172,7 +2320,7 @@ func (u *unifiedExchangeAdaptor) atomicConversionRateFromFiat(fromID, toID uint3
 // OrderFees returns the fees for a buy and sell order. The order fees are for
 // placing orders on the market specified by the exchangeAdaptorCfg used to
 // create the unifiedExchangeAdaptor.
-func (u *unifiedExchangeAdaptor) orderFees() (buyFees, sellFees *orderFees, err error) {
+func (u *unifiedExchangeAdaptor) orderFees() (buyFees, sellFees *OrderFees, err error) {
 	u.feesMtx.RLock()
 	defer u.feesMtx.RUnlock()
 
@@ -2687,21 +2835,21 @@ func (u *unifiedExchangeAdaptor) lotCosts(sellVWAP, buyVWAP uint64) (*lotCosts, 
 	}
 	perLot.dexBase = u.lotSize
 	if u.baseID == u.baseFeeID {
-		perLot.dexBase += sellFees.bookingFeesPerLot
+		perLot.dexBase += sellFees.BookingFeesPerLot
 	}
 	perLot.cexBase = u.lotSize
 	perLot.baseRedeem = buyFees.Max.Redeem
-	perLot.baseFunding = sellFees.funding
+	perLot.baseFunding = sellFees.Funding
 
 	dexQuoteLot := calc.BaseToQuote(sellVWAP, u.lotSize)
 	cexQuoteLot := calc.BaseToQuote(buyVWAP, u.lotSize)
 	perLot.dexQuote = dexQuoteLot
 	if u.quoteID == u.quoteFeeID {
-		perLot.dexQuote += buyFees.bookingFeesPerLot
+		perLot.dexQuote += buyFees.BookingFeesPerLot
 	}
 	perLot.cexQuote = cexQuoteLot
 	perLot.quoteRedeem = sellFees.Max.Redeem
-	perLot.quoteFunding = buyFees.funding
+	perLot.quoteFunding = buyFees.Funding
 	return perLot, nil
 }
 
@@ -3147,7 +3295,7 @@ func (u *unifiedExchangeAdaptor) updateFeeRates() error {
 	u.feesMtx.Lock()
 	defer u.feesMtx.Unlock()
 
-	u.buyFees = &orderFees{
+	u.buyFees = &OrderFees{
 		LotFeeRange: &LotFeeRange{
 			Max: maxBuyFees,
 			Estimated: &LotFees{
@@ -3156,10 +3304,10 @@ func (u *unifiedExchangeAdaptor) updateFeeRates() error {
 				Refund: estQuoteFees.Refund,
 			},
 		},
-		funding:           buyFundingFees,
-		bookingFeesPerLot: buyBookingFeesPerLot,
+		Funding:           buyFundingFees,
+		BookingFeesPerLot: buyBookingFeesPerLot,
 	}
-	u.sellFees = &orderFees{
+	u.sellFees = &OrderFees{
 		LotFeeRange: &LotFeeRange{
 			Max: maxSellFees,
 			Estimated: &LotFees{
@@ -3168,8 +3316,8 @@ func (u *unifiedExchangeAdaptor) updateFeeRates() error {
 				Refund: estBaseFees.Refund,
 			},
 		},
-		funding:           sellFundingFees,
-		bookingFeesPerLot: sellBookingFeesPerLot,
+		Funding:           sellFundingFees,
+		BookingFeesPerLot: sellBookingFeesPerLot,
 	}
 
 	return nil

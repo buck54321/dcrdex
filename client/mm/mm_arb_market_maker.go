@@ -235,18 +235,18 @@ func (a *arbMarketMaker) dexPlacementRate(cexRate uint64, sell bool) (uint64, er
 	return dexPlacementRate(cexRate, sell, a.cfg().Profit, a.market, feesInQuoteUnits, a.log)
 }
 
-func (a *arbMarketMaker) ordersToPlace() (buys, sells []*multiTradePlacement) {
-	orders := func(cfgPlacements []*ArbMarketMakingPlacement, sellOnDEX bool) []*multiTradePlacement {
-		newPlacements := make([]*multiTradePlacement, 0, len(cfgPlacements))
+func (a *arbMarketMaker) ordersToPlace() (buys, sells []*TradePlacement) {
+	orders := func(cfgPlacements []*ArbMarketMakingPlacement, sellOnDEX bool) []*TradePlacement {
+		newPlacements := make([]*TradePlacement, 0, len(cfgPlacements))
 		var cumulativeCEXDepth uint64
 		for i, cfgPlacement := range cfgPlacements {
 			cumulativeCEXDepth += uint64(float64(cfgPlacement.Lots*a.lotSize) * cfgPlacement.Multiplier)
 			_, extrema, filled, err := a.CEX.VWAP(a.baseID, a.quoteID, sellOnDEX, cumulativeCEXDepth)
 			if err != nil {
 				a.log.Errorf("Error calculating vwap: %v", err)
-				newPlacements = append(newPlacements, &multiTradePlacement{
-					rate: 0,
-					lots: 0,
+				newPlacements = append(newPlacements, &TradePlacement{
+					Rate: 0,
+					Lots: 0,
 				})
 				continue
 			}
@@ -259,9 +259,9 @@ func (a *arbMarketMaker) ordersToPlace() (buys, sells []*multiTradePlacement) {
 
 			if !filled {
 				a.log.Infof("CEX %s side has < %s on the orderbook.", sellStr(!sellOnDEX), a.fmtBase(cumulativeCEXDepth))
-				newPlacements = append(newPlacements, &multiTradePlacement{
-					rate: 0,
-					lots: 0,
+				newPlacements = append(newPlacements, &TradePlacement{
+					Rate: 0,
+					Lots: 0,
 				})
 				continue
 			}
@@ -269,17 +269,17 @@ func (a *arbMarketMaker) ordersToPlace() (buys, sells []*multiTradePlacement) {
 			placementRate, err := a.dexPlacementRate(extrema, sellOnDEX)
 			if err != nil {
 				a.log.Errorf("Error calculating dex placement rate: %v", err)
-				newPlacements = append(newPlacements, &multiTradePlacement{
-					rate: 0,
-					lots: 0,
+				newPlacements = append(newPlacements, &TradePlacement{
+					Rate: 0,
+					Lots: 0,
 				})
 				continue
 			}
 
-			newPlacements = append(newPlacements, &multiTradePlacement{
-				rate:             placementRate,
-				lots:             cfgPlacement.Lots,
-				counterTradeRate: extrema,
+			newPlacements = append(newPlacements, &TradePlacement{
+				Rate:             placementRate,
+				Lots:             cfgPlacement.Lots,
+				CounterTradeRate: extrema,
 			})
 		}
 
@@ -354,8 +354,8 @@ func (a *arbMarketMaker) rebalance(epoch uint64) {
 	}
 
 	buys, sells := a.ordersToPlace()
-	buyInfos := a.multiTrade(buys, false, a.cfg().DriftTolerance, currEpoch)
-	sellInfos := a.multiTrade(sells, true, a.cfg().DriftTolerance, currEpoch)
+	buyInfos, buyReport := a.multiTrade(buys, false, a.cfg().DriftTolerance, currEpoch)
+	sellInfos, sellReport := a.multiTrade(sells, true, a.cfg().DriftTolerance, currEpoch)
 	a.matchesMtx.Lock()
 	for oid, info := range buyInfos {
 		a.pendingOrders[oid] = info.counterTradeRate
@@ -368,6 +368,8 @@ func (a *arbMarketMaker) rebalance(epoch uint64) {
 	a.cancelExpiredCEXTrades()
 
 	a.registerFeeGap()
+
+	a.Broadcast(newEpochNote(a.mwh, buyReport, sellReport))
 }
 
 func (a *arbMarketMaker) tryTransfers(currEpoch uint64) (actionTaken bool, err error) {

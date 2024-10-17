@@ -318,7 +318,7 @@ func (m *basicMarketMaker) orderPrice(basisPrice, feeAdj uint64, sell bool, gapF
 	return basisPrice - adj
 }
 
-func (m *basicMarketMaker) ordersToPlace() (buyOrders, sellOrders []*multiTradePlacement, err error) {
+func (m *basicMarketMaker) ordersToPlace() (buyOrders, sellOrders []*TradePlacement, err error) {
 	basisPrice := m.calculator.basisPrice()
 	if basisPrice == 0 {
 		return nil, nil, fmt.Errorf("no basis price available")
@@ -340,8 +340,8 @@ func (m *basicMarketMaker) ordersToPlace() (buyOrders, sellOrders []*multiTradeP
 			m.name, m.fmtRate(basisPrice), m.fmtRate(feeAdj))
 	}
 
-	orders := func(orderPlacements []*OrderPlacement, sell bool) []*multiTradePlacement {
-		placements := make([]*multiTradePlacement, 0, len(orderPlacements))
+	orders := func(orderPlacements []*OrderPlacement, sell bool) []*TradePlacement {
+		placements := make([]*TradePlacement, 0, len(orderPlacements))
 		for i, p := range orderPlacements {
 			rate := m.orderPrice(basisPrice, feeAdj, sell, p.GapFactor)
 
@@ -354,9 +354,9 @@ func (m *basicMarketMaker) ordersToPlace() (buyOrders, sellOrders []*multiTradeP
 			if rate == 0 {
 				lots = 0
 			}
-			placements = append(placements, &multiTradePlacement{
-				rate: rate,
-				lots: lots,
+			placements = append(placements, &TradePlacement{
+				Rate: rate,
+				Lots: lots,
 			})
 		}
 		return placements

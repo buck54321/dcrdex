@@ -49,7 +49,7 @@ func TestArbMMRebalance(t *testing.T) {
 		cex:                    newTBotCEXAdaptor(),
 		pendingOrders:          make(map[order.OrderID]uint64),
 	}
-	a.buyFees = &orderFees{
+	a.buyFees = &OrderFees{
 		LotFeeRange: &LotFeeRange{
 			Max: &LotFees{
 				Redeem: buyRedeemFees,
@@ -57,9 +57,9 @@ func TestArbMMRebalance(t *testing.T) {
 			},
 			Estimated: &LotFees{},
 		},
-		bookingFeesPerLot: buySwapFees,
+		BookingFeesPerLot: buySwapFees,
 	}
-	a.sellFees = &orderFees{
+	a.sellFees = &OrderFees{
 		LotFeeRange: &LotFeeRange{
 			Max: &LotFees{
 				Redeem: sellRedeemFees,
@@ -67,7 +67,7 @@ func TestArbMMRebalance(t *testing.T) {
 			},
 			Estimated: &LotFees{},
 		},
-		bookingFeesPerLot: sellSwapFees,
+		BookingFeesPerLot: sellSwapFees,
 	}
 
 	var buyLots, sellLots, minDexBase, minCexBase /* totalBase, */, minDexQuote, minCexQuote /*, totalQuote */ uint64
@@ -103,7 +103,7 @@ func TestArbMMRebalance(t *testing.T) {
 		}
 		minDexBase = sellLots * (lotSize + sellSwapFees)
 		minCexBase = buyLots * lotSize
-		minDexQuote = calc.BaseToQuote(buyRate, buyLots*lotSize) + a.buyFees.bookingFeesPerLot*buyLots
+		minDexQuote = calc.BaseToQuote(buyRate, buyLots*lotSize) + a.buyFees.BookingFeesPerLot*buyLots
 		minCexQuote = calc.BaseToQuote(sellRate, sellLots*lotSize)
 	}
 

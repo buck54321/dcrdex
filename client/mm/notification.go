@@ -11,6 +11,7 @@ const (
 	NoteTypeRunStats        = "runstats"
 	NoteTypeRunEvent        = "runevent"
 	NoteTypeCEXNotification = "cexnote"
+	NoteTypeEpochReport     = "mmepoch"
 )
 
 type runStatsNote struct {
@@ -69,5 +70,23 @@ func newCexUpdateNote(cexName string, topic db.Topic, note interface{}) *cexNoti
 		Notification: db.NewNotification(NoteTypeCEXNotification, topic, "", "", db.Data),
 		CEXName:      cexName,
 		Note:         note,
+	}
+}
+
+type epochReport struct {
+	db.Notification
+	Market     *MarketWithHost `json:"market"`
+	BuyReport  *OrderReport    `json:"buyReport"`
+	SellReport *OrderReport    `json:"sellReport"`
+}
+
+const TopicEpochReport = "EpochReport"
+
+func newEpochNote(mwh *MarketWithHost, buyReport, sellReport *OrderReport) *epochReport {
+	return &epochReport{
+		Notification: db.NewNotification(NoteTypeEpochReport, TopicEpochReport, "", "", db.Data),
+		Market:       mwh,
+		BuyReport:    buyReport,
+		SellReport:   sellReport,
 	}
 }

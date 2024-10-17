@@ -69,8 +69,8 @@ type tCore struct {
 	assetBalances     map[uint32]*core.WalletBalance
 	assetBalanceErr   error
 	market            *core.Market
-	singleLotSellFees *orderFees
-	singleLotBuyFees  *orderFees
+	singleLotSellFees *OrderFees
+	singleLotBuyFees  *OrderFees
 	singleLotFeesErr  error
 	multiTradeResult  []*core.Order
 	noteFeed          chan core.Notification
@@ -243,8 +243,8 @@ type tBotCoreAdaptor struct {
 	groupedBuys      map[uint64][]*core.Order
 	groupedSells     map[uint64][]*core.Order
 	orderUpdates     chan *core.Order
-	buyFees          *orderFees
-	sellFees         *orderFees
+	buyFees          *OrderFees
+	sellFees         *OrderFees
 	fiatExchangeRate uint64
 	buyFeesInBase    uint64
 	sellFeesInBase   uint64
@@ -273,7 +273,7 @@ func (c *tBotCoreAdaptor) ExchangeRateFromFiatSources() uint64 {
 	return c.fiatExchangeRate
 }
 
-func (c *tBotCoreAdaptor) OrderFees() (buyFees, sellFees *orderFees, err error) {
+func (c *tBotCoreAdaptor) OrderFees() (buyFees, sellFees *OrderFees, err error) {
 	return c.buyFees, c.sellFees, nil
 }
 
