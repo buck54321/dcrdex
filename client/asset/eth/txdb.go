@@ -5,6 +5,7 @@ package eth
 
 import (
 	"context"
+	"encoding"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 
 	"decred.org/dcrdex/client/asset"
 	"decred.org/dcrdex/dex"
+	"decred.org/dcrdex/dex/lexi"
 	"decred.org/dcrdex/dex/utils"
 	"github.com/dgraph-io/badger"
 	"github.com/ethereum/go-ethereum/common"
@@ -50,6 +52,20 @@ type extendedWalletTx struct {
 	actionRequested bool
 	actionIgnored   time.Time
 	indexed         bool
+}
+
+func (wt *extendedWalletTx) MarshalBinary() ([]byte, error) {
+	return json.Marshal(wt)
+}
+
+func (wt *extendedWalletTx) UnmarshalBinary(b []byte) error {
+	if err := json.Unmarshal(b, &wt); err != nil {
+		return err
+	}
+	wt.txHash = common.HexToHash(wt.ID)
+	wt.lastBroadcast = time.Unix(int64(wt.SubmissionTime), 0)
+	wt.savedToDB = true
+	return nil
 }
 
 func (t *extendedWalletTx) age() time.Duration {
@@ -496,4 +512,156 @@ func (log *badgerLoggerWrapper) Warningf(s string, a ...interface{}) {
 
 func (log *badgerLoggerWrapper) Warning(a ...interface{}) {
 	log.Warn(a...)
+}
+
+type TxDB struct {
+	*lexi.DB
+	txs         *lexi.Table
+	txTypeIndex *lexi.Index
+	nonceIndex  *lexi.Index
+	assetIndex  *lexi.Index
+}
+
+var _ txDB = (*TxDB)(nil)
+
+func NewTxDB(path string, log dex.Logger) (*TxDB, error) {
+	ldb, err := lexi.New(&lexi.Config{
+		Path: path,
+		Log:  log,
+	})
+	if err != nil {
+		return nil, err
+	}
+	txs, err := ldb.Table("txs")
+	if err != nil {
+		return nil, err
+	}
+	nonceIndex, err := txs.AddIndex("nonce", func(k, v encoding.BinaryMarshaler) ([]byte, error) {
+		wt, is := v.(*extendedWalletTx)
+		if !is {
+			return nil, fmt.Errorf("expected type *extendedWalletTx, got %T", wt)
+		}
+		n := make([]byte, 8)
+		wt.Nonce.FillBytes(n)
+		return n, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	assetIndex, err := txs.AddIndex("asset", func(k, v encoding.BinaryMarshaler) ([]byte, error) {
+		wt, is := v.(*extendedWalletTx)
+		if !is {
+			return nil, fmt.Errorf("expected type *extendedWalletTx, got %T", wt)
+		}
+		var assetID uint32 = BipID
+		if wt.TokenID != nil {
+			assetID = *wt.TokenID
+		}
+		entry := make([]byte, 12) // uint32 asset id + uint64 nonced
+		binary.BigEndian.PutUint32(entry[:4], assetID)
+		binary.BigEndian.PutUint64(entry[4:], wt.Nonce.Uint64())
+		return entry, nil
+
+	})
+	if err != nil {
+		return nil, err
+	}
+	txTypeIndex, err := txs.AddIndex("txtype", func(k, v encoding.BinaryMarshaler) ([]byte, error) {
+		wt, is := v.(*extendedWalletTx)
+		if !is {
+			return nil, fmt.Errorf("expected type *extendedWalletTx, got %T", wt)
+		}
+		entry := make([]byte, 10)
+		binary.BigEndian.PutUint16(entry, uint16(wt.Type))
+		binary.BigEndian.PutUint64(entry[2:], wt.Nonce.Uint64())
+		return entry, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &TxDB{
+		DB:          ldb,
+		txs:         txs,
+		nonceIndex:  nonceIndex,
+		assetIndex:  assetIndex,
+		txTypeIndex: txTypeIndex,
+	}, nil
+}
+
+func (db *TxDB) storeTx(wt *extendedWalletTx) error {
+	return db.txs.Set(lexi.B(wt.txHash[:]), wt)
+}
+
+func (db *TxDB) getTx(txHash common.Hash) (*extendedWalletTx, error) {
+	var wt extendedWalletTx
+	if err := db.txs.Get(lexi.B(txHash[:]), &wt); err != nil {
+		if errors.Is(err, lexi.ErrKeyNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &wt, nil
+}
+
+func (db *TxDB) getTxs(n int, refID *common.Hash, past bool, tokenID *uint32) ([]*asset.WalletTransaction, error) {
+	var assetID uint32 = BipID
+	if tokenID != nil {
+		assetID = *tokenID
+	}
+	var opts []lexi.IterationOption
+	if refID != nil {
+		txHash := *refID
+		wt, err := db.getTx(txHash)
+		if err != nil {
+			return nil, fmt.Errorf("error getting reference tx %s: %w", txHash, err)
+		}
+		entry := make([]byte, 12) // uint32 asset id + uint64 nonced
+		binary.BigEndian.PutUint32(entry[:4], assetID)
+		binary.BigEndian.PutUint64(entry[4:], wt.Nonce.Uint64())
+		opts = append(opts, lexi.WithSeek(entry))
+	}
+	txs := make([]*asset.WalletTransaction, 0, n)
+	return txs, db.assetIndex.Iterate(assetID, func(it *lexi.Iter) error {
+		var wt *extendedWalletTx
+		err := it.V(func(vB []byte) error {
+			return wt.UnmarshalBinary(vB)
+		})
+		if err != nil {
+			return err
+		}
+		txs = append(txs, wt.WalletTransaction)
+		return nil
+	}, opts...)
+}
+
+func (db *TxDB) getPendingTxs() (txs []*extendedWalletTx, err error) {
+	// We will be iterating backwards from the most recent nonce.
+	// If we find numConfirmedTxsToCheck consecutive confirmed transactions,
+	// we can stop iterating.
+	const numConfirmedTxsToCheck = 20
+	var numConfirmedTxs int
+
+	db.nonceIndex.Iterate(nil, func(it *lexi.Iter) error {
+		var wt *extendedWalletTx
+		err := it.V(func(vB []byte) error {
+			return wt.UnmarshalBinary(vB)
+		})
+		if err != nil {
+			return err
+		}
+		if wt.AssumedLost {
+			return nil
+		}
+		if !wt.Confirmed {
+			numConfirmedTxs = 0
+			txs = append(txs, wt)
+		} else {
+			numConfirmedTxs++
+			if numConfirmedTxs >= numConfirmedTxsToCheck {
+				return lexi.ErrEndIteration
+			}
+		}
+		return nil
+	}, lexi.WithReverse())
+	return
 }
