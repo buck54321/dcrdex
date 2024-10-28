@@ -64,6 +64,9 @@ body:not(.dark) {
 
   // logo
   --dex-url: url("/img/softened-icon.png");
+
+  // border
+  --border-danger: red;
 }
 
 
@@ -131,6 +134,9 @@ body.dark {
 
   // logo
   --dex-url: url("/img/softened-icon-dark.png");
+
+  // border
+  --border-danger: red;
 }
 
 .greyscale {
@@ -152,4 +158,12 @@ body.dark {
 
 .text-good {
   color: var(--indicator-good);
+}
+
+.border-danger {
+  border-color: var(--border-danger);
+}
+
+.border-success {
+  border-color: var(--indicator-good);
 }
