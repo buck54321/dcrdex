@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -34,13 +35,23 @@ const (
 	// reconnectInterval is the initial and increment between reconnect tries.
 	reconnectInterval = 5 * time.Second
 
+	// reconnectJitter is a range of random time added to the reconnect delay.
+	// This is a partial solution to a problem where server restarts cause
+	// mass simultaneous connections to overwhelm rate limiters and order book
+	// requests.
+	reconnectJitter = 10 * time.Second
+
 	// maxReconnectInterval is the maximum allowed reconnect interval.
-	maxReconnectInterval = time.Minute
+	maxReconnectInterval = 2 * time.Minute
 
 	// DefaultResponseTimeout is the default timeout for responses after a
 	// request is successfully sent.
 	DefaultResponseTimeout = 30 * time.Second
 )
+
+func reconnectDelay() time.Duration {
+	return reconnectInterval + time.Duration(rand.Float64()*float64(reconnectJitter))
+}
 
 // ConnectionStatus represents the current status of the websocket connection.
 type ConnectionStatus uint32
@@ -242,7 +253,7 @@ func (conn *wsConn) setConnectionStatus(status ConnectionStatus) {
 }
 
 // connect attempts to establish a websocket connection.
-func (conn *wsConn) connect(ctx context.Context) error {
+func (conn *wsConn) connect(ctx context.Context) (*http.Response, error) {
 	dialer := &websocket.Dialer{
 		HandshakeTimeout: DefaultResponseTimeout,
 		TLSClientConfig:  conn.tlsCfg,
@@ -253,17 +264,17 @@ func (conn *wsConn) connect(ctx context.Context) error {
 		dialer.Proxy = http.ProxyFromEnvironment
 	}
 
-	ws, _, err := dialer.DialContext(ctx, conn.url(), conn.cfg.ConnectHeaders)
+	ws, resp, err := dialer.DialContext(ctx, conn.url(), conn.cfg.ConnectHeaders)
 	if err != nil {
 		if isErrorInvalidCert(err) {
 			conn.setConnectionStatus(InvalidCert)
 			if len(conn.cfg.Cert) == 0 {
-				return dex.NewError(ErrCertRequired, err.Error())
+				return nil, dex.NewError(ErrCertRequired, err.Error())
 			}
-			return dex.NewError(ErrInvalidCert, err.Error())
+			return nil, dex.NewError(ErrInvalidCert, err.Error())
 		}
 		conn.setConnectionStatus(Disconnected)
-		return err
+		return resp, err
 	}
 
 	// Set the initial read deadline for the first ping. Subsequent read
@@ -271,7 +282,7 @@ func (conn *wsConn) connect(ctx context.Context) error {
 	err = ws.SetReadDeadline(time.Now().Add(conn.cfg.PingWait))
 	if err != nil {
 		conn.log.Errorf("set read deadline failed: %v", err)
-		return err
+		return nil, err
 	}
 
 	echoPing := conn.cfg.EchoPingData
@@ -322,7 +333,7 @@ func (conn *wsConn) connect(ctx context.Context) error {
 		}
 	}()
 
-	return nil
+	return nil, nil
 }
 
 func (conn *wsConn) SetReadLimit(limit int64) {
@@ -457,10 +468,31 @@ func (conn *wsConn) read(ctx context.Context) {
 	}
 }
 
+func (conn *wsConn) delayFromHeader(resp *http.Response) time.Duration {
+	if resp == nil || resp.StatusCode != http.StatusServiceUnavailable {
+		return 0
+	}
+	timeStr := resp.Header.Get("Retry-After")
+	if timeStr == "" {
+		return 0
+	}
+	tRetry, err := time.Parse(time.RFC3339, timeStr)
+	if err != nil {
+		conn.log.Errorf("server gave invalid Retry-After header: %v", err)
+		return 0
+	}
+	if tNow := time.Now(); tRetry.Before(tNow) {
+		conn.log.Warnf("server gave Retry-After time before now %s %s", tRetry, tNow)
+		return 0
+	}
+	conn.log.Infof("Server has asked us to reconnect at %s", tRetry)
+	return time.Until(tRetry)
+}
+
 // keepAlive maintains an active websocket connection by reconnecting when
 // the established connection is broken. This should be run as a goroutine.
 func (conn *wsConn) keepAlive(ctx context.Context) {
-	rcInt := reconnectInterval
+	rcInt := reconnectDelay()
 	for {
 		select {
 		case <-conn.reconnectCh:
@@ -471,22 +503,27 @@ func (conn *wsConn) keepAlive(ctx context.Context) {
 			}
 
 			conn.log.Infof("Attempting to reconnect to %s...", conn.url())
-			err := conn.connect(ctx)
+			resp, err := conn.connect(ctx)
 			if err != nil {
 				conn.log.Errorf("Reconnect failed. Scheduling reconnect to %s in %.1f seconds.",
 					conn.url(), rcInt.Seconds())
+
+				if delay := conn.delayFromHeader(resp); delay != 0 {
+					rcInt = delay
+				}
+
 				time.AfterFunc(rcInt, func() {
 					conn.reconnectCh <- struct{}{}
 				})
 				// Increment the wait up to PingWait.
 				if rcInt < maxReconnectInterval {
-					rcInt += reconnectInterval
+					rcInt += reconnectDelay()
 				}
 				continue
 			}
 
 			conn.log.Info("Successfully reconnected.")
-			rcInt = reconnectInterval
+			rcInt = reconnectDelay()
 
 			// Synchronize after a reconnection.
 			if conn.cfg.ReconnectSync != nil {
@@ -511,7 +548,7 @@ func (conn *wsConn) Connect(ctx context.Context) (*sync.WaitGroup, error) {
 	var ctxInternal context.Context
 	ctxInternal, conn.cancel = context.WithCancel(ctx)
 
-	err := conn.connect(ctxInternal)
+	resp, err := conn.connect(ctxInternal)
 	if err != nil {
 		// If the certificate is invalid or missing, do not start the reconnect
 		// loop, and return an error with no WaitGroup.
@@ -522,10 +559,17 @@ func (conn *wsConn) Connect(ctx context.Context) (*sync.WaitGroup, error) {
 			return nil, err
 		}
 
+		var rcInt time.Duration
+		if delay := conn.delayFromHeader(resp); delay != 0 {
+			rcInt = delay
+		} else {
+			rcInt = reconnectDelay()
+		}
+
 		// The read loop would normally trigger keepAlive, but it wasn't started
 		// on account of a connect error.
 		conn.log.Errorf("Initial connection failed, starting reconnect loop: %v", err)
-		time.AfterFunc(5*time.Second, func() {
+		time.AfterFunc(rcInt, func() {
 			conn.reconnectCh <- struct{}{}
 		})
 	}

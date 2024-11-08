@@ -23,6 +23,7 @@ import (
 	"decred.org/dcrdex/dex/msgjson"
 	"decred.org/dcrdex/dex/ws"
 	"github.com/gorilla/websocket"
+	"golang.org/x/time/rate"
 )
 
 var (
@@ -1038,4 +1039,42 @@ func TestWSRateLimiter(t *testing.T) {
 		for range conn.nextRead {
 		}
 	}()
+}
+
+func TestConnectRateHandler(t *testing.T) {
+	tHandler := &tHTTPHandler{}
+	server := newServer()
+
+	req := &http.Request{}
+	recorder := httptest.NewRecorder()
+	f := server.limitConnects(tHandler)
+
+	server.connectLimiter = rate.NewLimiter(1, 5)
+	for i := 0; i < 10; i++ {
+		f.ServeHTTP(recorder, req)
+		if i >= 5 {
+			timeStr := recorder.Result().Header.Get("Retry-After")
+			if timeStr == "" {
+				t.Fatalf("No Retry-After header was set in limited response")
+			}
+			retryTime, err := time.Parse(time.RFC3339, timeStr)
+			if err != nil {
+				t.Fatalf("Invalid Retry-After header was set in limited response: %q", timeStr)
+			}
+			if retryTime.Format(time.RFC3339) != server.nextScheduledReconnect.Format(time.RFC3339) {
+				t.Fatalf("Retry time in limited response does not match next scheduled reconnect. %s != %s", retryTime, server.nextScheduledReconnect)
+			}
+		}
+	}
+	if tHandler.count != 5 {
+		t.Fatalf("connect middleware result didn't match burst. %d != 5", tHandler.count)
+	}
+	tHandler.count = 0
+	server.connectLimiter = rate.NewLimiter(1, 1)
+	for i := 0; i < 10; i++ {
+		f.ServeHTTP(recorder, req)
+	}
+	if tHandler.count != 1 {
+		t.Fatalf("connect middleware result didn't match limit. %d != 1", tHandler.count)
+	}
 }

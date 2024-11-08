@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync/atomic"
+	"time"
 
 	"decred.org/dcrdex/dex"
 )
@@ -48,4 +49,24 @@ func (s *Server) meterIP(ip dex.IPKey) (int, error) {
 		return http.StatusTooManyRequests, fmt.Errorf("too many requests")
 	}
 	return 0, nil
+}
+
+// Limit connections to /ws.
+func (s *Server) limitConnects(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.connectMtx.Lock()
+		if !s.connectLimiter.Allow() {
+			tryAt := time.Now().Add(time.Second)
+			if tryAt.Before(s.nextScheduledReconnect) {
+				tryAt = s.nextScheduledReconnect.Add(time.Second)
+			}
+			s.nextScheduledReconnect = tryAt
+			s.connectMtx.Unlock()
+			w.Header().Set("Retry-After", tryAt.Format(time.RFC3339))
+			http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		s.connectMtx.Unlock()
+		next.ServeHTTP(w, r)
+	})
 }

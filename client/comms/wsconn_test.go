@@ -486,3 +486,49 @@ func TestWsConn(t *testing.T) {
 		t.Error("read source should have been closed")
 	}
 }
+
+func TestReconnectDelay(t *testing.T) {
+	const n = 1000
+	var jitterSum time.Duration
+	for i := 0; i < n; i++ {
+		jitter := reconnectDelay() - reconnectInterval
+		if jitter > reconnectJitter || jitter < 0 {
+			t.Fatalf("jitter out of range: %s", jitter)
+		}
+		jitterSum += jitter
+	}
+	jitterAvg := float64(jitterSum / n)
+	halfJitter := float64(reconnectJitter / 2)
+	if jitterAvg > 1.1*halfJitter || jitterAvg < 0.9*halfJitter {
+		t.Fatalf("jitter average %f out of range", jitterAvg)
+	}
+}
+
+func TestParseDelayFromHeader(t *testing.T) {
+	conn := &wsConn{}
+	resp := &http.Response{
+		Header: make(http.Header),
+	}
+	resp.Header.Set("Retry-After", time.Now().Add(time.Second*5).Format(time.RFC3339))
+	delay := conn.delayFromHeader(resp)
+	if delay < 0 || delay > time.Second*5 {
+		t.Fatalf("Expected 5 second delay, got %s", delay)
+	}
+
+	resp.Header.Del("Retry-After")
+	delay = conn.delayFromHeader(resp)
+	if delay != 0 {
+		t.Fatalf("Expected no delay for no header, got %s", delay)
+	}
+
+	delay = conn.delayFromHeader(nil)
+	if delay != 0 {
+		t.Fatalf("Expected no delay for nil response, got %s", delay)
+	}
+
+	resp.Header.Set("Retry-After", time.Now().Add(-time.Second).Format(time.RFC3339))
+	delay = conn.delayFromHeader(resp)
+	if delay != 0 {
+		t.Fatalf("Expected no delay for retry time in the past, got %s", delay)
+	}
+}

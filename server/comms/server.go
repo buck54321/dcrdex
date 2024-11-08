@@ -59,6 +59,8 @@ const (
 	// The cumulative rates below would need to be less than sum of above to
 	// actually trip unless it is also applied to unspecified routes.
 	wsRateTotal, wsBurstTotal = 40, 1000
+	// Global limiter on connection to /ws
+	wsConnectLimit, wsConnectBurst = 1, 5
 )
 
 var (
@@ -272,6 +274,10 @@ type Server struct {
 	rpcRoutes map[string]MsgHandler
 	// httpRoutes maps HTTP routes to the handlers.
 	httpRoutes map[string]HTTPHandler
+
+	connectMtx             sync.Mutex // middleware can be run concurrently
+	nextScheduledReconnect time.Time
+	connectLimiter         *rate.Limiter
 }
 
 // NewServer constructs a Server that should be started with Run. The server is
@@ -374,15 +380,16 @@ func NewServer(cfg *RPCConfig) (*Server, error) {
 	mux.Use(middleware.Recoverer)
 
 	return &Server{
-		mux:         mux,
-		listeners:   listeners,
-		clients:     make(map[uint64]*wsLink),
-		wsLimiters:  make(map[dex.IPKey]*ipWsLimiter),
-		v6Prefixes:  make(map[dex.IPKey]int),
-		quarantine:  make(map[dex.IPKey]time.Time),
-		dataEnabled: dataEnabled,
-		rpcRoutes:   make(map[string]MsgHandler),
-		httpRoutes:  make(map[string]HTTPHandler),
+		mux:            mux,
+		listeners:      listeners,
+		clients:        make(map[uint64]*wsLink),
+		wsLimiters:     make(map[dex.IPKey]*ipWsLimiter),
+		v6Prefixes:     make(map[dex.IPKey]int),
+		quarantine:     make(map[dex.IPKey]time.Time),
+		dataEnabled:    dataEnabled,
+		rpcRoutes:      make(map[string]MsgHandler),
+		httpRoutes:     make(map[string]HTTPHandler),
+		connectLimiter: rate.NewLimiter(wsConnectLimit, wsConnectBurst),
 	}, nil
 }
 
@@ -395,7 +402,7 @@ func (s *Server) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 
 	// Websocket endpoint.
-	mux.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
+	mux.With(s.limitConnects).Get("/ws", func(w http.ResponseWriter, r *http.Request) {
 		ip := dex.NewIPKey(r.RemoteAddr)
 		if s.isQuarantined(ip) {
 			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
