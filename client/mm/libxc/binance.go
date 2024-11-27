@@ -449,8 +449,8 @@ type tradeInfo struct {
 }
 
 type withdrawInfo struct {
-	minimum         uint64
-	integerMultiple float64
+	minimum uint64
+	lotSize uint64
 }
 
 type binance struct {
@@ -627,10 +627,9 @@ func (bnc *binance) readCoins(coins []*bntypes.CoinInfo) {
 				tokenIDs[nfo.Coin] = append(tokenIDs[nfo.Coin], assetID)
 			}
 			minimum := uint64(math.Round(float64(ui.Conventional.ConversionFactor) * netInfo.WithdrawMin))
-			integerMultiple := netInfo.WithdrawIntegerMultiple
 			minWithdraw[assetID] = &withdrawInfo{
-				minimum:         minimum,
-				integerMultiple: integerMultiple,
+				minimum: minimum,
+				lotSize: uint64(math.Round(netInfo.WithdrawIntegerMultiple * float64(ui.Conventional.ConversionFactor))),
 			}
 		}
 	}
@@ -1041,19 +1040,25 @@ func (bnc *binance) Withdraw(ctx context.Context, assetID uint32, qty uint64, ad
 		return "", fmt.Errorf("error getting symbol data for %d: %w", assetID, err)
 	}
 
-	integerMultiple, err := bnc.withdrawIntegerMultiple(assetID)
+	lotSize, err := bnc.withdrawLotSize(assetID)
 	if err != nil {
 		return "", fmt.Errorf("error getting integer multiple for %d: %w", assetID, err)
 	}
+	steps := math.Round(float64(qty) / float64(lotSize))
+	if steps == 0 {
+		return "", fmt.Errorf("withdraw amount %d results in zero lots after normalizing to lot size %d", qty, lotSize)
+	}
+	amt := steps * float64(lotSize) / float64(assetCfg.conversionFactor)
 
-	convQty := float64(qty) / float64(assetCfg.conversionFactor)
-	amt := steppedAmount(convQty, integerMultiple)
+	prec := int(math.Round(math.Log10(float64(assetCfg.conversionFactor))))
+
+	amtStr := strconv.FormatFloat(amt, 'f', prec, 64)
 
 	v := make(url.Values)
 	v.Add("coin", assetCfg.coin)
 	v.Add("network", assetCfg.chain)
 	v.Add("address", address)
-	v.Add("amount", amt)
+	v.Add("amount", amtStr)
 
 	withdrawResp := struct {
 		ID string `json:"id"`
@@ -1232,13 +1237,13 @@ func (bnc *binance) minimumWithdraws(baseID, quoteID uint32) (base uint64, quote
 	return
 }
 
-func (bnc *binance) withdrawIntegerMultiple(assetID uint32) (float64, error) {
+func (bnc *binance) withdrawLotSize(assetID uint32) (uint64, error) {
 	minsI := bnc.minWithdraw.Load()
 	if minsI == nil {
 		return 0, fmt.Errorf("no withdraw info")
 	}
 	mins := minsI.(map[uint32]*withdrawInfo)
-	return mins[assetID].integerMultiple, nil
+	return mins[assetID].lotSize, nil
 }
 
 func (bnc *binance) Markets(ctx context.Context) (map[string]*Market, error) {
