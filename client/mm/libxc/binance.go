@@ -659,7 +659,39 @@ func (bnc *binance) getMarkets(ctx context.Context) (map[string]*bntypes.Market,
 	}
 
 	marketsMap := make(map[string]*bntypes.Market, len(exchangeInfo.Symbols))
+	tokenIDs := bnc.tokenIDs.Load().(map[string][]uint32)
 	for _, market := range exchangeInfo.Symbols {
+		dexMarkets := binanceMarketToDexMarkets(market.BaseAsset, market.QuoteAsset, tokenIDs, bnc.isUS)
+		if len(dexMarkets) == 0 {
+			continue
+		}
+		dexMkt := dexMarkets[0]
+
+		bui, _ := asset.UnitInfo(dexMkt.BaseID)
+		qui, _ := asset.UnitInfo(dexMkt.QuoteID)
+
+		var rateStepFound, lotSizeFound bool
+		for _, filter := range market.Filters {
+			if filter.Type == "PRICE_FILTER" {
+				rateStepFound = true
+				conv := float64(qui.Conventional.ConversionFactor) / float64(bui.Conventional.ConversionFactor) * calc.RateEncodingFactor
+				market.RateStep = uint64(math.Round(filter.TickSize * conv))
+				market.MinPrice = uint64(math.Round(filter.MinPrice * conv))
+				market.MaxPrice = uint64(math.Round(filter.MaxPrice) * conv)
+			} else if filter.Type == "LOT_SIZE" {
+				market.LotSize = uint64(math.Round(filter.StepSize * float64(bui.Conventional.ConversionFactor)))
+				market.MinQty = uint64(math.Round(filter.MinQty * float64(bui.Conventional.ConversionFactor)))
+				market.MaxQty = uint64(math.Round(filter.MaxQty * float64(bui.Conventional.ConversionFactor)))
+			}
+			if rateStepFound && lotSizeFound {
+				break
+			}
+		}
+
+		if !rateStepFound || !lotSizeFound {
+			return nil, fmt.Errorf("missing filter for market %s, rate step found = %t, lot size found = %t", dexMkt.MarketID, rateStepFound, lotSizeFound)
+		}
+
 		marketsMap[market.Symbol] = market
 	}
 
