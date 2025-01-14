@@ -7,6 +7,16 @@
   <div id="content" class="fill-abs d-flex">
     {{- /* ASSET SELECT */ -}}
     <section id="assetSelect" class="w-auto d-flex align-items-stretch overflow-y-hidden hidden-overflow invisible">
+      <div id="globalBalanceBox" class="flex-stretch-column p-2 border-bottom hoverbg pointer">
+        <span class="grey fs16">Holdings</span>
+        <span class="d-flex align-items-end lh1">
+          <span id="globalBalance" class="fs20"></span>
+          <span class="fs18 grey ms-1">USD</span>
+        </span>
+        <span class="ico-sort"></span>
+      </div>
+      <div id="baseChainTmpl"></div>
+      <div id="tokenTmpl"></div>
       <div id="iconSelectTmpl" class="icon-select d-flex align-items-stretch p-2 border-bottom">
         <div class="flex-center">
           <div class="position-relative overflow-visible">

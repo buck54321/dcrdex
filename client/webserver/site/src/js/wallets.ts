@@ -908,6 +908,9 @@ export default class WalletsPage extends BasePage {
     const page = this.page
     this.assetButtons = {}
     Doc.empty(page.assetSelect)
+    // Global balance always goes first.
+    page.assetSelect.appendChild(page.globalBalanceBox)
+    page.globalBalance.textContent = '1,000,000'
     const sortedAssets = [...Object.values(app().assets)]
     sortedAssets.sort((a: SupportedAsset, b: SupportedAsset) => {
       if (a.wallet && !b.wallet) return -1
@@ -923,6 +926,20 @@ export default class WalletsPage extends BasePage {
       if (!aFiat && bFiat) return 1
       return bFiat * bTotal - aFiat * aTotal
     })
+    // global balance
+    let [haveAllFiats, totalUSD, hasUnrateableAssets] = [false, 0]
+    const fiatRates = app().fiatRatesMap
+    for (const a of sortedAssets) {
+      if (!a.wallet) {
+        hasUnrateableAssets
+        continue
+      }
+      // b.available + b.locked + b.immature
+      const b = a.wallet.balance
+      const atoms = b.available + b.locked + b.immature
+      
+
+    } 
     for (const a of sortedAssets) {
       const bttn = page.iconSelectTmpl.cloneNode(true) as HTMLElement
       page.assetSelect.appendChild(bttn)
