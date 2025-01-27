@@ -266,6 +266,20 @@ func iteratePrefix(txn *badger.Txn, prefix, seek []byte, f func(iter *badger.Ite
 }
 
 func reverseIteratePrefix(txn *badger.Txn, prefix, seek []byte, f func(iter *badger.Iterator) error, iterOpts ...badgerIterationOption) error {
+
+	if len(prefix) == 3 {
+		defer func() {
+			opts := badger.DefaultIteratorOptions
+			opts.Prefix = prefix
+			iter := txn.NewIterator(opts)
+			defer iter.Close()
+			for iter.Rewind(); iter.Valid(); iter.Next() {
+				it := iter.Item()
+				fmt.Println("--Dafuq didn't we see these?", dex.Bytes(it.Key()))
+			}
+		}()
+	}
+
 	opts := badger.DefaultIteratorOptions
 	opts.Prefix = prefix
 	opts.Reverse = true
@@ -284,7 +298,11 @@ func reverseIteratePrefix(txn *badger.Txn, prefix, seek []byte, f func(iter *bad
 		seek = append(seek, lastDBID[:]...)
 	}
 
-	for iter.Seek(seek); iter.ValidForPrefix(prefix); iter.Next() {
+	if len(prefix) == 3 {
+		fmt.Printf("--reverseIteratePrefix: seek = %s, opts.Prefix = %s, opts.Reverse = %t \n", dex.Bytes(seek), dex.Bytes(opts.Prefix), opts.Reverse)
+		seek = []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	}
+	for iter.Seek(seek); iter.Valid(); iter.Next() {
 		if err := f(iter); err != nil {
 			if errors.Is(err, ErrEndIteration) {
 				return nil
