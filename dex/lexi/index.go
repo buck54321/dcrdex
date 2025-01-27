@@ -4,6 +4,7 @@
 package lexi
 
 import (
+	"bytes"
 	"encoding"
 	"encoding/binary"
 	"errors"
@@ -265,21 +266,27 @@ func iteratePrefix(txn *badger.Txn, prefix, seek []byte, f func(iter *badger.Ite
 	return nil
 }
 
-func reverseIteratePrefix(txn *badger.Txn, prefix, seek []byte, f func(iter *badger.Iterator) error, iterOpts ...badgerIterationOption) error {
-
-	if len(prefix) == 3 {
-		defer func() {
-			opts := badger.DefaultIteratorOptions
-			opts.Prefix = prefix
-			iter := txn.NewIterator(opts)
-			defer iter.Close()
-			for iter.Rewind(); iter.Valid(); iter.Next() {
-				it := iter.Item()
-				fmt.Println("--Dafuq didn't we see these?", dex.Bytes(it.Key()))
-			}
-		}()
+// https://github.com/dgraph-io/badger/issues/436#issuecomment-1073008604
+func SeekLast(it *badger.Iterator, prefix []byte) {
+	tweaked := make([]byte, len(prefix))
+	copy(tweaked, prefix)
+	n := len(prefix)
+	for n > 0 {
+		if tweaked[n-1] == 0xFF {
+			n -= 1
+		} else {
+			tweaked[n-1] += 1
+			break
+		}
 	}
+	tweaked = tweaked[0:n]
+	it.Seek(tweaked)
+	if it.Valid() && bytes.Equal(tweaked, it.Item().Key()) {
+		it.Next()
+	}
+}
 
+func reverseIteratePrefix(txn *badger.Txn, prefix, seek []byte, f func(iter *badger.Iterator) error, iterOpts ...badgerIterationOption) error {
 	opts := badger.DefaultIteratorOptions
 	opts.Prefix = prefix
 	opts.Reverse = true
@@ -298,11 +305,7 @@ func reverseIteratePrefix(txn *badger.Txn, prefix, seek []byte, f func(iter *bad
 		seek = append(seek, lastDBID[:]...)
 	}
 
-	if len(prefix) == 3 {
-		fmt.Printf("--reverseIteratePrefix: seek = %s, opts.Prefix = %s, opts.Reverse = %t \n", dex.Bytes(seek), dex.Bytes(opts.Prefix), opts.Reverse)
-		seek = []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
-	}
-	for iter.Seek(seek); iter.Valid(); iter.Next() {
+	for SeekLast(iter, prefix); iter.ValidForPrefix(prefix); iter.Next() {
 		if err := f(iter); err != nil {
 			if errors.Is(err, ErrEndIteration) {
 				return nil
