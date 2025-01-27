@@ -3,6 +3,7 @@ package lexi
 import (
 	"bytes"
 	"encoding"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,11 +94,14 @@ func TestIndex(t *testing.T) {
 		t.Fatalf("Error adding index: %v", err)
 	}
 
+	// Put 100 values in.
 	const nVs = 100
 	vs := make([]*tValue, nVs)
 	for i := 0; i < nVs; i++ {
+		// Random value, but with a flag at the end.
 		k := append(encode.RandomBytes(5), byte(i))
-		// Add a prefix.
+		// The index is keyed on i, with a prefix of 0, until 40, after which
+		// the prefix is 1.
 		indexKey := []byte{byte(i)}
 		prefix := []byte{0}
 		if i >= 40 {
@@ -145,6 +149,7 @@ func TestIndex(t *testing.T) {
 	}
 
 	// Iterate forwards with prefix.
+	fmt.Println("--TestIndex.forward")
 	keyIdx.Iterate([]byte{0}, func(it *Iter) error {
 		v := vs[i]
 		it.V(func(vB []byte) error {
@@ -161,6 +166,7 @@ func TestIndex(t *testing.T) {
 	}
 
 	// Iterate backwards with prefix.
+	fmt.Println("--TestIndex.reverse")
 	keyIdx.Iterate([]byte{0}, func(it *Iter) error {
 		i--
 		v := vs[i]
