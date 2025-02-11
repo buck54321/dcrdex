@@ -7,16 +7,32 @@
   <div id="content" class="fill-abs d-flex">
     {{- /* ASSET SELECT */ -}}
     <section id="assetSelect" class="w-auto d-flex align-items-stretch overflow-y-hidden hidden-overflow invisible">
-      <div id="globalBalanceBox" class="flex-stretch-column p-2 border-bottom hoverbg pointer">
-        <span class="grey fs16">Holdings</span>
+      <div id="globalBalanceBox" class="flex-stretch-column pt-2 px-2 hoverbg pointer">
+        <span class="grey fs16 lh1 mb-1">Holdings</span>
         <span class="d-flex align-items-end lh1">
           <span id="globalBalance" class="fs20"></span>
           <span class="fs18 grey ms-1">USD</span>
         </span>
-        <span class="ico-sort"></span>
+        <div class="border-bottom mt-2"></div>
       </div>
-      <div id="baseChainTmpl"></div>
-      <div id="tokenTmpl"></div>
+      <div id="tickerBalsBox" class="flex-stretch-column border-bottom">
+        <div id="tickerBalTmpl" class="flex-stretch-column pt-2 px-2 hoverbg pointer">
+          <div class="d-flex justify-content-between align-items-start">
+            <div class="flex-center me-4 lh1">
+              <img data-tmpl="logo" class="mini-icon me-1">
+              <span data-tmpl="ticker" class="ms-1 fs22"></span>
+            </div>
+            <div class="d-flex flex-column align-items-end">
+              <span data-tmpl="bal" class="fs22 lh1"> <span class="grey me-1">—</span> </span>
+              <div data-tmpl="fiatBox" class="d-flex align-items-end fs15 grey lh1 pt-1">
+                <span data-tmpl="fiatBal"> <span class="me-1">—</span> </span>
+                <span class="ms-1 fs12 grey">USD</span>
+              </div>
+            </div>
+          </div>
+          <div class="border-bottom mt-2"></div>
+        </div>
+      </div>
       <div id="iconSelectTmpl" class="icon-select d-flex align-items-stretch p-2 border-bottom">
         <div class="flex-center">
           <div class="position-relative overflow-visible">

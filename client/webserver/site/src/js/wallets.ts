@@ -41,7 +41,8 @@ import {
   TxHistoryResult,
   TransactionNote,
   WalletTransaction,
-  FeeState
+  FeeState,
+  WalletBalance
 } from './registry'
 import { CoinExplorers } from './coinexplorers'
 
@@ -56,6 +57,29 @@ interface TicketPurchaseUpdate extends BaseWalletNote {
   remaining:number
   tickets?: Ticket[]
   stats?: TicketStats
+}
+
+interface AssetState {
+  symbol: string
+  ticker: string
+  bal: WalletBalance
+  xcRate: number
+}
+
+interface TickerAsset {
+  ticker: string // normalized e.g. WETH -> ETH
+  hasTokens: boolean
+  cFactor: number
+  logoSymbol: string
+  bal: {
+    avail: number
+    immature: number
+    locked: number
+    total: number
+  }
+  xcRate: number
+  assets: AssetState[]
+  lookup: Record<number, AssetState>
 }
 
 const animationLength = 300
@@ -218,7 +242,12 @@ export default class WalletsPage extends BasePage {
   body: HTMLElement
   data?: WalletsPageData
   page: Record<string, PageElement>
-  assetButtons: Record<number, AssetButton>
+
+  tickers: TickerAsset[]
+  haveAllFiatRates: boolean
+  totalUSD: number
+
+  // assetButtons: Record<number, AssetButton>
   newWalletForm: NewWalletForm
   reconfigForm: WalletConfigForm
   walletCfgGuide: PageElement
@@ -263,7 +292,7 @@ export default class WalletsPage extends BasePage {
       setStamp()
     }, 10000) // update every 10 seconds
 
-    Doc.cleanTemplates(page.restoreInfoCard, page.connectedIconTmpl, page.disconnectedIconTmpl, page.removeIconTmpl)
+    Doc.cleanTemplates(page.restoreInfoCard, page.connectedIconTmpl, page.disconnectedIconTmpl, page.removeIconTmpl, page.tickerBalsBox)
     this.restoreInfoCard = page.restoreInfoCard.cloneNode(true) as HTMLElement
     Doc.show(page.connectedIconTmpl, page.disconnectedIconTmpl, page.removeIconTmpl)
 
@@ -418,6 +447,7 @@ export default class WalletsPage extends BasePage {
       walletnote: (note: WalletNote) => { this.handleCustomWalletNote(note) }
     })
 
+    this.prepareTickerAssets()
     const firstAsset = this.sortAssetButtons()
     let selectedAsset = firstAsset.id
     const assetIDStr = State.fetchLocal(State.selectedAssetLK)
@@ -902,57 +932,123 @@ export default class WalletsPage extends BasePage {
     await defaultsLoaded
   }
 
-  // sortAssetButtons displays supported assets, sorted. Returns first asset in the
-  // list.
-  sortAssetButtons (): SupportedAsset {
-    const page = this.page
-    this.assetButtons = {}
-    Doc.empty(page.assetSelect)
-    // Global balance always goes first.
-    page.assetSelect.appendChild(page.globalBalanceBox)
-    page.globalBalance.textContent = '1,000,000'
-    const sortedAssets = [...Object.values(app().assets)]
-    sortedAssets.sort((a: SupportedAsset, b: SupportedAsset) => {
-      if (a.wallet && !b.wallet) return -1
-      if (!a.wallet && b.wallet) return 1
-      if (!a.wallet && !b.wallet) return a.symbol === 'dcr' ? -1 : 1
-      const [aBal, bBal] = [a.wallet.balance, b.wallet.balance]
-      const [aTotal, bTotal] = [aBal.available + aBal.immature + aBal.locked, bBal.available + bBal.immature + bBal.locked]
-      if (aTotal === 0 && bTotal === 0) return a.symbol.localeCompare(b.symbol)
+  prepareTickerAssets () {
+    const fiats = app().fiatRatesMap
+    let [haveAllFiatRates, totalUSD] = [true, 0]
+    const tickers: TickerAsset[] = []
+    const getTickerAsset = (a: SupportedAsset, xcRate: number): TickerAsset => {
+      const { symbol, token, unitInfo: { conventional: {conversionFactor: cFactor, unit: ticker } } } = a
+      const normedTicker = ticker === 'WETH' ? 'ETH' : ticker === 'WBTC' ? 'BTC' : ticker
+      const i = tickers.findIndex((ta: TickerAsset) => ta.ticker === ticker, tickers)
+      if (i === -1) {
+        const ta: TickerAsset = { 
+          ticker: normedTicker, cFactor, assets: [], lookup: {}, hasTokens: false,
+          logoSymbol: symbol, bal: { avail: 0, immature: 0, locked: 0, total: 0 }, xcRate
+        }
+        tickers.push(ta)
+        return ta
+      }
+      const ta = tickers[i]
+      if (!token) ta.logoSymbol = symbol // Prefer the native asset symbol for e.g, eth/weth
+      return tickers[i]
+    }
+
+    for (const [assetID, a] of Object.entries(app().user.assets)) {
+      const { symbol, wallet: w, info: token, unitInfo: { conventional: { conversionFactor, unit: ticker } } } = a
+      const xcRate = fiats[Number(assetID)]
+      const ta = getTickerAsset(a, xcRate)
+      if (!w) continue
+      const { balance: { available, locked, immature } } = w
+      const totalBal = available + locked + immature
+      if (xcRate) totalUSD += totalBal / conversionFactor * xcRate
+      else haveAllFiatRates = false
+      if (!ta.logoSymbol || !token) ta.logoSymbol = symbol
+      ta.hasTokens = ta.hasTokens && Boolean(token)
+      ta.bal.avail += available
+      ta.bal.locked += locked
+      ta.bal.immature += immature
+      ta.bal.total += available + locked + immature
+      const state: AssetState = { symbol, ticker, bal: w.balance, xcRate }
+      ta.assets.push(state)
+      ta.lookup[Number(assetID)] = state
+    }
+    tickers.sort((a: TickerAsset, b: TickerAsset) => {
+      if (a.assets.length && !b.assets.length) return -1
+      if (!a.assets.length && b.assets.length) return 1
+      if (!a.assets.length && !b.assets.length) return a.ticker === 'DCR' ? -1 : 1
+      const [aTotal, bTotal] = [a.bal.total, b.bal.total]
+      if (aTotal === 0 && bTotal === 0) return a.ticker.localeCompare(b.ticker)
       else if (aTotal === 0) return 1
       else if (aTotal === 0) return -1
-      const [aFiat, bFiat] = [app().fiatRatesMap[a.id], app().fiatRatesMap[b.id]]
+      const [aFiat, bFiat] = [a.xcRate, b.xcRate]
       if (aFiat && !bFiat) return -1
       if (!aFiat && bFiat) return 1
       return bFiat * bTotal - aFiat * aTotal
     })
-    // global balance
-    let [haveAllFiats, totalUSD, hasUnrateableAssets] = [false, 0]
-    const fiatRates = app().fiatRatesMap
-    for (const a of sortedAssets) {
-      if (!a.wallet) {
-        hasUnrateableAssets
-        continue
-      }
-      // b.available + b.locked + b.immature
-      const b = a.wallet.balance
-      const atoms = b.available + b.locked + b.immature
-      
+    this.totalUSD = totalUSD
+    this.haveAllFiatRates = haveAllFiatRates
+    this.tickers = tickers
+  }
 
-    } 
-    for (const a of sortedAssets) {
-      const bttn = page.iconSelectTmpl.cloneNode(true) as HTMLElement
-      page.assetSelect.appendChild(bttn)
-      const tmpl = Doc.parseTemplate(bttn)
-      this.assetButtons[a.id] = { tmpl, bttn }
-      this.updateAssetButton(a.id)
-      Doc.bind(bttn, 'click', () => {
-        this.setSelectedAsset(a.id)
-        State.storeLocal(State.selectedAssetLK, String(a.id))
-      })
+  // sortAssetButtons displays supported assets, sorted. Returns first asset in the
+  // list.
+  sortAssetButtons (): SupportedAsset {
+    const { page, tickers, totalUSD } = this
+    // const fiats = app().fiatRatesMap
+    // this.assetButtons = {}
+    // Global balance always goes first.
+    Doc.empty(page.assetSelect)
+    page.assetSelect.appendChild(page.globalBalanceBox)
+    page.assetSelect.appendChild(page.tickerBalsBox)
+    Doc.empty(page.tickerBalsBox)
+    for (const { ticker, bal, cFactor, xcRate, logoSymbol, assets } of tickers) {
+      const div = page.tickerBalTmpl.cloneNode(true) as PageElement
+      page.tickerBalsBox.appendChild(div)
+      const tmpl = Doc.parseTemplate(div)
+      tmpl.logo.src = Doc.logoPath(logoSymbol)
+      tmpl.ticker.textContent = ticker
+      if (assets.length) {
+        tmpl.bal.textContent = Doc.formatFourSigFigs(bal.total / cFactor)
+        tmpl.fiatBal.textContent = Doc.formatFourSigFigs(bal.total / cFactor * xcRate, 2)
+      } else {
+        Doc.hide(tmpl.fiatBox)
+        tmpl.logo.classList.add('greyscale', 'faded')
+        tmpl.ticker.classList.add('grey')
+      }
     }
-    page.assetSelect.classList.remove('invisible')
-    return sortedAssets[0]
+    page.globalBalance.textContent = Doc.formatFourSigFigs(totalUSD, 2)
+
+
+    // const sortedAssets = [...Object.values(app().assets)]
+    // sortedAssets.sort((a: SupportedAsset, b: SupportedAsset) => {
+    //   if (a.wallet && !b.wallet) return -1
+    //   if (!a.wallet && b.wallet) return 1
+    //   if (!a.wallet && !b.wallet) return a.symbol === 'dcr' ? -1 : 1
+    //   const [aBal, bBal] = [a.wallet.balance, b.wallet.balance]
+    //   const [aTotal, bTotal] = [aBal.available + aBal.immature + aBal.locked, bBal.available + bBal.immature + bBal.locked]
+    //   if (aTotal === 0 && bTotal === 0) return a.symbol.localeCompare(b.symbol)
+    //   else if (aTotal === 0) return 1
+    //   else if (aTotal === 0) return -1
+    //   const [aFiat, bFiat] = [fiats[a.id], fiats[b.id]]
+    //   if (aFiat && !bFiat) return -1
+    //   if (!aFiat && bFiat) return 1
+    //   return bFiat * bTotal - aFiat * aTotal
+    // })
+    // for (const a of sortedAssets) {
+    //   const bttn = page.iconSelectTmpl.cloneNode(true) as HTMLElement
+    //   page.assetSelect.appendChild(bttn)
+    //   const tmpl = Doc.parseTemplate(bttn)
+    //   this.assetButtons[a.id] = { tmpl, bttn }
+    //   this.updateAssetButton(a.id)
+    //   Doc.bind(bttn, 'click', () => {
+    //     this.setSelectedAsset(a.id)
+    //     State.storeLocal(State.selectedAssetLK, String(a.id))
+    //   })
+    // }
+    // page.assetSelect.classList.remove('invisible')
+    // return sortedAssets[0]
+
+
   }
 
   updateAssetButton (assetID: number) {

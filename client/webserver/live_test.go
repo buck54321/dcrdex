@@ -1991,7 +1991,7 @@ func (c *TCore) TicketPage(assetID uint32, scanStart int32, n, skipN int) ([]*as
 }
 
 func (c *TCore) FundsMixingStats(assetID uint32) (*asset.FundsMixingStats, error) {
-	return nil, nil
+	return &asset.FundsMixingStats{}, nil
 }
 
 func (c *TCore) ConfigureFundsMixer(appPW []byte, assetID uint32, enabled bool) error {
@@ -2653,8 +2653,8 @@ func TestServer(t *testing.T) {
 	numBuys = 10
 	numSells = 10
 	feedPeriod = 5000 * time.Millisecond
-	initialize := false
-	register := false
+	initialize := true
+	register := true
 	forceDisconnectWallet = true
 	gapWidthFactor = 0.2
 	randomPokes = false
