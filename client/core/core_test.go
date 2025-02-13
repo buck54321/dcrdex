@@ -2041,7 +2041,7 @@ func TestPostBond(t *testing.T) {
 							tWallet.setConfs(tWallet.bondTxCoinID, confs+1, nil)
 						}
 
-						tCore.tipChange(tUTXOAssetA.ID)
+						tCore.tipChange(tUTXOAssetA.ID, 100)
 						return
 					}
 				case <-timeout.C:

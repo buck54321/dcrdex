@@ -182,7 +182,7 @@ var (
 			// MaxSwapsInTx and MaxRedeemsInTx are set in (Wallet).Info, since
 			// the value cannot be known until we connect and get network info.
 		},
-		IsAccountBased: true,
+		BlockchainClass: asset.BlockchainClassEVM,
 	}
 
 	// unlimitedAllowance is the maximum supported allowance for an erc20
@@ -660,7 +660,7 @@ func CreateEVMWallet(chainID int64, createWalletParams *asset.CreateWalletParams
 func newWallet(assetCFG *asset.WalletConfig, logger dex.Logger, net dex.Network) (w *ETHWallet, err error) {
 	chainCfg, err := ChainConfig(net)
 	if err != nil {
-		return nil, fmt.Errorf("failed to locate Ethereum genesis configuration for network %s", net)
+		return nil, fmt.Errorf("failed to locate Ethereum genesis configuration for network %s: %v", net, err)
 	}
 	comp, err := NetworkCompatibilityData(net)
 	if err != nil {
@@ -1284,6 +1284,7 @@ func (w *ETHWallet) OpenTokenWallet(tokenCfg *asset.TokenConfig) (asset.Wallet, 
 			Name:              token.Name,
 			SupportedVersions: w.wi.SupportedVersions,
 			UnitInfo:          token.UnitInfo,
+			BlockchainClass:   asset.BlockchainClassEVM,
 		},
 		pendingTxCheckBal: new(big.Int),
 	}

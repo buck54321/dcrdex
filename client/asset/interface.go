@@ -304,6 +304,17 @@ type Token struct {
 	ContractAddress string            `json:"contractAddress"` // Set in SetNetwork
 }
 
+type BlockchainClass string
+
+const (
+	BlockchainClassUTXO BlockchainClass = "UTXO"
+	BlockchainClassEVM  BlockchainClass = "EVM"
+)
+
+func (c BlockchainClass) IsEVM() bool {
+	return c == BlockchainClassEVM
+}
+
 // WalletInfo is auxiliary information about an ExchangeWallet.
 type WalletInfo struct {
 	// Name is the display name for the currency, e.g. "Decred"
@@ -331,10 +342,8 @@ type WalletInfo struct {
 	// MaxRedeemsInTx is the max amount of redemptions that this wallet can do
 	// in a single transaction.
 	MaxRedeemsInTx uint64
-	// IsAccountBased should be set to true for account-based (EVM) assets, so
-	// that a common seed will be generated and wallets will generate the
-	// same address.
-	IsAccountBased bool
+	// BlockchainClass is the type of the wallet's blockchain.
+	BlockchainClass BlockchainClass
 }
 
 // ConfigOption is a wallet configuration option.
