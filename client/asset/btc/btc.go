@@ -931,7 +931,6 @@ var _ asset.Authenticator = (*ExchangeWalletFullNode)(nil)
 var _ asset.Authenticator = (*ExchangeWalletAccelerator)(nil)
 var _ asset.Authenticator = (*ExchangeWalletCustom)(nil)
 var _ asset.AddressReturner = (*baseWallet)(nil)
-var _ asset.WalletHistorian = (*ExchangeWalletSPV)(nil)
 
 // RecoveryCfg is the information that is transferred from the old wallet
 // to the new one when the wallet is recovered.
@@ -4618,6 +4617,8 @@ func (btc *baseWallet) send(address string, val uint64, feeRate uint64, subtract
 		Amount:    toSend,
 		Fees:      totalIn - totalOut,
 		Recipient: &address,
+		Timestamp: uint64(time.Now().Unix()),
+		Confirms:  &asset.Confirms{Target: requiredRedeemConfirms},
 	}, txHash, true)
 
 	return txHash, 0, toSend, nil
@@ -5356,6 +5357,8 @@ func (btc *baseWallet) RefundBond(ctx context.Context, ver uint16, coinID, scrip
 			LockTime: uint64(lockTime),
 			BondID:   pkhPush,
 		},
+		Timestamp: uint64(time.Now().Unix()),
+		Confirms:  &asset.Confirms{Target: requiredRedeemConfirms},
 	}, txID, true)
 
 	return NewOutput(txHash, 0, uint64(msgTx.TxOut[0].Value)), nil
@@ -5940,6 +5943,8 @@ func (btc *baseWallet) addUnknownTransactionsToHistory(tip uint64) {
 		if tx.BlockHeight > 0 && tx.BlockHeight < uint32(tip-blockQueryBuffer) {
 			wt.BlockNumber = uint64(tx.BlockHeight)
 			wt.Timestamp = tx.BlockTime
+		} else {
+			wt.Timestamp = uint64(time.Now().Unix())
 		}
 
 		// Don't send notifications for the initial sync to avoid spamming the
@@ -6045,7 +6050,15 @@ func (btc *intermediaryWallet) syncTxHistory(tip uint64) {
 		}
 		if confs >= requiredRedeemConfirms {
 			tx.Confirmed = true
+			tx.Confirms = nil
 			updated = true
+		} else {
+			tx.Confirmed = false
+			updated = tx.Confirms == nil || tx.Confirms.Current != uint32(confs)
+			tx.Confirms = &asset.Confirms{
+				Current: uint32(confs),
+				Target:  requiredRedeemConfirms,
+			}
 		}
 
 		if updated {
@@ -6138,6 +6151,14 @@ func (btc *intermediaryWallet) WalletTransaction(ctx context.Context, txID strin
 		tx.BlockNumber = uint64(blockHeight)
 		tx.Timestamp = gtr.BlockTime
 		tx.Confirmed = blockHeight > 0
+		if tx.Confirmed {
+			tx.Confirms = nil
+		} else {
+			tx.Confirms = &asset.Confirms{
+				Current: 0,
+				Target:  1,
+			}
+		}
 		updated = true
 	}
 
@@ -6146,6 +6167,21 @@ func (btc *intermediaryWallet) WalletTransaction(ctx context.Context, txID strin
 	}
 
 	return tx, nil
+}
+
+// PendingTransactions loads wallet transactions that are not yet confirmed.
+func (btc *baseWallet) PendingTransactions(ctx context.Context) []*asset.WalletTransaction {
+	btc.pendingTxsMtx.RLock()
+	defer btc.pendingTxsMtx.RUnlock()
+	txs := make([]*asset.WalletTransaction, 0, len(btc.pendingTxs))
+	for _, tx := range btc.pendingTxs {
+		if tx.Confirmed {
+			continue
+		}
+		txCopy := *tx.WalletTransaction
+		txs = append(txs, &txCopy)
+	}
+	return txs
 }
 
 // TxHistory returns all the transactions the wallet has made. If refID is nil,

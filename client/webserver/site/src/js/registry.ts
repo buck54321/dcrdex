@@ -259,6 +259,7 @@ export interface WalletState {
   syncStatus: SyncStatus
   approved: Record<number, ApprovalStatus>
   feeState?: FeeState
+  pendingTxs: Record<string, WalletTransaction>
 }
 
 export interface WalletInfo {
@@ -1255,6 +1256,12 @@ export interface WalletTransaction {
   recipient?: string
   bondInfo?: BondTxInfo
   additionalData: Record<string, string>
+  confirmed: boolean
+  confirms?: {
+    current: number
+    target: number
+  }
+  rejected: boolean
 }
 
 export interface TxHistoryResult {
