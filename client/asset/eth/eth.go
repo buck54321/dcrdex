@@ -441,7 +441,7 @@ type baseWallet struct {
 		tipRate  *big.Int
 	}
 
-	txDB txDB
+	txDB txDB // *TxDB
 }
 
 // assetWallet is a wallet backend for Ethereum and Eth tokens. The backend is
@@ -5306,8 +5306,8 @@ func (w *baseWallet) extendAndStoreTx(tx *types.Transaction, txType asset.Transa
 // If past is true, the transactions prior to the refID are returned, otherwise
 // the transactions after the refID are returned. n is the number of
 // transactions to return. If n is <= 0, all the transactions will be returned.
-func (w *ETHWallet) TxHistory(n int, refID *string, past bool) ([]*asset.WalletTransaction, error) {
-	return w.txHistory(n, refID, past, nil)
+func (w *ETHWallet) TxHistory(req *asset.TxHistoryRequest) (*asset.TxHistoryResponse, error) {
+	return w.txDB.getTxs(nil, req)
 }
 
 // TxHistory returns all the transactions the token wallet has made. If refID
@@ -5316,20 +5316,8 @@ func (w *ETHWallet) TxHistory(n int, refID *string, past bool) ([]*asset.WalletT
 // returned, otherwise the transactions after the refID are returned. n is the
 // number of transactions to return. If n is <= 0, all the transactions will be
 // returned.
-func (w *TokenWallet) TxHistory(n int, refID *string, past bool) ([]*asset.WalletTransaction, error) {
-	return w.txHistory(n, refID, past, &w.assetID)
-}
-
-func (w *baseWallet) txHistory(n int, refID *string, past bool, assetID *uint32) ([]*asset.WalletTransaction, error) {
-	var hashID *common.Hash
-	if refID != nil {
-		h := common.HexToHash(*refID)
-		if h == (common.Hash{}) {
-			return nil, fmt.Errorf("invalid reference ID %q provided", *refID)
-		}
-		hashID = &h
-	}
-	return w.txDB.getTxs(n, hashID, past, assetID)
+func (w *TokenWallet) TxHistory(req *asset.TxHistoryRequest) (*asset.TxHistoryResponse, error) {
+	return w.txDB.getTxs(&w.assetID, req)
 }
 
 func (w *ETHWallet) getReceivingTransaction(ctx context.Context, txHash common.Hash) (*asset.WalletTransaction, error) {

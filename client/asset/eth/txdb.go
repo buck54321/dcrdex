@@ -74,7 +74,7 @@ func (t *extendedWalletTx) tx() (*types.Transaction, error) {
 type txDB interface {
 	dex.Connector
 	storeTx(wt *extendedWalletTx) error
-	getTxs(n int, refID *common.Hash, past bool, tokenID *uint32) ([]*asset.WalletTransaction, error)
+	getTxs(tokenID *uint32, req *asset.TxHistoryRequest) (*asset.TxHistoryResponse, error)
 	// getTx gets a single transaction. It is not an error if the tx is not known.
 	// In that case, a nil tx is returned.
 	getTx(txHash common.Hash) (*extendedWalletTx, error)
@@ -85,9 +85,9 @@ type txDB interface {
 
 type TxDB struct {
 	*lexi.DB
-	txs           *lexi.Table
-	allAssetIndex *lexi.Index
-	assetIndex    *lexi.Index
+	txs        *lexi.Table
+	nonceIndex *lexi.Index
+	assetIndex *lexi.Index
 
 	baseChainID uint32
 }
@@ -135,7 +135,7 @@ func NewTxDB(path string, log dex.Logger, baseChainID uint32) (*TxDB, error) {
 		return nil, err
 	}
 
-	allAssetIndex, err := txs.AddUniqueIndex("allAssets", func(k, v lexi.KV) ([]byte, error) {
+	nonceIndex, err := txs.AddUniqueIndex("allAssets", func(k, v lexi.KV) ([]byte, error) {
 		wt, is := v.(*extendedWalletTx)
 		if !is {
 			return nil, fmt.Errorf("expected type *extendedWalletTx, got %T", wt)
@@ -158,11 +158,11 @@ func NewTxDB(path string, log dex.Logger, baseChainID uint32) (*TxDB, error) {
 	}
 
 	return &TxDB{
-		DB:            ldb,
-		txs:           txs,
-		allAssetIndex: allAssetIndex,
-		assetIndex:    assetIndex,
-		baseChainID:   baseChainID,
+		DB:          ldb,
+		txs:         txs,
+		nonceIndex:  nonceIndex,
+		assetIndex:  assetIndex,
+		baseChainID: baseChainID,
 	}, nil
 }
 
@@ -205,12 +205,27 @@ func (db *TxDB) getTx(txHash common.Hash) (*extendedWalletTx, error) {
 // - If past=true: Results are in decreasing nonce order
 // - The referenced transaction is included in results
 // - Returns asset.CoinNotFoundError if refID not found
-func (db *TxDB) getTxs(n int, refID *common.Hash, past bool, assetID *uint32) ([]*asset.WalletTransaction, error) {
+func (db *TxDB) getTxs(assetIDPtr *uint32, req *asset.TxHistoryRequest) (*asset.TxHistoryResponse, error) {
+	var n, past = req.N, req.Past
+	var refID *common.Hash
+	if req.RefID != nil {
+		h := common.HexToHash(*req.RefID)
+		if h == (common.Hash{}) {
+			return nil, fmt.Errorf("invalid reference ID %q provided", *req.RefID)
+		}
+		refID = &h
+	}
+	var assetID interface{}
+	idx := db.nonceIndex
+	if assetIDPtr != nil {
+		assetID = *assetIDPtr
+		idx = db.assetIndex
+	}
+
 	var opts []lexi.IterationOption
 	if past || refID == nil {
 		opts = append(opts, lexi.WithReverse())
 	}
-
 	if refID != nil {
 		wt, err := db.getTx(*refID)
 		if err != nil {
@@ -218,15 +233,15 @@ func (db *TxDB) getTxs(n int, refID *common.Hash, past bool, assetID *uint32) ([
 		}
 
 		var entry []byte
-		if assetID == nil {
+		if assetIDPtr == nil {
 			entry = nonceIndexEntry(wt)
 		} else {
 			var refTxAssetID uint32 = db.baseChainID
 			if wt.TokenID != nil {
 				refTxAssetID = *wt.TokenID
 			}
-			if refTxAssetID != *assetID {
-				return nil, fmt.Errorf("token ID mismatch: %d != %d", refTxAssetID, *assetID)
+			if refTxAssetID != assetID {
+				return nil, fmt.Errorf("token ID mismatch: %d != %d", refTxAssetID, assetID)
 			}
 			entry = assetIndexEntry(wt, db.baseChainID)
 		}
@@ -235,29 +250,34 @@ func (db *TxDB) getTxs(n int, refID *common.Hash, past bool, assetID *uint32) ([
 	}
 
 	txs := make([]*asset.WalletTransaction, 0, n)
+	var moreAvailable bool
+	ignoreTypes := req.IngoreTypesLookup()
 	iterFunc := func(it *lexi.Iter) error {
 		wt := new(extendedWalletTx)
-		err := it.V(func(vB []byte) error {
+		if err := it.V(func(vB []byte) error {
 			return wt.UnmarshalBinary(vB)
-		})
-		if err != nil {
+		}); err != nil {
 			return err
 		}
 
-		txs = append(txs, wt.WalletTransaction)
-
-		if n > 0 && len(txs) >= n {
+		if ignoreTypes[wt.Type] {
+			return nil
+		}
+		if n > 0 && len(txs) == n {
+			moreAvailable = true
 			return lexi.ErrEndIteration
 		}
-
+		txs = append(txs, wt.WalletTransaction)
 		return nil
 	}
 
-	if assetID == nil {
-		return txs, db.allAssetIndex.Iterate(nil, iterFunc, opts...)
+	if err := idx.Iterate(assetID, iterFunc, opts...); err != nil {
+		return nil, err
 	}
-
-	return txs, db.assetIndex.Iterate(*assetID, iterFunc, opts...)
+	return &asset.TxHistoryResponse{
+		Txs:           txs,
+		MoreAvailable: moreAvailable,
+	}, nil
 }
 
 // getPendingTxs returns all unconfirmed transactions that have not been marked
@@ -266,7 +286,7 @@ func (db *TxDB) getPendingTxs() (txs []*extendedWalletTx, err error) {
 	const numConfirmedTxsToCheck = 20
 	var numConfirmedTxs int
 
-	db.allAssetIndex.Iterate(nil, func(it *lexi.Iter) error {
+	db.nonceIndex.Iterate(nil, func(it *lexi.Iter) error {
 		wt := new(extendedWalletTx)
 		err := it.V(func(vB []byte) error {
 			return wt.UnmarshalBinary(vB)
