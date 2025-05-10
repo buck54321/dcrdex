@@ -1070,6 +1070,11 @@ func (t *trackedTrade) makeMetaMatch(msgMatch *msgjson.Match) *db.MetaMatch {
 	// 	feeRateSwap = maxFeeRate
 	// }
 
+	var secret []byte
+	if msgMatch.Side == uint8(order.Maker) {
+		secret = encode.RandomBytes(32)
+	}
+
 	var oid order.OrderID
 	copy(oid[:], msgMatch.OrderID)
 	var mid order.MatchID
@@ -1077,6 +1082,7 @@ func (t *trackedTrade) makeMetaMatch(msgMatch *msgjson.Match) *db.MetaMatch {
 	return &db.MetaMatch{
 		MetaData: &db.MatchMetaData{
 			Proof: db.MatchProof{
+				Secret: secret,
 				Auth: db.MatchAuth{
 					MatchSig:   msgMatch.Sig,
 					MatchStamp: msgMatch.ServerTime,
@@ -2372,7 +2378,9 @@ func (c *Core) swapMatchGroup(t *trackedTrade, matches []*matchTracker, highestF
 		matchTime := match.matchTime()
 		lockTime := matchTime.Add(t.lockTimeTaker).UTC().Unix()
 		if match.Side == order.Maker {
-			match.MetaData.Proof.Secret = encode.RandomBytes(32)
+			if len(match.MetaData.Proof.Secret) == 0 {
+				match.MetaData.Proof.Secret = encode.RandomBytes(32)
+			}
 			secretHash := sha256.Sum256(match.MetaData.Proof.Secret)
 			match.MetaData.Proof.SecretHash = secretHash[:]
 			lockTime = matchTime.Add(t.lockTimeMaker).UTC().Unix()
