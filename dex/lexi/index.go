@@ -5,6 +5,7 @@ package lexi
 
 import (
 	"bytes"
+	"encoding"
 	"errors"
 	"fmt"
 
@@ -67,6 +68,110 @@ func (t *Table) AddIndex(name string, f func(k, v KV) ([]byte, error)) (*Index, 
 // instead.
 func (t *Table) AddUniqueIndex(name string, f func(k, v KV) ([]byte, error)) (*Index, error) {
 	return t.addIndex(name, f, true)
+}
+
+// DeleteIndex deletes all index entries for any index of this table with the
+// given name.
+func (t *Table) DeleteIndex(name string) error {
+	p, err := t.prefixForName(t.name + "__idx__" + name)
+	if err != nil {
+		return fmt.Errorf("error constructing index prefix: %w", err)
+	}
+	// Delete all index entries.
+	t.iterate(p, t, iteratorOpts{}, true /* isIndex */, nil, func(i *Iter) error {
+		if err := i.Delete(); err != nil {
+			return err
+		}
+		return nil
+	}, WithUpdate())
+	// Update datums.
+	t.Update(func(txn *badger.Txn) error {
+		return iteratePrefix(txn, t.prefix[:], nil, func(iter *badger.Iterator) error {
+			return iter.Item().Value(func(dB []byte) error {
+				d, err := decodeDatum(dB)
+				if err != nil {
+					return fmt.Errorf("error decoding datum during index deletion: %w", err)
+				}
+				newIndexes := make([][]byte, 0, len(d.indexes)-1)
+				for _, idxB := range d.indexes {
+					if bytes.Equal(idxB[:prefixSize], p[:]) {
+						continue
+					}
+					newIndexes = append(newIndexes, idxB)
+				}
+				d.indexes = newIndexes
+				b, err := d.bytes()
+				if err != nil {
+					return fmt.Errorf("error encoding datum after index deletion: %w", err)
+				}
+				if err := txn.Set(iter.Item().Key(), b); err != nil {
+					return fmt.Errorf("error storing new datum after index deletion: %w", err)
+				}
+				return nil
+			})
+		})
+	})
+	return nil
+}
+
+// ReIndex updates the index entries on this index for all items in the table.
+// decoder should generate the value such that would be passed to the the index
+// generation function supplied to (*Table).AddIndex for this index.
+func (idx *Index) ReIndex(decoder func(k, v []byte) (encoding.BinaryMarshaler, error)) error {
+	return idx.Update(func(txn *badger.Txn) error {
+		return iteratePrefix(txn, idx.table.prefix[:], nil, func(iter *badger.Iterator) error {
+			return iter.Item().Value(func(dB []byte) error {
+				d, err := decodeDatum(dB)
+				if err != nil {
+					return fmt.Errorf("error decoding datum: %w", err)
+				}
+				tableKey := iter.Item().Key()
+				dbIDB := tableKey[prefixSize:]
+				keyItem, err := txn.Get(prefixedKey(idToKeyPrefix, dbIDB))
+				if err != nil {
+					return fmt.Errorf("error finding key for entry: %w", err)
+				}
+				k, err := keyItem.ValueCopy(nil)
+				if err != nil {
+					return err
+				}
+				thing, err := decoder(k, d.v)
+				if err != nil {
+					return fmt.Errorf("decoder error: %w", err)
+				}
+				idxB, err := idx.f(k, thing)
+				if err != nil {
+					return fmt.Errorf("indexer function error: %w", err)
+				}
+				// Delete any old index entry
+				var replaced bool
+				for j, idxBi := range d.indexes {
+					if bytes.Equal(idxBi[:prefixSize], idx.prefix[:]) {
+						if err := txn.Delete(idxBi); err != nil {
+							return fmt.Errorf("error deleting old index entry during reindex: %w", err)
+						}
+						d.indexes[j] = idxB
+						replaced = true
+						break
+					}
+				}
+				if !replaced {
+					d.indexes = append(d.indexes, idxB)
+				}
+				b, err := d.bytes()
+				if err != nil {
+					return fmt.Errorf("error encoding datum after index reindex: %w", err)
+				}
+				if err := txn.Set(tableKey, b); err != nil {
+					return fmt.Errorf("error storing new datum after reindex: %w", err)
+				}
+				if err := txn.Set(prefixedKey(idx.prefix, append(idxB, dbIDB...)), nil); err != nil {
+					return fmt.Errorf("error storing index entry for reindex: %w", err)
+				}
+				return nil
+			})
+		})
+	})
 }
 
 // uniqueIndexConflictError is returned when a unique index conflict is encountered.
