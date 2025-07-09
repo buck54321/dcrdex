@@ -39,6 +39,7 @@ var (
 	compatibleWalletRPCVersions = []dex.Semver{
 		{Major: 9, Minor: 0, Patch: 0}, // 1.8-pre
 		{Major: 8, Minor: 8, Patch: 0}, // 1.7 release, min for getcurrentnet
+		{Major: 10, Minor: 0, Patch: 0},
 	}
 	compatibleNodeRPCVersions = []dex.Semver{
 		{Major: 8, Minor: 0, Patch: 0}, // 1.8-pre, just dropped unused ticket RPCs
