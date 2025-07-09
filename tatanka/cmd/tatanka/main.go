@@ -27,10 +27,10 @@ const (
 	Version               = 0
 	defaultConfigFilename = "tatanka.conf"
 	defaultHost           = "127.0.0.1"
-	defaultPort           = "7232"
+	defaultPort           = "7323"
 	missingPort           = "missing port in address"
 	defaultHSHost         = defaultHost // should be a loopback address
-	defaultHSPort         = "7252"
+	defaultHSPort         = "7525"
 	defaultLogLevel       = "debug"
 	defaultMaxClients     = 1000
 )

@@ -38,11 +38,14 @@ import (
 	"decred.org/dcrdex/dex/config"
 	"decred.org/dcrdex/dex/encode"
 	"decred.org/dcrdex/dex/encrypt"
+	"decred.org/dcrdex/dex/keygen"
 	"decred.org/dcrdex/dex/msgjson"
 	"decred.org/dcrdex/dex/order"
 	"decred.org/dcrdex/dex/wait"
 	"decred.org/dcrdex/server/account"
 	serverdex "decred.org/dcrdex/server/dex"
+	"decred.org/dcrdex/tatanka/client/mesh"
+	"decred.org/dcrdex/tatanka/tanka"
 	"github.com/decred/dcrd/crypto/blake256"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
@@ -1475,6 +1478,10 @@ type Core struct {
 	lockTimeMaker time.Duration
 	intl          atomic.Value // *locale
 
+	meshMtx sync.RWMutex
+	mesh    *mesh.Mesh
+	meshCM  *dex.ConnectionMaster
+
 	extensionModeConfig *ExtensionModeConfig
 
 	// construction or init sets credentials
@@ -1790,6 +1797,10 @@ fetchers:
 	// Stop the DB after dexConnections and other goroutines are done.
 	stopDB()
 	dbWG.Wait()
+
+	if c.meshCM != nil {
+		c.meshCM.Wait()
+	}
 
 	// At this point, it should be safe to access the data structures without
 	// mutex protection. Goroutines have returned, and consumers should not call
@@ -4617,6 +4628,7 @@ func (c *Core) Login(pw []byte) error {
 		}
 	}
 
+	var meshPriv *secp256k1.PrivateKey
 	login := func() (needInit bool, err error) {
 		c.loginMtx.Lock()
 		defer c.loginMtx.Unlock()
@@ -4629,12 +4641,48 @@ func (c *Core) Login(pw []byte) error {
 			defer encode.ClearBytes(seed)
 			c.bondXPriv, err = deriveBondXPriv(seed)
 			if err != nil {
-				return false, fmt.Errorf("GenDeepChild error: %w", err)
+				return false, fmt.Errorf("error deriving bond private key: %w", err)
+			}
+			meshPriv, err = deriveMeshPriv(seed)
+			if err != nil {
+				return false, fmt.Errorf("error deriving mesh private key: %w", err)
 			}
 			c.loggedIn = true
 			return true, nil
 		}
 		return false, nil
+	}
+
+	if c.net == dex.Simnet {
+		mesh, err := mesh.New(&mesh.Config{
+			DataDir:    filepath.Join(filepath.Dir(c.cfg.DBPath), "mesh"),
+			PrivateKey: meshPriv,
+			Logger:     c.log.SubLogger("MESH"),
+			EntryNode: &mesh.TatankaCredentials{
+				PeerID: tanka.SimnetPeerID,
+				Addr:   "127.0.0.1:7323",
+				// Cert: ,
+				NoTLS: true,
+			},
+		})
+		if err != nil {
+			return err
+		}
+		c.meshMtx.Lock()
+		c.mesh = mesh
+		c.meshCM = dex.NewConnectionMaster(c.mesh)
+		c.meshMtx.Unlock()
+		go func() {
+			for {
+				select {
+				case ni := <-mesh.Next():
+					b, _ := json.Marshal(ni)
+					c.log.Info("Mesh notification (%T): %s", ni, string(b))
+				case <-c.ctx.Done():
+					return
+				}
+			}
+		}()
 	}
 
 	if needsInit, err := login(); err != nil {
@@ -4649,6 +4697,7 @@ func (c *Core) Login(pw []byte) error {
 		c.connectWallets(crypter) // initialize reserves
 		c.notify(newLoginNote("Resuming active trades..."))
 		c.resolveActiveTrades(crypter)
+		c.connectMesh()
 		c.notify(newLoginNote("Connecting to DEX servers..."))
 		c.initializeDEXConnections(crypter)
 	}
@@ -11117,4 +11166,25 @@ func (c *Core) TradingLimits(host string) (userParcels, parcelLimit uint32, err 
 	}
 
 	return userParcels, parcelLimit, nil
+}
+
+func (c *Core) connectMesh() {
+	if c.net != dex.Simnet {
+		return
+	}
+	if err := c.meshCM.ConnectOnce(c.ctx); err != nil {
+		c.log.Errorf("error connecting mesh: %v", err)
+	}
+}
+
+func deriveMeshPriv(seed []byte) (*secp256k1.PrivateKey, error) {
+	xKey, err := keygen.GenDeepChild(seed, []uint32{hdKeyPurposeBonds})
+	if err != nil {
+		return nil, err
+	}
+	privB, err := xKey.SerializedPrivKey()
+	if err != nil {
+		return nil, err
+	}
+	return secp256k1.PrivKeyFromBytes(privB), nil
 }
