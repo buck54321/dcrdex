@@ -472,6 +472,28 @@ func (t *Tatanka) handleSubscription(c *client, msg *msgjson.Message) *msgjson.E
 	return nil
 }
 
+func (t *Tatanka) handleSubjects(c *client, msg *msgjson.Message) *msgjson.Error {
+	var req *mj.SubjectsRequest
+	if err := msg.Unmarshal(&req); err != nil || req == nil || req.Topic == "" {
+		t.log.Errorf("error unmarshaling subjects request from %s: %w", c.ID, err)
+		return msgjson.NewError(mj.ErrBadRequest, "is this payload a subject request?")
+	}
+	var subjects []tanka.Subject
+	t.clientMtx.RLock()
+	topic, found := t.topics[req.Topic]
+	if found {
+		subjects = make([]tanka.Subject, 0, len(topic.subjects))
+		for subject := range topic.subjects {
+			subjects = append(subjects, subject)
+		}
+	} else {
+		subjects = make([]tanka.Subject, 0)
+	}
+	t.clientMtx.RUnlock()
+	t.sendResult(c, msg.ID, subjects)
+	return nil
+}
+
 // replySubscription sends a follow up reply to a sender's subscription after
 // their message has been processed successfully.
 func (t *Tatanka) replySubscription(cl tanka.Sender, topic tanka.Topic) {

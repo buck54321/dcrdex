@@ -38,7 +38,8 @@ import (
 	"decred.org/dcrdex/dex/config"
 	"decred.org/dcrdex/dex/encode"
 	"decred.org/dcrdex/dex/encrypt"
-	"decred.org/dcrdex/dex/keygen"
+	"decred.org/dcrdex/dex/feerates"
+	"decred.org/dcrdex/dex/fiatrates"
 	"decred.org/dcrdex/dex/msgjson"
 	"decred.org/dcrdex/dex/order"
 	"decred.org/dcrdex/dex/wait"
@@ -1454,6 +1455,8 @@ type Config struct {
 	ExtensionModeFile string
 
 	TheOneHost string
+
+	Mesh bool
 }
 
 // locale is data associated with the currently selected language.
@@ -1481,6 +1484,12 @@ type Core struct {
 	meshMtx sync.RWMutex
 	mesh    *mesh.Mesh
 	meshCM  *dex.ConnectionMaster
+
+	meshFeeRatesMtx sync.RWMutex
+	meshFeeRates    map[uint32]*feerates.Estimate
+
+	meshFiatRatesMtx sync.RWMutex
+	meshFiatRates    map[string]*fiatrates.FiatRateInfo
 
 	extensionModeConfig *ExtensionModeConfig
 
@@ -1688,6 +1697,9 @@ func New(cfg *Config) (*Core, error) {
 
 		notes:            make(chan asset.WalletNotification, 128),
 		requestedActions: make(map[string]*asset.ActionRequiredNote),
+
+		meshFeeRates:  make(map[uint32]*feerates.Estimate),
+		meshFiatRates: make(map[string]*fiatrates.FiatRateInfo),
 	}
 
 	c.intl.Store(&locale{
@@ -1798,9 +1810,11 @@ fetchers:
 	stopDB()
 	dbWG.Wait()
 
+	fmt.Println("--Run.10")
 	if c.meshCM != nil {
 		c.meshCM.Wait()
 	}
+	fmt.Println("--Run.11")
 
 	// At this point, it should be safe to access the data structures without
 	// mutex protection. Goroutines have returned, and consumers should not call
@@ -2572,6 +2586,7 @@ func (c *Core) User() *User {
 		Net:                c.net,
 		ExtensionConfig:    c.extensionModeConfig,
 		Actions:            c.requestedActionsList(),
+		// Mesh:               c.getMesh(),
 	}
 }
 
@@ -4647,42 +4662,42 @@ func (c *Core) Login(pw []byte) error {
 			if err != nil {
 				return false, fmt.Errorf("error deriving mesh private key: %w", err)
 			}
+
+			if c.cfg.Mesh && c.net == dex.Simnet {
+				mesh, err := mesh.New(&mesh.Config{
+					DataDir:    filepath.Join(filepath.Dir(c.cfg.DBPath), "mesh"),
+					PrivateKey: meshPriv,
+					Logger:     c.log.SubLogger("MESH"),
+					EntryNode: &mesh.TatankaCredentials{
+						PeerID: tanka.SimnetTatankaPeerID,
+						Addr:   "127.0.0.1:7323",
+						// Cert: ,
+						NoTLS: true,
+					},
+				})
+				if err != nil {
+					return false, err
+				}
+				c.meshMtx.Lock()
+				c.mesh = mesh
+				c.meshCM = dex.NewConnectionMaster(c.mesh)
+				c.meshMtx.Unlock()
+				go func() {
+					for {
+						select {
+						case n := <-mesh.Next():
+							c.handleMeshNotification(n)
+						case <-c.ctx.Done():
+							return
+						}
+					}
+				}()
+			}
+
 			c.loggedIn = true
 			return true, nil
 		}
 		return false, nil
-	}
-
-	if c.net == dex.Simnet {
-		mesh, err := mesh.New(&mesh.Config{
-			DataDir:    filepath.Join(filepath.Dir(c.cfg.DBPath), "mesh"),
-			PrivateKey: meshPriv,
-			Logger:     c.log.SubLogger("MESH"),
-			EntryNode: &mesh.TatankaCredentials{
-				PeerID: tanka.SimnetPeerID,
-				Addr:   "127.0.0.1:7323",
-				// Cert: ,
-				NoTLS: true,
-			},
-		})
-		if err != nil {
-			return err
-		}
-		c.meshMtx.Lock()
-		c.mesh = mesh
-		c.meshCM = dex.NewConnectionMaster(c.mesh)
-		c.meshMtx.Unlock()
-		go func() {
-			for {
-				select {
-				case ni := <-mesh.Next():
-					b, _ := json.Marshal(ni)
-					c.log.Info("Mesh notification (%T): %s", ni, string(b))
-				case <-c.ctx.Done():
-					return
-				}
-			}
-		}()
 	}
 
 	if needsInit, err := login(); err != nil {
@@ -11166,25 +11181,4 @@ func (c *Core) TradingLimits(host string) (userParcels, parcelLimit uint32, err 
 	}
 
 	return userParcels, parcelLimit, nil
-}
-
-func (c *Core) connectMesh() {
-	if c.net != dex.Simnet {
-		return
-	}
-	if err := c.meshCM.ConnectOnce(c.ctx); err != nil {
-		c.log.Errorf("error connecting mesh: %v", err)
-	}
-}
-
-func deriveMeshPriv(seed []byte) (*secp256k1.PrivateKey, error) {
-	xKey, err := keygen.GenDeepChild(seed, []uint32{hdKeyPurposeBonds})
-	if err != nil {
-		return nil, err
-	}
-	privB, err := xKey.SerializedPrivKey()
-	if err != nil {
-		return nil, err
-	}
-	return secp256k1.PrivKeyFromBytes(privB), nil
 }

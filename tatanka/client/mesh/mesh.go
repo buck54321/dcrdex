@@ -47,8 +47,9 @@ type Mesh struct {
 	dbCM      *dex.ConnectionMaster
 	bondTable *lexi.Table
 
-	marketsMtx sync.RWMutex
-	markets    map[string]*market
+	marketsMtx       sync.RWMutex
+	availableMarkets []string
+	markets          map[string]*market
 
 	fiatRatesMtx sync.RWMutex
 	fiatRates    map[string]*fiatrates.FiatRateInfo
@@ -96,7 +97,7 @@ func (m *Mesh) Connect(ctx context.Context) (*sync.WaitGroup, error) {
 
 	mesh := conn.New(&conn.Config{
 		EntryNode: m.entryNode,
-		Logger:    m.log.SubLogger("tTC"),
+		Logger:    m.log.SubLogger("MC"),
 		Handlers: &conn.MessageHandlers{
 			HandleTatankaRequest:      m.handleTatankaRequest,
 			HandleTatankaNotification: m.handleTatankaNotification,
@@ -320,6 +321,22 @@ func (m *Mesh) handleRates(payload json.RawMessage) {
 		m.fiatRatesMtx.Unlock()
 	}
 	m.emit(&rm)
+}
+
+func (m *Mesh) GetMarkets() (mkts []string, err error) {
+	m.marketsMtx.Lock()
+	defer m.marketsMtx.Unlock()
+	if m.availableMarkets != nil {
+		return m.availableMarkets, nil
+	}
+	req := mj.MustRequest(mj.RouteSubjects, &mj.SubjectsRequest{
+		Topic: mj.TopicMarket,
+	})
+	if err = m.conn.RequestMesh(req, &mkts); err != nil {
+		return nil, fmt.Errorf("error requesting market subjects: %w", err)
+	}
+	m.availableMarkets = mkts
+	return mkts, nil
 }
 
 func (m *Mesh) ConnectPeer(peerID tanka.PeerID) error {

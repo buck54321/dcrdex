@@ -359,6 +359,15 @@ export interface ExtensionModeConfig {
   restrictedWallets: Record<string, ExtensionConfiguredWallet>
 }
 
+export interface MeshMarket {
+  baseID: number
+  quoteID: number
+}
+
+export interface Mesh {
+  markets: Record<string, MeshMarket>
+}
+
 export interface User {
   exchanges: Record<string, Exchange>
   inited: boolean
@@ -369,6 +378,7 @@ export interface User {
   net: number
   extensionModeConfig: ExtensionModeConfig
   actions: ActionRequiredNote[]
+  mesh: Mesh
 }
 
 export interface CoreNote {

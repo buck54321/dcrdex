@@ -49,6 +49,7 @@ const (
 	RouteRates               = "rates"
 	RouteSetScore            = "set_score"
 	RouteFeeRateEstimate     = "fee_rate_estimate"
+	RouteSubjects            = "subjects"
 
 	// client1 <=> tatankanode <=> client2
 	RouteTankagram     = "tankagram"
@@ -172,6 +173,10 @@ type Subscription struct {
 type Unsubscription struct {
 	Topic  tanka.Topic  `json:"topic"`
 	PeerID tanka.PeerID `json:"peerID"`
+}
+
+type SubjectsRequest struct {
+	Topic tanka.Topic `json:"topic"`
 }
 
 type FeeRateEstimateMessage struct {

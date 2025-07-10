@@ -902,7 +902,7 @@ func (c *MeshConn) RequestMesh(msg *msgjson.Message, thing any, opts ...RequestO
 func (c *MeshConn) requestTT(tt NetworkBackend, msg *msgjson.Message, thing any, timeout time.Duration) (err error) {
 	errChan := make(chan error)
 	if err := tt.Request(msg, func(msg *msgjson.Message) {
-		c.log.Infof("received response: %v", msg)
+		// c.log.Infof("received response: %v", msg)
 		if thing != nil {
 			errChan <- msg.UnmarshalResult(thing)
 		} else {

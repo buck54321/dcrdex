@@ -30,6 +30,8 @@ import (
 	"decred.org/dcrdex/dex/calc"
 	"decred.org/dcrdex/dex/encode"
 	"decred.org/dcrdex/dex/encrypt"
+	"decred.org/dcrdex/dex/feerates"
+	"decred.org/dcrdex/dex/fiatrates"
 	"decred.org/dcrdex/dex/msgjson"
 	"decred.org/dcrdex/dex/order"
 	ordertest "decred.org/dcrdex/dex/order/test"
@@ -1361,6 +1363,9 @@ func newTestRig() *testRig {
 			notes:            make(chan asset.WalletNotification, 128),
 			pokesCache:       newPokesCache(pokesCapacity),
 			requestedActions: make(map[string]*asset.ActionRequiredNote),
+
+			meshFeeRates:  make(map[uint32]*feerates.Estimate),
+			meshFiatRates: make(map[string]*fiatrates.FiatRateInfo),
 		},
 		db:      tdb,
 		queue:   queue,

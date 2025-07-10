@@ -179,6 +179,15 @@ type ExtensionModeConfig struct {
 	} `json:"restrictedWallets"`
 }
 
+type MeshMarket struct {
+	BaseID  uint32 `json:"baseID"`
+	QuoteID uint32 `json:"quoteID"`
+}
+
+type Mesh struct {
+	Markets map[string]*MeshMarket `json:"markets"`
+}
+
 // User is information about the user's wallets and DEX accounts.
 type User struct {
 	Exchanges          map[string]*Exchange        `json:"exchanges"`
@@ -189,6 +198,8 @@ type User struct {
 	Net                dex.Network                 `json:"net"`
 	ExtensionConfig    *ExtensionModeConfig        `json:"extensionModeConfig,omitempty"`
 	Actions            []*asset.ActionRequiredNote `json:"actions,omitempty"`
+
+	Mesh *Mesh `json:"mesh,omitempty"`
 }
 
 // SupportedAsset is data about an asset and possibly the wallet associated

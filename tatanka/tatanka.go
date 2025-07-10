@@ -25,8 +25,6 @@ import (
 	"decred.org/dcrdex/tatanka/tanka"
 	"decred.org/dcrdex/tatanka/tcp"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 )
 
 const (
@@ -139,12 +137,12 @@ type Tatanka struct {
 
 // Config is the configuration of the Tatanka.
 type Config struct {
-	Net        dex.Network
-	DataDir    string
-	Logger     dex.Logger
-	RPC        comms.RPCConfig
-	ConfigPath string
-	MaxClients int
+	Net         dex.Network
+	DataDir     string
+	Logger      dex.Logger
+	RPC         comms.RPCConfig
+	ChainConfig string
+	MaxClients  int
 
 	feeRatesOracleCfg feerates.Config
 
@@ -154,9 +152,9 @@ type Config struct {
 }
 
 func New(cfg *Config) (*Tatanka, error) {
-	chainCfg, err := loadConfig(cfg.ConfigPath)
+	chainCfg, err := loadConfig(cfg.ChainConfig)
 	if err != nil {
-		return nil, fmt.Errorf("error loading config %w", err)
+		return nil, fmt.Errorf("error loading config from %q: %w", cfg.ChainConfig, err)
 	}
 
 	chains := make(map[uint32]chain.Chain)
@@ -238,14 +236,24 @@ func New(cfg *Config) (*Tatanka, error) {
 	}
 
 	if !cfg.FiatOracleConfig.AllFiatSourceDisabled() {
-		var tickers string
-		upperCaser := cases.Upper(language.AmericanEnglish)
-		for _, c := range chainCfg.Chains {
-			tickers += upperCaser.String(c.Symbol) + ","
+		tickers := []string{
+			"bch",
+			"btc",
+			"dash",
+			"dcr",
+			"dgb",
+			"doge",
+			"eth",
+			"firo",
+			"ltc",
+			"polygon",
+			"zec",
+			"usdt.eth",
+			"usdc.eth",
 		}
-		tickers = strings.Trim(tickers, ",")
+		tickerStr := strings.Join(tickers, ",")
 
-		t.fiatRateOracle, err = fiatrates.NewFiatOracle(cfg.FiatOracleConfig, tickers, t.log)
+		t.fiatRateOracle, err = fiatrates.NewFiatOracle(cfg.FiatOracleConfig, tickerStr, t.log)
 		if err != nil {
 			return nil, fmt.Errorf("error initializing fiat oracle: %w", err)
 		}
@@ -317,6 +325,7 @@ func (t *Tatanka) prepareHandlers() {
 	for route, handler := range map[string]interface{}{
 		mj.RouteSubscribe:           t.handleSubscription,
 		mj.RouteUpdateSubscriptions: t.handleUpdateSubscriptions,
+		mj.RouteSubjects:            t.handleSubjects,
 		// mj.RouteUnsubscribe: t.handleUnsubscribe,
 		mj.RouteBroadcast: t.handleBroadcast,
 		mj.RouteTankagram: t.handleTankagram,
