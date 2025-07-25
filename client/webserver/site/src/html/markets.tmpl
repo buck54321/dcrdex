@@ -828,6 +828,28 @@
     <form class="position-relative d-hide" id="orderReportForm" autocomplete="off">
       {{template "orderReportForm"}}
     </form>
+
+    <form id="meshMarketForm" class="d-hide">
+      <div class="form-closer"><span class="ico-cross"></span></div>
+      <header>Create New Mesh Market</header>
+      <div class="flex-center p-3 fs18">Trade</div>
+      <div class="flex-center p-3 fs18">
+        <div id="meshAssetSelector" class="mesh-asset-selector position-relative">
+          <div data-tmpl="selectedAsset" class="d-hide"></div>
+          <input data-tmpl="input" type="text" placeholder="DCR">
+          <div data-tmpl="dropdown" class="d-hide">
+            <div data-tmpl="suggestion" class="flex-center">
+              <img data-tmpl="logo" class="micro-icon me-1"></span>
+              <span data-tmpl="name" class="me-1"></span>
+              (<span data-tmpl="ticker"></span>)
+            </div>
+          </div>
+        </div>
+        
+      </div>
+      <div class="flex-center p-3 fs18">for</div>
+      <div id="meshAsset2" class="flex-center p-3 fs18"></div>
+    </form>
   </div>
 
 </div>

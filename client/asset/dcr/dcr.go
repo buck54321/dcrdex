@@ -89,7 +89,7 @@ const (
 	acctInternalBranch uint32 = 1
 
 	// freshFeeAge is the expiry age for cached fee rates of external origin,
-	// past which fetchFeeFromOracle should be used to refresh the rate.
+	// past which DCRDataFeeRate should be used to refresh the rate.
 	freshFeeAge = time.Minute
 
 	// requiredRedeemConfirms is the amount of confirms a redeem transaction
@@ -1313,7 +1313,7 @@ func (dcr *ExchangeWallet) feeRate(confTarget uint64) (uint64, error) {
 	}
 
 	dcr.log.Tracef("Retrieving fee rate from external fee oracle for %d target blocks", confTarget)
-	dcrPerKB, err := fetchFeeFromOracle(dcr.ctx, dcr.network, confTarget)
+	dcrPerKB, err := dexdcr.DCRDataFeeRate(dcr.ctx, dcr.network, confTarget)
 	if err != nil {
 		// Just log it and return zero. If we return an error, it's just logged
 		// anyway, and we want to meter these logs.
@@ -1357,30 +1357,6 @@ func dcrPerKBToAtomsPerByte(dcrPerkB float64) (uint64, error) {
 		return 0, err
 	}
 	return uint64(dex.IntDivUp(int64(atomsPerKB), 1000)), nil
-}
-
-// fetchFeeFromOracle gets the fee rate from the external API.
-func fetchFeeFromOracle(ctx context.Context, net dex.Network, nb uint64) (float64, error) {
-	var uri string
-	if net == dex.Testnet {
-		uri = fmt.Sprintf("https://testnet.dcrdata.org/insight/api/utils/estimatefee?nbBlocks=%d", nb)
-	} else { // mainnet and simnet
-		uri = fmt.Sprintf("https://explorer.dcrdata.org/insight/api/utils/estimatefee?nbBlocks=%d", nb)
-	}
-	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	defer cancel()
-	var resp map[uint64]float64
-	if err := dexnet.Get(ctx, uri, &resp); err != nil {
-		return 0, err
-	}
-	if resp == nil {
-		return 0, errors.New("null response")
-	}
-	dcrPerKB, ok := resp[nb]
-	if !ok {
-		return 0, errors.New("no fee rate for requested number of blocks")
-	}
-	return dcrPerKB, nil
 }
 
 // targetFeeRateWithFallback attempts to get a fresh fee rate for the target

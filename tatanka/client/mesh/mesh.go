@@ -95,7 +95,7 @@ func (m *Mesh) Connect(ctx context.Context) (*sync.WaitGroup, error) {
 	}
 	m.dbCM = dbCM
 
-	mesh := conn.New(&conn.Config{
+	mc := conn.New(&conn.Config{
 		EntryNode: m.entryNode,
 		Logger:    m.log.SubLogger("MC"),
 		Handlers: &conn.MessageHandlers{
@@ -106,17 +106,19 @@ func (m *Mesh) Connect(ctx context.Context) (*sync.WaitGroup, error) {
 		PrivateKey: m.priv,
 	})
 
-	meshCM := dex.NewConnectionMaster(mesh)
-	if err := meshCM.ConnectOnce(ctx); err != nil {
+	mcCM := dex.NewConnectionMaster(mc)
+	if err := mcCM.ConnectOnce(ctx); err != nil {
 		return nil, fmt.Errorf("ConnectOnce error: %w", err)
 	}
 
-	m.conn = &meshConn{mesh, meshCM}
+	m.conn = &meshConn{mc, mcCM}
 
 	wg.Add(1)
 	go func() {
 		<-dbCM.Done()
-		<-meshCM.Done()
+		fmt.Println("--Mesh.Connect dbcm done")
+		<-mcCM.Done()
+		fmt.Println("--Mesh.Connect mccm done")
 		wg.Done()
 	}()
 
@@ -168,8 +170,6 @@ func (m *Mesh) handleTatankaNotification(route string, payload json.RawMessage) 
 		m.handleBroadcast(payload)
 	case mj.RouteRates:
 		m.handleRates(payload)
-	case mj.RouteFeeRateEstimate:
-		m.handleFeeEstimates(payload)
 	default:
 		m.emit(payload)
 	}
@@ -273,6 +273,8 @@ func (m *Mesh) handleBroadcast(payload json.RawMessage) {
 	switch bcast.Topic {
 	case mj.TopicMarket:
 		m.handleMarketBroadcast(&bcast)
+	case mj.TopicFeeRateEstimate:
+		m.handleFeeEstimates(&bcast)
 	}
 
 	m.emit(&bcast)
@@ -355,25 +357,22 @@ type meshConn struct {
 	cm *dex.ConnectionMaster
 }
 
-func (m *Mesh) handleFeeEstimates(payload json.RawMessage) {
-	var rm mj.FeeRateEstimateMessage
-	if err := json.Unmarshal(payload, &rm); err != nil {
+func (m *Mesh) handleFeeEstimates(bcast *mj.Broadcast) {
+	var feeRates map[uint32]*feerates.Estimate
+	if err := json.Unmarshal(bcast.Payload, &feeRates); err != nil {
 		m.log.Errorf("%s rate message unmarshal error: %w", err)
 		return
 	}
 
-	switch rm.Topic {
-	case mj.TopicFeeRateEstimate:
-		m.feeRateEstimateMtx.Lock()
-		for chainID, feeInfo := range rm.FeeRateEstimates {
-			m.feeRateEstimates[chainID] = &feerates.Estimate{
-				Value:       feeInfo.Value,
-				LastUpdated: time.Now(),
-			}
+	m.feeRateEstimateMtx.Lock()
+	for chainID, feeInfo := range feeRates {
+		m.feeRateEstimates[chainID] = &feerates.Estimate{
+			Value:       feeInfo.Value,
+			LastUpdated: time.Now(),
 		}
-		m.feeRateEstimateMtx.Unlock()
 	}
-	m.emit(&rm)
+	m.feeRateEstimateMtx.Unlock()
+	m.emit(bcast)
 }
 
 func (m *Mesh) FeeRateEstimate(chainID uint32) uint64 {
@@ -394,4 +393,8 @@ func (m *Mesh) SubscribeToFeeRateEstimates() error {
 	// Only possible non-error response is `true`.
 	var ok bool
 	return m.conn.RequestMesh(req, &ok)
+}
+
+func (m *Mesh) AssetVersions() map[uint32]uint32 {
+	return m.conn.AssetVersions()
 }

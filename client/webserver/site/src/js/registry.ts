@@ -366,6 +366,7 @@ export interface MeshMarket {
 
 export interface Mesh {
   markets: Record<string, MeshMarket>
+  assetVersions: Record<number, number>
 }
 
 export interface User {
@@ -659,6 +660,7 @@ export interface OrderOption extends ConfigOption {
 }
 
 export interface SwapEstimate {
+  lotSize: number
   lots: number
   value: number
   maxFees: number
@@ -688,6 +690,7 @@ export interface OrderEstimate {
 }
 
 export interface MaxOrderEstimate {
+  lotSize: number
   swap: SwapEstimate
   redeem: RedeemEstimate
 }

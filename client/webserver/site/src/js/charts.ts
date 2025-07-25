@@ -2,7 +2,7 @@ import Doc, { Animation, clamp } from './doc'
 import { RateEncodingFactor } from './orderutil'
 import OrderBook from './orderbook'
 import State from './state'
-import { UnitInfo, Market, Candle, CandlesPayload, app } from './registry'
+import { UnitInfo, Candle, CandlesPayload } from './registry'
 
 const bind = Doc.bind
 const PIPI = 2 * Math.PI
@@ -848,7 +848,8 @@ export class CandleChart extends Chart {
   volumeRegion: Region
   resizeTimer: number
   zoomLevels: number[]
-  market: Market
+  baseUnitInfo: UnitInfo
+  rateStep: number
   rateConversionFactor: number
 
   constructor (parent: HTMLElement, reporters: CandleReporters) {
@@ -935,7 +936,7 @@ export class CandleChart extends Chart {
     xEnd += (xEnd - xStart) * 0.05 // a little padding
 
     // Calculate data extents and store them. They are used to apply labels.
-    const rateStep = this.market.ratestep
+    const rateStep = this.rateStep
     const dataExtents = new Extents(xStart, xEnd, low, high)
     if (low === high) {
       // If there is no price movement at all in the window, show a little more
@@ -962,7 +963,7 @@ export class CandleChart extends Chart {
 
     // Draw the grid
     const rFactor = this.rateConversionFactor
-    const baseUnit = app().assets[this.market.baseid]?.unitInfo.conventional.unit || this.market.basesymbol.toUpperCase()
+    const baseUnit = this.baseUnitInfo.conventional.unit
     const xLabels = makeCandleTimeLabels(candles, candleWidth, this.plotRegion.width(), 100)
     this.plotXGrid(xLabels, xStart, xEnd)
     const yLabels = this.makeYLabels(this.candleRegion, rateStep, baseUnit, v => Doc.formatFourSigFigs(v / rFactor))
@@ -1033,10 +1034,11 @@ export class CandleChart extends Chart {
   }
 
   /* setCandles sets the candle data and redraws the chart. */
-  setCandles (data: CandlesPayload, market: Market, baseUnitInfo: UnitInfo, quoteUnitInfo: UnitInfo) {
+  setCandles (data: CandlesPayload, rateStep: number, baseUnitInfo: UnitInfo, quoteUnitInfo: UnitInfo) {
     this.data = data
     if (!data.candles) return
-    this.market = market
+    this.rateStep = rateStep
+    this.baseUnitInfo = baseUnitInfo
     const [qFactor, bFactor] = [quoteUnitInfo.conventional.conversionFactor, baseUnitInfo.conventional.conversionFactor]
     this.rateConversionFactor = RateEncodingFactor * qFactor / bFactor
     let n = 25

@@ -12,6 +12,7 @@ import (
 	"decred.org/dcrdex/dex"
 	"decred.org/dcrdex/dex/msgjson"
 	"decred.org/dcrdex/dex/utils"
+	"decred.org/dcrdex/tatanka/chain"
 	"decred.org/dcrdex/tatanka/mj"
 	"decred.org/dcrdex/tatanka/tanka"
 	"decred.org/dcrdex/tatanka/tcp"
@@ -266,7 +267,13 @@ func (t *Tatanka) handlePostBond(cl tanka.Sender, msg *msgjson.Message) *msgjson
 			return msgjson.NewError(mj.ErrBadRequest, "unsupported asset")
 		}
 
-		if err := ch.CheckBond(b); err != nil {
+		bonder, is := ch.(chain.BondChecker)
+		if !is {
+			t.log.Errorf("Chain %d is not a BondChecker", b.AssetID)
+			return msgjson.NewError(mj.ErrBadRequest, "bond not supported for this asset")
+		}
+
+		if err := bonder.CheckBond(b); err != nil {
 			t.log.Errorf("Bond-posting client %q with bond %s didn't pass validation for chain %d: %v", peerID, b.CoinID, b.AssetID, err)
 			return msgjson.NewError(mj.ErrBadRequest, "failed validation")
 		}
@@ -499,39 +506,33 @@ func (t *Tatanka) handleSubjects(c *client, msg *msgjson.Message) *msgjson.Error
 func (t *Tatanka) replySubscription(cl tanka.Sender, topic tanka.Topic) {
 	switch topic {
 	case mj.TopicFiatRate:
-		if t.fiatOracleEnabled() {
-			rates := t.fiatRateOracle.Rates()
-			if len(rates) == 0 { // no data to send
-				return
-			}
+		if !t.fiatOracleEnabled() {
+			return
+		}
+		rates := t.fiatRateOracle.Rates()
+		if len(rates) == 0 { // no data to send
+			return
+		}
 
-			reply := mj.MustNotification(mj.RouteRates, &mj.RateMessage{
-				Topic: mj.TopicFiatRate,
-				Rates: rates,
-			})
-
-			if err := t.send(cl, reply); err != nil {
-				peerID := cl.PeerID()
-				t.log.Errorf("error sending result to %q: %v", dex.Bytes(peerID[:]), err)
-			}
+		if err := t.broadcastToClient(cl, mj.TopicFiatRate, rates); err != nil {
+			peerID := cl.PeerID()
+			t.log.Errorf("Error sending fiat rate estimates to %s: %v", peerID, err)
+			return
 		}
 
 	case mj.TopicFeeRateEstimate:
-		if t.hasFeeRatesOracle() {
-			estimates := t.feeRatesOracle.FeeRateEstimates()
-			if len(estimates) == 0 { // no data to send
-				return
-			}
+		if !t.hasFeeRatesOracle() {
+			return
+		}
+		estimates := t.feeRatesOracle.FeeRateEstimates()
+		if len(estimates) == 0 { // no data to send
+			return
+		}
 
-			reply := mj.MustNotification(mj.RouteFeeRateEstimate, &mj.FeeRateEstimateMessage{
-				Topic:            mj.TopicFeeRateEstimate,
-				FeeRateEstimates: estimates,
-			})
-
-			if err := t.send(cl, reply); err != nil {
-				peerID := cl.PeerID()
-				t.log.Errorf("error sending result to %q: %v", dex.Bytes(peerID[:]), err)
-			}
+		if err := t.broadcastToClient(cl, mj.TopicFeeRateEstimate, estimates); err != nil {
+			peerID := cl.PeerID()
+			t.log.Errorf("Error sending fee rate estimates to %s: %v", peerID, err)
+			return
 		}
 	}
 }
@@ -634,6 +635,23 @@ func (t *Tatanka) distributeBroadcastedMessage(bcast *mj.Broadcast, mustExist bo
 			return msgjson.NewError(mj.ErrBadRequest, "unknown subject")
 		}
 		relay(subs)
+	}
+	return nil
+}
+
+func (t *Tatanka) broadcastToClient(cl tanka.Sender, topic tanka.Topic, payload interface{}) error {
+	payloadB, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	bcast := &mj.Broadcast{
+		Topic:   topic,
+		Payload: payloadB,
+		Stamp:   time.Now(),
+	}
+
+	if err := cl.Send(mj.MustNotification(mj.RouteBroadcast, bcast)); err != nil {
+		return errors.New("error sending broadcast to client: " + err.Error())
 	}
 	return nil
 }

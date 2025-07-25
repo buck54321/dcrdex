@@ -574,3 +574,15 @@ body.dark {
     }
   }
 }
+
+#meshMarketForm {
+  overflow: visible;
+
+  .mesh-asset-selector {
+    [data-tmpl=dropdown] {
+      position: absolute;
+      top: calc(100% + 1px);
+      width: 100%;
+    }
+  }
+}

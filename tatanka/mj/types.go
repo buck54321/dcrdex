@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"decred.org/dcrdex/dex"
-	"decred.org/dcrdex/dex/feerates"
 	"decred.org/dcrdex/dex/fiatrates"
 	"decred.org/dcrdex/dex/msgjson"
 	"decred.org/dcrdex/tatanka/tanka"
@@ -48,7 +47,6 @@ const (
 	RouteUpdateSubscriptions = "update_subscriptions"
 	RouteRates               = "rates"
 	RouteSetScore            = "set_score"
-	RouteFeeRateEstimate     = "fee_rate_estimate"
 	RouteSubjects            = "subjects"
 
 	// client1 <=> tatankanode <=> client2
@@ -89,7 +87,8 @@ type TatankaConfig struct {
 	Version uint32       `json:"version"`
 	Chains  []uint32     `json:"chains"`
 	// BondTier is the senders current view of the receiver's tier.
-	BondTier uint64 `json:"bondTier"`
+	BondTier      uint64            `json:"bondTier"`
+	AssetVersions map[uint32]uint32 `json:"assetVersions"`
 }
 
 type Connect struct {
@@ -177,11 +176,6 @@ type Unsubscription struct {
 
 type SubjectsRequest struct {
 	Topic tanka.Topic `json:"topic"`
-}
-
-type FeeRateEstimateMessage struct {
-	Topic            tanka.Topic                   `json:"topic"`
-	FeeRateEstimates map[uint32]*feerates.Estimate `json:"feeRateEstimates"`
 }
 
 type FundedMessage struct {

@@ -91,7 +91,7 @@ var (
 		},
 	}
 
-	externalFeeRate = btc.BitcoreRateFetcher("BCH")
+	externalFeeRate = dexbtc.BitcoreRateFetcher("BCH")
 )
 
 func init() {

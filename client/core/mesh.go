@@ -72,6 +72,9 @@ func (c *Core) handleMarketBroadcast(bcast *mj.Broadcast) {
 func (c *Core) handleFeeRateEstimateBroadcast(bcast *mj.Broadcast) {
 	c.log.Tracef("Handling fee rate estimate broadcast for subject %s", bcast.Subject)
 
+	b, _ := json.MarshalIndent(bcast, "", "  ")
+	fmt.Println("--handleFeeRateEstimateBroadcast:", string(b))
+
 	var feeRate map[uint32]*feerates.Estimate
 	if err := json.Unmarshal(bcast.Payload, &feeRate); err != nil {
 		c.log.Errorf("Error unmarshaling fee rate estimate: %v", err)
@@ -102,9 +105,7 @@ func (c *Core) handleFiatRateBroadcast(bcast *mj.Broadcast) {
 
 	var rate map[string]*fiatrates.FiatRateInfo
 	if err := json.Unmarshal(bcast.Payload, &rate); err != nil {
-		var o json.RawMessage
-		json.Unmarshal(bcast.Payload, &o)
-		fmt.Println("--handleFiatRateBroadcast.error.payload:", string(o))
+		fmt.Println("--handleFiatRateBroadcast.error.payload:", string(bcast.Payload))
 		c.log.Errorf("Error unmarshaling fiat rate message: %v", err)
 		return
 	}
@@ -158,8 +159,13 @@ func (c *Core) getMesh() *Mesh {
 		}
 		mkts[mktID] = mkt
 	}
+	var assetVersions map[uint32]uint32
+	if av, ok := c.meshAssetVersions.Load().(map[uint32]uint32); ok {
+		assetVersions = av
+	}
 	return &Mesh{
-		Markets: mkts,
+		Markets:       mkts,
+		AssetVersions: assetVersions,
 	}
 
 }
@@ -180,6 +186,8 @@ func (c *Core) connectMesh() {
 	}()
 
 	c.log.Infof("Connected to Mesh")
+
+	c.meshAssetVersions.Store(c.mesh.AssetVersions())
 
 	if err = c.mesh.SubscribeToFeeRateEstimates(); err != nil {
 		c.log.Errorf("error subscribing to mesh fee rate estimates: %v", err)

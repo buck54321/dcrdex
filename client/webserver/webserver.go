@@ -100,6 +100,7 @@ type clientCore interface {
 	websocket.Core
 	Network() dex.Network
 	Exchanges() map[string]*core.Exchange
+	HasMesh() bool
 	Exchange(host string) (*core.Exchange, error)
 	PostBond(form *core.PostBondForm) (*core.PostBondResult, error)
 	RedeemPrepaidBond(appPW []byte, code []byte, host string, certI any) (tier uint64, err error)
@@ -136,6 +137,8 @@ type clientCore interface {
 	Logout() error
 	Orders(*core.OrderFilter) ([]*core.Order, error)
 	Order(oid dex.Bytes) (*core.Order, error)
+	MaxMeshBuy(baseID, quoteID uint32, rate uint64, feeExposure float64) (*core.MaxOrderEstimate, error)
+	MaxMeshSell(baseID, quoteID uint32, rate uint64, feeExposure float64) (*core.MaxOrderEstimate, error)
 	MaxBuy(host string, base, quote uint32, rate uint64) (*core.MaxOrderEstimate, error)
 	MaxSell(host string, base, quote uint32) (*core.MaxOrderEstimate, error)
 	AccountExport(pw []byte, host string) (*core.Account, []*db.Bond, error)
@@ -508,12 +511,17 @@ func New(cfg *Config) (*WebServer, error) {
 				webDC.With(orderIDCtx).Get("/order/{oid}", s.handleOrder)
 				webDC.Get(ordersRoute, s.handleOrders)
 				webDC.Get(exportOrderRoute, s.handleExportOrders)
-				webDC.Get(marketsRoute, s.handleMarkets)
 				webDC.Get(mmSettingsRoute, s.handleMMSettings)
 				webDC.Get(mmArchivesRoute, s.handleMMArchives)
 				webDC.Get(mmLogsRoute, s.handleMMLogs)
 				webDC.Get(marketMakerRoute, s.handleMarketMaking)
 				webDC.With(dexHostCtx).Get("/dexsettings/{host}", s.handleDexSettings)
+			})
+
+			// Handlers requiring a DEX or Mesh connection.
+			webInit.Group(func(webDEXorMesh chi.Router) {
+				webDEXorMesh.Use(s.requireDEXorMesh, s.requireLogin)
+				webDEXorMesh.Get(marketsRoute, s.handleMarkets)
 			})
 
 		})

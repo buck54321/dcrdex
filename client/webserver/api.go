@@ -1035,6 +1035,7 @@ func (s *WebServer) apiBuildInfo(w http.ResponseWriter, r *http.Request) {
 
 // apiLogin handles the 'login' API request.
 func (s *WebServer) apiLogin(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("-- apiLogin.0")
 	login := new(loginForm)
 	defer login.Pass.Clear()
 	if !readPost(w, r, login) {
@@ -1471,19 +1472,30 @@ func (s *WebServer) apiSend(w http.ResponseWriter, r *http.Request) {
 // apiMaxBuy handles the 'maxbuy' API request.
 func (s *WebServer) apiMaxBuy(w http.ResponseWriter, r *http.Request) {
 	form := &struct {
-		Host  string `json:"host"`
-		Base  uint32 `json:"base"`
-		Quote uint32 `json:"quote"`
-		Rate  uint64 `json:"rate"`
+		Host    string `json:"host"`
+		BaseID  uint32 `json:"base"`
+		QuoteID uint32 `json:"quote"`
+		Rate    uint64 `json:"rate"`
+		// Mesh only
+		FeeExposure float64 `json:"feeExposure"`
 	}{}
 	if !readPost(w, r, form) {
 		return
 	}
-	maxBuy, err := s.core.MaxBuy(form.Host, form.Base, form.Quote, form.Rate)
+
+	var maxBuy *core.MaxOrderEstimate
+	var err error
+	if form.Host == "mesh" {
+		maxBuy, err = s.core.MaxMeshBuy(form.BaseID, form.QuoteID, form.Rate, form.FeeExposure)
+	} else {
+		maxBuy, err = s.core.MaxBuy(form.Host, form.BaseID, form.QuoteID, form.Rate)
+
+	}
 	if err != nil {
 		s.writeAPIError(w, fmt.Errorf("max order estimation error: %w", err))
 		return
 	}
+
 	resp := struct {
 		OK     bool                   `json:"ok"`
 		MaxBuy *core.MaxOrderEstimate `json:"maxBuy"`
@@ -1497,14 +1509,23 @@ func (s *WebServer) apiMaxBuy(w http.ResponseWriter, r *http.Request) {
 // apiMaxSell handles the 'maxsell' API request.
 func (s *WebServer) apiMaxSell(w http.ResponseWriter, r *http.Request) {
 	form := &struct {
-		Host  string `json:"host"`
-		Base  uint32 `json:"base"`
-		Quote uint32 `json:"quote"`
+		Host    string `json:"host"`
+		BaseID  uint32 `json:"base"`
+		QuoteID uint32 `json:"quote"`
+		// Mesh only
+		Rate        uint64  `json:"rate"`
+		FeeExposure float64 `json:"feeExposure"`
 	}{}
 	if !readPost(w, r, form) {
 		return
 	}
-	maxSell, err := s.core.MaxSell(form.Host, form.Base, form.Quote)
+	var maxSell *core.MaxOrderEstimate
+	var err error
+	if form.Host == "mesh" {
+		maxSell, err = s.core.MaxMeshSell(form.BaseID, form.QuoteID, form.Rate, form.FeeExposure)
+	} else {
+		maxSell, err = s.core.MaxSell(form.Host, form.BaseID, form.QuoteID)
+	}
 	if err != nil {
 		s.writeAPIError(w, fmt.Errorf("max order estimation error: %w", err))
 		return

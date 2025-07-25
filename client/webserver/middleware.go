@@ -160,6 +160,18 @@ func (s *WebServer) requireDEXConnection(next http.Handler) http.Handler {
 	})
 }
 
+// requireDEXorMesh ensures that the user has registeres with at least 1 DEX or
+// has connected to the mesh before allowing the incoming request to proceed.
+func (s *WebServer) requireDEXorMesh(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(s.core.Exchanges()) == 0 && !s.core.HasMesh() {
+			http.Redirect(w, r, registerRoute, http.StatusSeeOther)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // dexHostCtx embeds the host into the request context.
 func dexHostCtx(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

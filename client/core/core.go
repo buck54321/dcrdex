@@ -46,6 +46,7 @@ import (
 	"decred.org/dcrdex/server/account"
 	serverdex "decred.org/dcrdex/server/dex"
 	"decred.org/dcrdex/tatanka/client/mesh"
+	tankatrade "decred.org/dcrdex/tatanka/client/trade"
 	"decred.org/dcrdex/tatanka/tanka"
 	"github.com/decred/dcrd/crypto/blake256"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -1485,8 +1486,9 @@ type Core struct {
 	mesh    *mesh.Mesh
 	meshCM  *dex.ConnectionMaster
 
-	meshFeeRatesMtx sync.RWMutex
-	meshFeeRates    map[uint32]*feerates.Estimate
+	meshFeeRatesMtx   sync.RWMutex
+	meshFeeRates      map[uint32]*feerates.Estimate
+	meshAssetVersions atomic.Value
 
 	meshFiatRatesMtx sync.RWMutex
 	meshFiatRates    map[string]*fiatrates.FiatRateInfo
@@ -2047,6 +2049,12 @@ func (c *Core) dexConnections() []*dexConnection {
 	return conns
 }
 
+func (c *Core) HasMesh() bool {
+	c.meshMtx.RLock()
+	defer c.meshMtx.RUnlock()
+	return c.mesh != nil
+}
+
 // wallet gets the wallet for the specified asset ID in a thread-safe way.
 func (c *Core) wallet(assetID uint32) (*xcWallet, bool) {
 	c.walletMtx.RLock()
@@ -2586,7 +2594,7 @@ func (c *Core) User() *User {
 		Net:                c.net,
 		ExtensionConfig:    c.extensionModeConfig,
 		Actions:            c.requestedActionsList(),
-		// Mesh:               c.getMesh(),
+		Mesh:               c.getMesh(),
 	}
 }
 
@@ -5087,7 +5095,7 @@ func (c *Core) Order(oidB dex.Bytes) (*Order, error) {
 
 // marketWallets gets the 2 *dex.Assets and 2 *xcWallet associated with a
 // market. The wallets will be connected, but not necessarily unlocked.
-func (c *Core) marketWallets(host string, base, quote uint32) (ba, qa *dex.Asset, bw, qw *xcWallet, err error) {
+func (c *Core) marketWallets(host string, baseID, quoteID uint32) (ba, qa *dex.Asset, bw, qw *xcWallet, err error) {
 	c.connMtx.RLock()
 	dc, found := c.conns[host]
 	c.connMtx.RUnlock()
@@ -5095,24 +5103,138 @@ func (c *Core) marketWallets(host string, base, quote uint32) (ba, qa *dex.Asset
 		return nil, nil, nil, nil, fmt.Errorf("Unknown host: %s", host)
 	}
 
-	ba, found = dc.assets[base]
+	ba, found = dc.assets[baseID]
 	if !found {
-		return nil, nil, nil, nil, fmt.Errorf("%s not supported by %s", unbip(base), host)
+		return nil, nil, nil, nil, fmt.Errorf("%s not supported by %s", unbip(baseID), host)
 	}
-	qa, found = dc.assets[quote]
+	qa, found = dc.assets[quoteID]
 	if !found {
-		return nil, nil, nil, nil, fmt.Errorf("%s not supported by %s", unbip(quote), host)
+		return nil, nil, nil, nil, fmt.Errorf("%s not supported by %s", unbip(quoteID), host)
 	}
 
-	bw, err = c.connectedWallet(base)
+	bw, err = c.connectedWallet(baseID)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("%s wallet error: %v", unbip(base), err)
+		return nil, nil, nil, nil, fmt.Errorf("%s wallet error: %v", unbip(baseID), err)
 	}
-	qw, err = c.connectedWallet(quote)
+	qw, err = c.connectedWallet(quoteID)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("%s wallet error: %v", unbip(quote), err)
+		return nil, nil, nil, nil, fmt.Errorf("%s wallet error: %v", unbip(quoteID), err)
 	}
 	return
+}
+
+func (c *Core) meshMarketAssetInfo(baseID, quoteID uint32) (bVer, qVer uint32, baseRate, quoteRate uint64, err error) {
+	vers := c.meshAssetVersions.Load().(map[uint32]uint32)
+	bVer, bFound := vers[baseID]
+	qVer, qFound := vers[quoteID]
+	if !bFound {
+		return 0, 0, 0, 0, fmt.Errorf("no mesh asset version for base asset %s", unbip(baseID))
+	}
+	if !qFound {
+		return 0, 0, 0, 0, fmt.Errorf("no mesh asset version for quote asset %s", unbip(quoteID))
+	}
+
+	c.meshFeeRatesMtx.RLock()
+	b, q := c.meshFeeRates[baseID], c.meshFeeRates[quoteID]
+	c.meshFeeRatesMtx.RUnlock()
+
+	if b == nil {
+		return 0, 0, 0, 0, fmt.Errorf("no mesh fee rate for base asset %s", unbip(baseID))
+	}
+	if q == nil {
+		return 0, 0, 0, 0, fmt.Errorf("no mesh fee rate for quote asset %s", unbip(quoteID))
+	}
+
+	const maxRateAge = time.Minute * 30
+
+	if b.LastUpdated.Add(maxRateAge).Before(time.Now()) {
+		return 0, 0, 0, 0, fmt.Errorf("fee rate for %s is not up-to-date", unbip(baseID))
+	}
+	if b.Value == 0 {
+		return 0, 0, 0, 0, fmt.Errorf("invalide fee rate = 0 from mesh for %s", unbip(baseID))
+	}
+
+	if q.LastUpdated.Add(maxRateAge).Before(time.Now()) {
+		return 0, 0, 0, 0, fmt.Errorf("fee rate for %s is not up-to-date", unbip(quoteID))
+	}
+	if q.Value == 0 {
+		return 0, 0, 0, 0, fmt.Errorf("invalid fee rate = 0 from mesh for %s", unbip(quoteID))
+	}
+	return bVer, qVer, b.Value, q.Value, nil
+}
+
+func (c *Core) MaxMeshBuy(baseID, quoteID uint32, rate uint64, feeExposure float64) (*MaxOrderEstimate, error) {
+	return c.maxMeshOrder(quoteID, baseID, rate, false, feeExposure)
+}
+
+func (c *Core) MaxMeshSell(baseID, quoteID uint32, rate uint64, feeExposure float64) (*MaxOrderEstimate, error) {
+	return c.maxMeshOrder(baseID, quoteID, rate, true, feeExposure)
+}
+
+func (c *Core) maxMeshOrder(fromID, toID uint32, rate uint64, sell bool, feeExposure float64) (*MaxOrderEstimate, error) {
+	fromWallet, err := c.connectedWallet(fromID)
+	if err != nil {
+		return nil, fmt.Errorf("%s wallet error: %v", unbip(fromID), err)
+	}
+	toWallet, err := c.connectedWallet(toID)
+	if err != nil {
+		return nil, fmt.Errorf("%s wallet error: %v", unbip(toID), err)
+	}
+
+	fromVer, toVer, fromRate, toRate, err := c.meshMarketAssetInfo(fromID, toID)
+	if err != nil {
+		return nil, err
+	}
+
+	swapFees, _, err := fromWallet.SingleLotSwapRefundFees(fromVer, fromRate, false)
+	if err != nil {
+		return nil, fmt.Errorf("error calculating swap/refund fees: %w", err)
+	}
+
+	redeemFees, err := toWallet.SingleLotRedeemFees(toVer, toRate)
+	if err != nil {
+		return nil, fmt.Errorf("error calculating redeem fees: %w", err)
+	}
+	baseFees, quoteFees := redeemFees, swapFees
+	if sell {
+		baseFees, quoteFees = swapFees, redeemFees
+	}
+	lotSize := tankatrade.MinimumLotSize(rate, &tankatrade.FeeParameters{
+		MaxFeeExposure:    feeExposure,
+		BaseFeesPerMatch:  baseFees,
+		QuoteFeesPerMatch: quoteFees,
+	})
+
+	fromLotSize, toLotSize := calc.BaseToQuote(rate, lotSize), lotSize
+	if sell {
+		fromLotSize, toLotSize = toLotSize, fromLotSize
+	}
+
+	maxFrom, err := fromWallet.MaxOrder(&asset.MaxOrderForm{
+		LotSize:       fromLotSize,
+		FeeSuggestion: fromRate,
+		AssetVersion:  fromVer, // using the server's asset version, when our wallets support multiple vers
+		MaxFeeRate:    fromRate,
+		RedeemVersion: toVer,
+		RedeemAssetID: toID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%s wallet MaxOrder error: %v", unbip(fromID), err)
+	}
+	preRedeem, err := toWallet.PreRedeem(&asset.PreRedeemForm{
+		AssetVersion:  toVer,
+		Lots:          maxFrom.Lots,
+		FeeSuggestion: toRate,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%s wallet MaxOrder error: %v", unbip(fromID), err)
+	}
+	return &MaxOrderEstimate{
+		LotSize: lotSize,
+		Swap:    maxFrom,
+		Redeem:  preRedeem.Estimate,
+	}, nil
+
 }
 
 // MaxBuy is the maximum-sized *OrderEstimate for a buy order on the specified
@@ -5121,6 +5243,7 @@ func (c *Core) marketWallets(host string, base, quote uint32) (ba, qa *dex.Asset
 // order).
 func (c *Core) MaxBuy(host string, baseID, quoteID uint32, rate uint64) (*MaxOrderEstimate, error) {
 	baseAsset, quoteAsset, baseWallet, quoteWallet, err := c.marketWallets(host, baseID, quoteID)
+	mktID := marketName(baseID, quoteID)
 	if err != nil {
 		return nil, err
 	}
@@ -5130,13 +5253,13 @@ func (c *Core) MaxBuy(host string, baseID, quoteID uint32, rate uint64) (*MaxOrd
 		return nil, err
 	}
 
-	mktID := marketName(baseID, quoteID)
 	mktConf := dc.marketConfig(mktID)
 	if mktConf == nil {
 		return nil, newError(marketErr, "unknown market %q", mktID)
 	}
 
 	lotSize := mktConf.LotSize
+
 	quoteLotEst := calc.BaseToQuote(rate, lotSize)
 	if quoteLotEst == 0 {
 		return nil, fmt.Errorf("quote lot estimate of zero for market %s", mktID)
@@ -5174,8 +5297,9 @@ func (c *Core) MaxBuy(host string, baseID, quoteID uint32, rate uint64) (*MaxOrd
 	}
 
 	return &MaxOrderEstimate{
-		Swap:   maxBuy,
-		Redeem: preRedeem.Estimate,
+		LotSize: lotSize,
+		Swap:    maxBuy,
+		Redeem:  preRedeem.Estimate,
 	}, nil
 }
 
@@ -5233,8 +5357,9 @@ func (c *Core) MaxSell(host string, base, quote uint32) (*MaxOrderEstimate, erro
 	}
 
 	return &MaxOrderEstimate{
-		Swap:   maxSell,
-		Redeem: preRedeem.Estimate,
+		LotSize: lotSize,
+		Swap:    maxSell,
+		Redeem:  preRedeem.Estimate,
 	}, nil
 }
 
@@ -5422,6 +5547,15 @@ func (c *Core) feeSuggestionAny(assetID uint32, preferredConns ...*dexConnection
 // feeSuggestion gets the best fee suggestion, first from a synced order book,
 // and if not synced, directly from the server.
 func (c *Core) feeSuggestion(dc *dexConnection, assetID uint32) (feeSuggestion uint64) {
+	if dc == nil { // Mesh
+		c.meshFeeRatesMtx.RLock()
+		r := c.meshFeeRates[assetID]
+		c.meshFeeRatesMtx.RUnlock()
+		if r == nil {
+			return 0 // no fee rate available
+		}
+		return r.Value
+	}
 	// Prepare a fee suggestion based on the last reported fee rate in the
 	// order book feed.
 	feeSuggestion = dc.bestBookFeeSuggestion(assetID)
@@ -5741,15 +5875,19 @@ func (c *Core) EstimateSendTxFee(address string, assetID uint32, amount uint64, 
 // SingleLotFees returns the estimated swap, refund, and redeem fees for a single lot
 // trade.
 func (c *Core) SingleLotFees(form *SingleLotFeesForm) (swapFees, redeemFees, refundFees uint64, err error) {
-	dc, _, err := c.dex(form.Host)
-	if err != nil {
-		return 0, 0, 0, err
-	}
+	var dc *dexConnection
+	if form.Host == "mesh" {
 
-	mktID := marketName(form.Base, form.Quote)
-	mktConf := dc.marketConfig(mktID)
-	if mktConf == nil {
-		return 0, 0, 0, newError(marketErr, "unknown market %q", mktID)
+	} else {
+		dc, _, err = c.dex(form.Host)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		mktID := marketName(form.Base, form.Quote)
+		mktConf := dc.marketConfig(mktID)
+		if mktConf == nil {
+			return 0, 0, 0, newError(marketErr, "unknown market %q", mktID)
+		}
 	}
 
 	wallets, assetConfigs, versCompat, err := c.walletSet(dc, form.Base, form.Quote, form.Sell)

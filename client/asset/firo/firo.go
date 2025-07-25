@@ -11,12 +11,10 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"time"
 
 	"decred.org/dcrdex/client/asset"
 	"decred.org/dcrdex/client/asset/btc"
 	"decred.org/dcrdex/dex"
-	"decred.org/dcrdex/dex/dexnet"
 	dexbtc "decred.org/dcrdex/dex/networks/btc"
 	dexfiro "decred.org/dcrdex/dex/networks/firo"
 
@@ -164,7 +162,7 @@ func NewWallet(cfg *asset.WalletConfig, logger dex.Logger, network dex.Network) 
 		UnlockSpends:             true, // Firo chain wallet does Not unlock coins after sendrawtransaction
 		AssetID:                  BipID,
 		FeeEstimator:             estimateFee,
-		ExternalFeeEstimator:     externalFeeRate,
+		ExternalFeeEstimator:     dexfiro.ExternalFeeRate,
 		AddressDecoder:           decodeAddress,
 		PrivKeyFunc:              nil, // set only for walletTypeRPC below
 		BlockDeserializer:        nil, // set only for walletTypeRPC below
@@ -281,45 +279,4 @@ func estimateFee(ctx context.Context, rr btc.RawRequester, _ uint64) (uint64, er
 		return dexfiro.DefaultFee, nil
 	}
 	return uint64(math.Round(feeRate * 1e5)), nil
-}
-
-// externalFeeRate returns a fee rate for the network. If an error is
-// encountered fetching the testnet fee rate, we will try to return the
-// mainnet fee rate.
-func externalFeeRate(ctx context.Context, net dex.Network) (uint64, error) {
-	const mainnetURI = "https://explorer.firo.org/insight-api-zcoin/utils/estimatefee"
-	var uri string
-	if net == dex.Testnet {
-		uri = "https://testexplorer.firo.org/insight-api-zcoin/utils/estimatefee"
-	} else {
-		uri = "https://explorer.firo.org/insight-api-zcoin/utils/estimatefee"
-	}
-	feeRate, err := fetchExternalFee(ctx, uri)
-	if err == nil || net != dex.Testnet {
-		return feeRate, err
-	}
-	return fetchExternalFee(ctx, mainnetURI)
-}
-
-// fetchExternalFee calls 'estimatefee' API on Firo block explorer for
-// the network. API returned float value is converted into sats/byte.
-func fetchExternalFee(ctx context.Context, uri string) (uint64, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	var resp map[string]float64
-	if err := dexnet.Get(ctx, uri, &resp); err != nil {
-		return 0, err
-	}
-	if resp == nil {
-		return 0, errors.New("null response")
-	}
-
-	firoPerKilobyte, ok := resp["2"] // field '2': n.nnnn
-	if !ok {
-		return 0, errors.New("no fee rate in response")
-	}
-	if firoPerKilobyte <= 0 {
-		return 0, fmt.Errorf("zero or negative fee rate")
-	}
-	return uint64(math.Round(firoPerKilobyte * 1e5)), nil // FIRO/kB => firo-sat/B
 }

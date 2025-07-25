@@ -30,13 +30,12 @@ type Result json.RawMessage
 // Chain is an interface that must be implemented by every blockchain backend.
 type Chain interface {
 	Connect(context.Context) (*sync.WaitGroup, error)
-	// Query may be needed if clients are the auditors, since some clients might
-	// not have e.g. txindex enabled for utxo-based assets.
-	// Query(context.Context, Query) (Result, error)
 	Connected() bool
+	Version() uint32
+}
+
+type BondChecker interface {
 	CheckBond(*tanka.Bond) error
-	// AuditHTLC will be needed if Tatanka nodes are the auditors.
-	// AuditHTLC(*tanka.HTLCAudit) (bool, error)
 }
 
 // FeeRater is an optional interface that should be implemented by backends for

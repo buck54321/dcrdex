@@ -107,6 +107,7 @@ type Tatanka struct {
 	httpReqHandlers map[string]comms.HTTPHandler
 	httpRoutes      []string
 	maxClients      int
+	assetVersions   map[uint32]uint32
 	// bondTier  atomic.Uint64
 
 	priv *secp256k1.PrivateKey
@@ -159,15 +160,18 @@ func New(cfg *Config) (*Tatanka, error) {
 
 	chains := make(map[uint32]chain.Chain)
 	nets := make([]uint32, 0, len(chainCfg.Chains))
+	assetVersions := make(map[uint32]uint32, len(chainCfg.Chains))
 	for _, c := range chainCfg.Chains {
 		chainID, found := dex.BipSymbolID(c.Symbol)
 		if !found {
 			return nil, fmt.Errorf("no chain ID found for symbol %s", c.Symbol)
 		}
-		chains[chainID], err = chain.New(chainID, c.Config, cfg.Logger.SubLogger(c.Symbol), cfg.Net)
+		ch, err := chain.New(chainID, c.Config, cfg.Logger.SubLogger(c.Symbol), cfg.Net)
 		if err != nil {
 			return nil, fmt.Errorf("error creating chain backend: %w", err)
 		}
+		assetVersions[chainID] = ch.Version()
+		chains[chainID] = ch
 		nets = append(nets, chainID)
 	}
 
@@ -223,6 +227,7 @@ func New(cfg *Config) (*Tatanka, error) {
 		priv:            priv,
 		id:              peerID,
 		chains:          chains,
+		assetVersions:   assetVersions,
 		tatankas:        make(map[tanka.PeerID]*remoteTatanka),
 		clients:         make(map[tanka.PeerID]*client),
 		remoteClients:   make(map[tanka.PeerID]map[tanka.PeerID]struct{}),
@@ -643,10 +648,11 @@ func (t *Tatanka) request(s tanka.Sender, msg *msgjson.Message, respHandler func
 
 func (t *Tatanka) generateConfig(bondTier uint64) *mj.TatankaConfig {
 	return &mj.TatankaConfig{
-		ID:       t.id,
-		Version:  version,
-		Chains:   t.assets(),
-		BondTier: bondTier,
+		ID:            t.id,
+		Version:       version,
+		Chains:        t.assets(),
+		BondTier:      bondTier,
+		AssetVersions: t.assetVersions,
 	}
 }
 
@@ -770,17 +776,17 @@ func (t *Tatanka) broadcastRates() {
 				return
 			}
 
-			t.clientMtx.RLock()
-			topic := t.topics[mj.TopicFiatRate]
-			t.clientMtx.RUnlock()
-
-			// TODO: Is this a race condition on topic.subscribers?
-			if topic != nil && len(topic.subscribers) > 0 {
-				t.batchSend(topic.subscribers, mj.MustNotification(mj.RouteRates, &mj.RateMessage{
-					Topic: mj.TopicFiatRate,
-					Rates: rates,
-				}))
+			payload, err := json.Marshal(rates)
+			if err != nil {
+				t.log.Errorf("Error marshaling fiat rates: %v", err)
+				continue
 			}
+
+			t.distributeBroadcastedMessage(&mj.Broadcast{
+				Topic:   mj.TopicFiatRate,
+				Payload: payload,
+				Stamp:   time.Now(),
+			}, false)
 		}
 	}
 }
@@ -798,18 +804,17 @@ func (t *Tatanka) broadcastFeeRateEstimates() {
 				return
 			}
 
-			t.clientMtx.RLock()
-			topic := t.topics[mj.TopicFeeRateEstimate]
-			t.clientMtx.RUnlock()
-			if topic == nil || len(topic.subscribers) == 0 {
+			payload, err := json.Marshal(feeRateEstimates)
+			if err != nil {
+				t.log.Errorf("Error marshaling fee rate estimates: %v", err)
 				continue
 			}
 
-			note := mj.MustNotification(mj.RouteFeeRateEstimate, &mj.FeeRateEstimateMessage{
-				Topic:            mj.TopicFeeRateEstimate,
-				FeeRateEstimates: feeRateEstimates,
-			})
-			t.batchSend(topic.subscribers, note)
+			t.distributeBroadcastedMessage(&mj.Broadcast{
+				Topic:   mj.TopicFeeRateEstimate,
+				Payload: payload,
+				Stamp:   time.Now(),
+			}, false)
 		}
 	}
 }
