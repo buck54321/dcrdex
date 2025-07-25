@@ -185,7 +185,8 @@ type MeshMarket struct {
 }
 
 type Mesh struct {
-	Markets map[string]*MeshMarket `json:"markets"`
+	Markets       map[string]*MeshMarket `json:"markets"`
+	AssetVersions map[uint32]uint32      `json:"assetVersions"`
 }
 
 // User is information about the user's wallets and DEX accounts.

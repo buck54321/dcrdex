@@ -366,6 +366,7 @@ export interface MeshMarket {
 
 export interface Mesh {
   markets: Record<string, MeshMarket>
+  assetVersions: Record<number, number>
 }
 
 export interface User {

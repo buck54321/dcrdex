@@ -1035,6 +1035,7 @@ func (s *WebServer) apiBuildInfo(w http.ResponseWriter, r *http.Request) {
 
 // apiLogin handles the 'login' API request.
 func (s *WebServer) apiLogin(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("-- apiLogin.0")
 	login := new(loginForm)
 	defer login.Pass.Clear()
 	if !readPost(w, r, login) {

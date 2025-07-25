@@ -1485,8 +1485,9 @@ type Core struct {
 	mesh    *mesh.Mesh
 	meshCM  *dex.ConnectionMaster
 
-	meshFeeRatesMtx sync.RWMutex
-	meshFeeRates    map[uint32]*feerates.Estimate
+	meshFeeRatesMtx   sync.RWMutex
+	meshFeeRates      map[uint32]*feerates.Estimate
+	meshAssetVersions atomic.Value
 
 	meshFiatRatesMtx sync.RWMutex
 	meshFiatRates    map[string]*fiatrates.FiatRateInfo
@@ -2047,6 +2048,12 @@ func (c *Core) dexConnections() []*dexConnection {
 	return conns
 }
 
+func (c *Core) HasMesh() bool {
+	c.meshMtx.RLock()
+	defer c.meshMtx.RUnlock()
+	return c.mesh != nil
+}
+
 // wallet gets the wallet for the specified asset ID in a thread-safe way.
 func (c *Core) wallet(assetID uint32) (*xcWallet, bool) {
 	c.walletMtx.RLock()
@@ -2586,7 +2593,7 @@ func (c *Core) User() *User {
 		Net:                c.net,
 		ExtensionConfig:    c.extensionModeConfig,
 		Actions:            c.requestedActionsList(),
-		// Mesh:               c.getMesh(),
+		Mesh:               c.getMesh(),
 	}
 }
 

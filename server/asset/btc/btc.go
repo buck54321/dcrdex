@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -22,7 +21,6 @@ import (
 	"decred.org/dcrdex/dex"
 	"decred.org/dcrdex/dex/calc"
 	"decred.org/dcrdex/dex/config"
-	"decred.org/dcrdex/dex/dexnet"
 	"decred.org/dcrdex/dex/feeratefetcher"
 	dexbtc "decred.org/dcrdex/dex/networks/btc"
 	dexzec "decred.org/dcrdex/dex/networks/zec"
@@ -211,8 +209,6 @@ func NewBackend(cfg *asset.BackendConfig) (asset.Backend, error) {
 		configPath = dexbtc.SystemConfigPath("bitcoin")
 	}
 
-	feeSources := make([]*feeratefetcher.SourceConfig, len(freeFeeSources), len(freeFeeSources)+1)
-	copy(feeSources, freeFeeSources)
 	b, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("error reading config file: %w", err)
@@ -223,17 +219,13 @@ func NewBackend(cfg *asset.BackendConfig) (asset.Backend, error) {
 			return nil, errors.New("no config path defined in v1 config file")
 		}
 		configPath = cfgV1.ConfigPath
-
-		if cfgV1.TatumKey != "" {
-			feeSources = append(feeSources, tatumFeeRateFetcher(cfgV1.TatumKey))
-		}
-		if cfgV1.BlockdaemonKey != "" {
-			feeSources = append(feeSources, blockDaemonFeeRateFetcher(cfgV1.BlockdaemonKey))
-		}
 	}
-	var FeeRateFetcher *feeratefetcher.FeeRateFetcher
+	var feeFetcher *feeratefetcher.FeeRateFetcher
 	if !cfgV1.DisableAPIFees {
-		FeeRateFetcher = feeratefetcher.NewFeeRateFetcher(feeSources, cfg.Logger)
+		feeFetcher = dexbtc.NewFeeFetcher(&dexbtc.PaidSourceConfig{
+			TatumKey:       cfgV1.TatumKey,
+			BlockdaemonKey: cfgV1.BlockdaemonKey,
+		}, cfg.Logger.SubLogger("FF"))
 	}
 	return NewBTCClone(&BackendCloneConfig{
 		Name:           assetName,
@@ -244,7 +236,7 @@ func NewBackend(cfg *asset.BackendConfig) (asset.Backend, error) {
 		ChainParams:    params,
 		Ports:          dexbtc.RPCPorts,
 		RelayAddr:      cfg.RelayAddr,
-		FeeRateFetcher: FeeRateFetcher,
+		FeeRateFetcher: feeFetcher,
 	})
 }
 
@@ -1570,219 +1562,4 @@ func msgTxFromBytes(txB []byte) (*wire.MsgTx, error) {
 func hashTx(tx *wire.MsgTx) *chainhash.Hash {
 	h := tx.TxHash()
 	return &h
-}
-
-var freeFeeSources = []*feeratefetcher.SourceConfig{
-	{ // https://mempool.space/docs/api/rest#get-recommended-fees
-		Name:   "mempool.space",
-		Rank:   1,
-		Period: time.Minute * 2, // Rate limit might be 1 per 10 seconds.
-		F: func(ctx context.Context) (rate uint64, errDelay time.Duration, err error) {
-			const uri = "https://mempool.space/api/v1/fees/recommended"
-			var res struct {
-				FastestFee uint64 `json:"fastestFee"`
-			}
-			var code int
-			if err := dexnet.Get(ctx, uri, &res, dexnet.WithStatusFunc(func(respCode int) {
-				code = respCode
-			})); err != nil {
-				if code == http.StatusTooManyRequests { // 429 per docs
-					return 0, time.Minute * 30, errors.New("exceeded request limit")
-				}
-				return 0, time.Minute * 2, err
-			}
-			return res.FastestFee, 0, nil
-		},
-	},
-	{ // https://bitcoiner.live/doc/api
-		Name:   "bitcoiner.live",
-		Rank:   1,
-		Period: time.Minute * 5, // Data is refreshed every 5 minutes
-		F: func(ctx context.Context) (rate uint64, errDelay time.Duration, err error) {
-			const uri = "https://bitcoiner.live/api/fees/estimates/latest"
-			var res struct {
-				Estimates map[string]struct {
-					SatsPerVB float64 `json:"sat_per_vbyte"`
-				} `json:"estimates"`
-			}
-			if err := dexnet.Get(ctx, uri, &res); err != nil {
-				return 0, time.Minute * 10, err
-			}
-			if res.Estimates == nil {
-				return 0, time.Minute * 10, errors.New("no estimates returned")
-			}
-			// Using 30 minutes estimate. There is also a 60, 120, and higher
-			r, found := res.Estimates["30"]
-			if !found {
-				return 0, time.Minute * 10, errors.New("no 30-minute estimate returned")
-			}
-			return uint64(math.Round(r.SatsPerVB)), 0, nil
-		},
-	},
-	{
-		// https://api.blockcypher.com/v1/btc/main
-		// Also have ltc, dash, doge
-		Name:   "blockcypher.com",
-		Rank:   1,
-		Period: time.Minute * 3, // 100 requests/hr => 0.6 minutes
-		F: func(ctx context.Context) (rate uint64, errDelay time.Duration, err error) {
-			const uri = "https://api.blockcypher.com/v1/btc/main"
-			var res struct {
-				MediumPerKB uint64 `json:"medium_fee_per_kb"`
-			}
-			var code int
-			if err := dexnet.Get(ctx, uri, &res, dexnet.WithStatusFunc(func(respCode int) {
-				code = respCode
-			})); err != nil {
-				if code == http.StatusTooManyRequests { // 429 per docs
-					// There's a X-Ratelimit-Remaining response header that
-					// could potentially be used to caculate a proper delay here.
-					return 0, time.Minute * 30, errors.New("exceeded request limit")
-				}
-				return 0, time.Minute * 10, err
-			}
-			return uint64(math.Round(float64(res.MediumPerKB) / 1e3)), 0, nil
-		},
-	},
-	{ // undocumented
-		Name:   "btc.com",
-		Rank:   2,
-		Period: time.Minute * 5,
-		F: func(ctx context.Context) (rate uint64, errDelay time.Duration, err error) {
-			const uri = "https://btc.com/service/fees/distribution"
-			var res struct {
-				RecommendedFees struct {
-					OneBlockFee uint64 `json:"one_block_fee"`
-				} `json:"fees_recommended"`
-			}
-			if err := dexnet.Get(ctx, uri, &res); err != nil {
-				return 0, time.Minute * 10, err
-			}
-			return res.RecommendedFees.OneBlockFee, 0, nil
-		},
-	},
-	{ // undocumented. source is somehow related to blockchain.com
-		Name:   "blockchain.info",
-		Rank:   2,
-		Period: time.Minute * 3, // Rate limit might be 1 per 10 seconds.
-		F: func(ctx context.Context) (rate uint64, errDelay time.Duration, err error) {
-			const uri = "https://api.blockchain.info/mempool/fees"
-			var res struct {
-				Regular  uint64 `json:"regular"` // Might be a little low
-				Priority uint64 `json:"priority"`
-			}
-			if err := dexnet.Get(ctx, uri, &res); err != nil {
-				return 0, time.Minute * 10, err
-			}
-			return res.Priority, 0, nil
-		},
-	},
-	{
-		// undocumented. Probably just estimatesmartfee underneath
-		Name:   "bitcoinfees.net",
-		Rank:   2,
-		Period: time.Minute * 3,
-		F: func(ctx context.Context) (rate uint64, errDelay time.Duration, err error) {
-			const uri = "https://bitcoinfees.net/api.json"
-			var res struct {
-				FeePerKBByBlockTarget map[string]uint64 `json:"fee_by_block_target"`
-			}
-			if err := dexnet.Get(ctx, uri, &res); err != nil {
-				return 0, time.Minute * 10, err
-			}
-			if res.FeePerKBByBlockTarget == nil {
-				return 0, time.Minute * 10, errors.New("no estimates returned")
-			}
-			// Using 30 minutes estimate. There is also a 60, 120, and higher
-			r, found := res.FeePerKBByBlockTarget["1"]
-			if !found {
-				return 0, time.Minute * 10, errors.New("no 1-block estimate returned")
-			}
-			return uint64(math.Round(float64(r) / 1e3)), 0, nil
-		},
-	},
-	{
-		// https://blockchair.com/api/docs#link_M0
-		Name:   "blockchair.com",
-		Rank:   3,               // blockchair sometimes returns zero. Use only as a last resort.
-		Period: time.Minute * 3, // 1440 per day => 1 request / minute
-		F: func(ctx context.Context) (rate uint64, errDelay time.Duration, err error) {
-			const uri = "https://api.blockchair.com/bitcoin/stats"
-			var res struct {
-				Data struct {
-					SatsPerByte uint64 `json:"suggested_transaction_fee_per_byte_sat"`
-				} `json:"data"`
-			}
-			var code int
-			if err := dexnet.Get(ctx, uri, &res, dexnet.WithStatusFunc(func(respCode int) {
-				code = respCode
-			})); err != nil {
-				switch code {
-				case http.StatusTooManyRequests, http.StatusPaymentRequired:
-					return 0, time.Minute * 30, errors.New("exceeded request limit")
-				case http.StatusServiceUnavailable, 430, 434:
-					return 0, time.Hour * 24, errors.New("banned from api")
-				}
-				return 0, time.Minute * 10, err
-			}
-			return res.Data.SatsPerByte, 0, nil
-		},
-	},
-}
-
-func tatumFeeRateFetcher(apiKey string) *feeratefetcher.SourceConfig {
-	return &feeratefetcher.SourceConfig{
-		Name:   "tatum",
-		Rank:   1,
-		Period: time.Minute * 1, // 1M credit / mo => 3 req / sec
-		F: func(ctx context.Context) (rate uint64, errDelay time.Duration, err error) {
-			const uri = "https://api.tatum.io/v3/blockchain/fee/BTC"
-			var res struct {
-				Fast   float64 `json:"fast"` // Might be a little high
-				Medium float64 `json:"medium"`
-			}
-			var code int
-			withCode := dexnet.WithStatusFunc(func(respCode int) {
-				code = respCode
-			})
-			withApiKey := dexnet.WithRequestHeader("x-api-key", apiKey)
-			if err := dexnet.Get(ctx, uri, &res, withCode, withApiKey); err != nil {
-				if code == http.StatusForbidden {
-					return 0, time.Minute * 30, errors.New("exceeded request limit")
-				}
-				return 0, time.Minute * 10, err
-			}
-			return uint64(math.Round(res.Medium)), 0, nil
-		},
-	}
-}
-
-func blockDaemonFeeRateFetcher(apiKey string) *feeratefetcher.SourceConfig {
-	// https://docs.blockdaemon.com/reference/getfeeestimate
-	return &feeratefetcher.SourceConfig{
-		Name:   "blockdaemon",
-		Rank:   1,
-		Period: time.Minute * 2, // 25 reqs/second, 3M compute units, request is 50 compute units => 1 req / 43 secs
-		F: func(ctx context.Context) (rate uint64, errDelay time.Duration, err error) {
-			const uri = "https://svc.blockdaemon.com/universal/v1/bitcoin/mainnet/tx/estimate_fee"
-			var res struct {
-				Fees struct {
-					Fast   uint64 `json:"fast"` // a little high
-					Medium uint64 `json:"medium"`
-				} `json:"estimated_fees"`
-			}
-			var code int
-			withCode := dexnet.WithStatusFunc(func(respCode int) {
-				code = respCode
-			})
-			withApiKey := dexnet.WithRequestHeader("X-API-Key", apiKey)
-			if err := dexnet.Get(ctx, uri, &res, withCode, withApiKey); err != nil {
-				if code == http.StatusTooManyRequests {
-					return 0, time.Minute * 30, errors.New("exceeded request limit")
-				}
-				return 0, time.Minute * 10, err
-			}
-			return res.Fees.Medium, 0, nil
-		},
-	}
 }

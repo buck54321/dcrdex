@@ -2106,7 +2106,8 @@ export class TokenApprovalForm {
 
     Doc.empty(page.tokenSymbol)
     page.tokenSymbol.appendChild(Doc.symbolize(tokenAsset, true))
-    const protocolVersion = app().exchanges[host].assets[assetID].version
+    // DRAFT TODO: Mesh needs asset version, I guess?
+    const protocolVersion = host === 'mesh' ? app().assets[tokenAsset.token?.parentID ?? assetID].info?.version : app().exchanges[host].assets[assetID].version
     const res = await postJSON('/api/approvetokenfee', {
       assetID: tokenAsset.id,
       version: protocolVersion,

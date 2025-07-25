@@ -217,7 +217,7 @@ func estimateFee(ctx context.Context, cl btc.RawRequester, _ uint64) (uint64, er
 }
 
 // DRAFT TODO: Fee rate -1 for testnet. Just use mainnet?
-var bitcoreFeeRate = btc.BitcoreRateFetcher("DOGE")
+var bitcoreFeeRate = dexbtc.BitcoreRateFetcher("DOGE")
 
 // externalFeeRate returns a fee rate for the network. If an error is
 // encountered fetching the testnet fee rate, we will try to return the

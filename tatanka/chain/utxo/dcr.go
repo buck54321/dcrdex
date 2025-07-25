@@ -25,7 +25,8 @@ import (
 )
 
 const (
-	ChainID = 42
+	ChainID    = 42
+	dcrVersion = 0
 )
 
 var (
@@ -162,33 +163,12 @@ func (c *decredChain) initialize(ctx context.Context) error {
 	return nil
 }
 
-// type query struct {
-// 	Method string            `json:"method"`
-// 	Args   []json.RawMessage `json:"args"`
-// }
-
-// func (c *decredChain) Query(ctx context.Context, rawQuery chain.Query) (chain.Result, error) {
-// 	var q query
-// 	if err := json.Unmarshal(rawQuery, &q); err != nil {
-// 		return nil, chain.BadQueryError(fmt.Errorf("error parsing raw query: %w", err))
-// 	}
-
-// 	if q.Method == "" {
-// 		return nil, chain.BadQueryError(errors.New("invalid query parameters. no method"))
-// 	}
-
-// 	res, err := c.cl.RawRequest(ctx, q.Method, q.Args)
-// 	if err != nil {
-// 		// Could potentially try to parse certain errors here
-
-// 		return nil, fmt.Errorf("error performing query: %w", err)
-// 	}
-
-// 	return chain.Result(res), nil
-// }
-
 func (c *decredChain) Connected() bool {
 	return c.connected.Load()
+}
+
+func (c *decredChain) Version() uint32 {
+	return dcrVersion
 }
 
 func (c *decredChain) FeeChannel() <-chan uint64 {
@@ -248,13 +228,6 @@ func (c *decredChain) CheckBond(b *tanka.Bond) error {
 	// TODO: Validate bond
 
 	return nil
-}
-
-func (c *decredChain) AuditHTLC(*tanka.HTLCAudit) (bool, error) {
-
-	// TODO: Perform the audit
-
-	return true, nil
 }
 
 // connectNodeRPC attempts to create a new websocket connection to a dcrd node

@@ -6527,30 +6527,3 @@ func (a *AddressRecycler) ReturnAddresses(addrs []string) {
 		a.addrs[addr] = struct{}{}
 	}
 }
-
-// BitcoreRateFetcher generates a rate fetching function for the bitcore.io API.
-func BitcoreRateFetcher(ticker string) func(ctx context.Context, net dex.Network) (uint64, error) {
-	const uriTemplate = "https://api.bitcore.io/api/%s/%s/fee/1"
-	mainnetURI, testnetURI := fmt.Sprintf(uriTemplate, ticker, "mainnet"), fmt.Sprintf(uriTemplate, ticker, "testnet")
-
-	return func(ctx context.Context, net dex.Network) (uint64, error) {
-		var uri string
-		if net == dex.Testnet {
-			uri = testnetURI
-		} else {
-			uri = mainnetURI
-		}
-		ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
-		defer cancel()
-		var resp struct {
-			RatePerKB float64 `json:"feerate"`
-		}
-		if err := dexnet.Get(ctx, uri, &resp); err != nil {
-			return 0, err
-		}
-		if resp.RatePerKB <= 0 {
-			return 0, fmt.Errorf("zero or negative fee rate")
-		}
-		return uint64(math.Round(resp.RatePerKB * 1e5)), nil // 1/kB => 1/B
-	}
-}

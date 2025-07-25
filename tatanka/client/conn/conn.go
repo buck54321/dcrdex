@@ -403,12 +403,17 @@ const (
 )
 
 func (c *MeshConn) Connect(ctx context.Context) (*sync.WaitGroup, error) {
+	c.ctx = ctx
+
 	var wg sync.WaitGroup
 
 	wg.Add(1)
-	go c.disconnectNodesOnCancel(ctx, &wg)
-
-	c.ctx = ctx
+	go func() {
+		defer wg.Done()
+		<-ctx.Done()
+		c.disconnectNodesOnCancel()
+		fmt.Println("--MeshConn.Connect disconnectNodesOnCancel done")
+	}()
 
 	knownNodes, err := c.fetchKnownNodes(ctx)
 	if err != nil {
@@ -432,17 +437,18 @@ func (c *MeshConn) Connect(ctx context.Context) (*sync.WaitGroup, error) {
 	c.nodesMtx.Unlock()
 
 	wg.Add(1)
-	go c.runNodeMaintenance(ctx, &wg)
+	go func() {
+		defer wg.Done()
+		c.runNodeMaintenance(ctx)
+		fmt.Println("--MeshConn.Connect runNodeMaintenance done")
+	}()
 
 	return &wg, nil
 }
 
 // disconnectNodesOnCancel disconnects the primary and secondary nodes
 // when the context is cancelled.
-func (c *MeshConn) disconnectNodesOnCancel(ctx context.Context, wg *sync.WaitGroup) {
-	defer wg.Done()
-	<-ctx.Done()
-
+func (c *MeshConn) disconnectNodesOnCancel() {
 	c.nodesMtx.Lock()
 	defer c.nodesMtx.Unlock()
 
@@ -454,8 +460,7 @@ func (c *MeshConn) disconnectNodesOnCancel(ctx context.Context, wg *sync.WaitGro
 	}
 }
 
-func (c *MeshConn) runNodeMaintenance(ctx context.Context, wg *sync.WaitGroup) {
-	defer wg.Done()
+func (c *MeshConn) runNodeMaintenance(ctx context.Context) {
 
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -1091,4 +1096,8 @@ func (c *MeshConn) RequestPeer(peerID tanka.PeerID, msg *msgjson.Message, thing 
 	}
 
 	return nil
+}
+
+func (c *MeshConn) AssetVersions() map[uint32]uint32 {
+	return c.primaryNode.config.Load().(*mj.TatankaConfig).AssetVersions
 }
