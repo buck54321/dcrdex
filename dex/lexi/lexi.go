@@ -33,10 +33,11 @@ func convertError(err error) error {
 // the ability to add indexed data.
 type DB struct {
 	*badger.DB
-	log      dex.Logger
-	idSeq    *badger.Sequence
-	wg       sync.WaitGroup
-	updateWG sync.WaitGroup
+	log        dex.Logger
+	idSeq      *badger.Sequence
+	wg         sync.WaitGroup
+	updateWG   sync.WaitGroup
+	upgradeTxn *badger.Txn
 }
 
 // Config is the configuration settings for the Lexi DB.
@@ -117,9 +118,15 @@ func (db *DB) Update(f func(txn *badger.Txn) error) (err error) {
 	sleepTime := 5 * time.Millisecond
 
 	for i := 0; i < maxRetries; i++ {
-		if err = db.DB.Update(f); err == nil || !errors.Is(err, badger.ErrConflict) {
+		if db.upgradeTxn == nil {
+			err = db.DB.Update(f)
+		} else {
+			err = f(db.upgradeTxn)
+		}
+		if err == nil || !errors.Is(err, badger.ErrConflict) {
 			return err
 		}
+
 		sleepTime *= 2
 		time.Sleep(sleepTime)
 	}
@@ -244,4 +251,16 @@ func parseKV(i KV) (b []byte, err error) {
 		err = fmt.Errorf("unknown IndexBucket type %T", it)
 	}
 	return
+}
+
+// Upgrade provides a way to perform a series of db updates under a single
+// transaction.
+func (db *DB) Upgrade(upgrade func() error) error {
+	db.DB.Update(func(txn *badger.Txn) error {
+		db.upgradeTxn = txn
+		defer func() {
+			db.upgradeTxn = nil
+		}()
+		return upgrade()
+	})
 }
