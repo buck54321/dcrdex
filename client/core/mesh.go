@@ -3,9 +3,13 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"sort"
 	"strings"
 
+	"decred.org/dcrdex/client/asset"
 	"decred.org/dcrdex/dex"
+	"decred.org/dcrdex/dex/calc"
 	"decred.org/dcrdex/dex/feerates"
 	"decred.org/dcrdex/dex/fiatrates"
 	"decred.org/dcrdex/dex/keygen"
@@ -72,9 +76,6 @@ func (c *Core) handleMarketBroadcast(bcast *mj.Broadcast) {
 func (c *Core) handleFeeRateEstimateBroadcast(bcast *mj.Broadcast) {
 	c.log.Tracef("Handling fee rate estimate broadcast for subject %s", bcast.Subject)
 
-	b, _ := json.MarshalIndent(bcast, "", "  ")
-	fmt.Println("--handleFeeRateEstimateBroadcast:", string(b))
-
 	var feeRate map[uint32]*feerates.Estimate
 	if err := json.Unmarshal(bcast.Payload, &feeRate); err != nil {
 		c.log.Errorf("Error unmarshaling fee rate estimate: %v", err)
@@ -105,7 +106,6 @@ func (c *Core) handleFiatRateBroadcast(bcast *mj.Broadcast) {
 
 	var rate map[string]*fiatrates.FiatRateInfo
 	if err := json.Unmarshal(bcast.Payload, &rate); err != nil {
-		fmt.Println("--handleFiatRateBroadcast.error.payload:", string(bcast.Payload))
 		c.log.Errorf("Error unmarshaling fiat rate message: %v", err)
 		return
 	}
@@ -122,7 +122,7 @@ func (c *Core) handleFiatRateBroadcast(bcast *mj.Broadcast) {
 	}
 }
 
-func (c *Core) getMesh() *Mesh {
+func (c *Core) coreMesh() *Mesh {
 	c.meshMtx.RLock()
 	mesh := c.mesh
 	meshCM := c.meshCM
@@ -163,9 +163,14 @@ func (c *Core) getMesh() *Mesh {
 	if av, ok := c.meshAssetVersions.Load().(map[uint32]uint32); ok {
 		assetVersions = av
 	}
+	c.meshFeeRatesMtx.RLock()
+	feeRates := make(map[uint32]*feerates.Estimate, len(c.meshFeeRates))
+	maps.Copy(feeRates, c.meshFeeRates)
+	c.meshFeeRatesMtx.RUnlock()
 	return &Mesh{
 		Markets:       mkts,
 		AssetVersions: assetVersions,
+		FeeRates:      feeRates,
 	}
 
 }
@@ -213,4 +218,61 @@ func deriveMeshPriv(seed []byte) (*secp256k1.PrivateKey, error) {
 		return nil, err
 	}
 	return secp256k1.PrivKeyFromBytes(privB), nil
+}
+
+func (c *Core) MakeMeshMarket(baseID, quoteID uint32) (*OrderBook, error) {
+	mesh := c.getMesh()
+
+	if err := mesh.SubscribeMarket(baseID, quoteID); err != nil {
+		return nil, fmt.Errorf("error making new mesh market: %w", err)
+	}
+
+	mktID, err := dex.MarketName(baseID, quoteID)
+	if err != nil {
+		return nil, fmt.Errorf("unknown asset pair (%d, %d)", baseID, quoteID)
+	}
+
+	c.meshBookNoteMtx.Lock()
+	defer c.meshBookNoteMtx.Unlock()
+
+	ob, err := mesh.Book(mktID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting mesh orderbook: %w", err)
+	}
+
+	return meshBookToMiniBook(baseID, quoteID, ob)
+}
+
+func meshBookToMiniBook(baseID, quoteID uint32, mords []*tanka.Order) (*OrderBook, error) {
+	bui, _ := asset.UnitInfo(baseID)
+	qui, _ := asset.UnitInfo(quoteID)
+	ob := &OrderBook{
+		Buys:  make([]*MiniOrder, 0, len(mords)/2),
+		Sells: make([]*MiniOrder, 0, len(mords)/2),
+	}
+	convertMord := func(mord *tanka.Order) *MiniOrder {
+		oid := mord.ID()
+		return &MiniOrder{
+			Qty:       float64(mord.Qty) / float64(bui.Conventional.ConversionFactor),
+			QtyAtomic: mord.Qty,
+			Rate:      calc.ConventionalRate(mord.Rate, bui, qui),
+			MsgRate:   mord.Rate,
+			Sell:      mord.Sell,
+			Token:     token(oid[32:38]),
+		}
+	}
+	for _, mord := range mords {
+		if mord.Sell {
+			ob.Sells = append(ob.Sells, convertMord(mord))
+		} else {
+			ob.Buys = append(ob.Buys, convertMord(mord))
+		}
+	}
+	sort.Slice(ob.Sells, func(i, j int) bool {
+		return ob.Sells[i].Rate < ob.Sells[j].Rate
+	})
+	sort.Slice(ob.Buys, func(i, j int) bool {
+		return ob.Buys[i].Rate > ob.Buys[j].Rate
+	})
+	return ob, nil
 }

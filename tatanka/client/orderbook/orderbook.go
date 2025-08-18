@@ -5,6 +5,8 @@ package orderbook
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"sync"
 
@@ -57,6 +59,9 @@ func (ob *Book) Orders(ids []tanka.ID40) []*tanka.Order {
 	ob.mtx.RLock()
 	defer ob.mtx.RUnlock()
 	ords := make([]*tanka.Order, 0, len(ids))
+	if ids == nil {
+		return slices.Collect(maps.Values(ob.book))
+	}
 	for _, id := range ids {
 		if o, has := ob.book[id]; has {
 			ords = append(ords, o)

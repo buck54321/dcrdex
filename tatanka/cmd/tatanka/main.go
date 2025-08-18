@@ -19,6 +19,7 @@ import (
 	"decred.org/dcrdex/dex/fiatrates"
 	"decred.org/dcrdex/server/comms"
 	"decred.org/dcrdex/tatanka"
+	_ "decred.org/dcrdex/tatanka/chain/evm"
 	_ "decred.org/dcrdex/tatanka/chain/utxo"
 	"github.com/jessevdk/go-flags"
 	"github.com/jrick/logrotate/rotator"

@@ -67,20 +67,16 @@ func withDriver(assetID uint32, f func(Driver) error) error {
 }
 
 // Register should be called by the init function of an asset's package.
-func Register(assetID uint32, driver Driver) {
+func Register(assetID uint32, driver Driver, overwrite ...bool) {
 	driversMtx.Lock()
 	defer driversMtx.Unlock()
 
 	if driver == nil {
 		panic("asset: Register driver is nil")
 	}
-	// if assetID == 42 {
-	// 	fmt.Println("--")
-	// 	debug.PrintStack()
-	// }
-	// if _, dup := drivers[assetID]; dup {
-	// 	panic(fmt.Sprint("asset: Register called twice for asset driver ", assetID))
-	// }
+	if _, dup := drivers[assetID]; dup && !(len(overwrite) > 0 && overwrite[0]) {
+		panic(fmt.Sprint("asset: Register called twice for asset driver ", assetID))
+	}
 	if driver.Info().UnitInfo.Conventional.ConversionFactor == 0 {
 		panic(fmt.Sprint("asset: Registered driver doesn't have a conventional conversion factor set in the wallet info ", assetID))
 	}
@@ -357,4 +353,18 @@ func SPVWithdrawTx(ctx context.Context, assetID uint32, walletPW []byte, recipie
 		return nil, errors.New("no withdraw function")
 	}
 	return f(ctx, walletPW, recipient, dataDir, net, log)
+}
+
+func ChainID(assetID uint32) uint32 {
+	driversMtx.RLock()
+	_, ok := drivers[assetID]
+	driversMtx.RUnlock()
+	if ok {
+		return assetID
+	}
+	tkn, ok := tokens[assetID]
+	if !ok {
+		panic(fmt.Sprintf("no driver or token info for asset %d (%s)", assetID, dex.BipIDSymbol(assetID)))
+	}
+	return tkn.ParentID
 }

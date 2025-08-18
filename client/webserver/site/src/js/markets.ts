@@ -67,11 +67,12 @@ import {
   RunStatsNote,
   RunEventNote,
   EpochReportNote,
-  CEXProblemsNote
+  CEXProblemsNote,
+  MeshMarket
 } from './registry'
 import { setOptionTemplates } from './opts'
 import { RunningMarketMakerDisplay, RunningMMDisplayElements } from './mmutil'
-import { prepareTickerAssets, TickerAsset } from './assets'
+import { prepareTickerAssets, TickerAsset, ChainAsset } from './assets'
 
 const bind = Doc.bind
 
@@ -100,6 +101,8 @@ const percentFormatter = new Intl.NumberFormat(Doc.languages(), {
 })
 
 const parentIDNone = 0xFFFFFFFF
+
+const premiereAssets = ['dcr', 'btc', 'eth', 'pol', 'usdc', 'usdt']
 
 interface MetaOrder {
   div: HTMLElement
@@ -206,6 +209,7 @@ export default class MarketsPage extends BasePage {
   forms: Forms
   tickers: Record<string, TickerAsset>
   tickerSortList: TickerSorter[]
+  meshSelectedAssets: [ {ticker: string, assetID: number }, {ticker: string, assetID: number } ]
 
   constructor (main: HTMLElement, pageParams: MarketsPageParams) {
     super()
@@ -226,6 +230,7 @@ export default class MarketsPage extends BasePage {
     this.hovers = []
     this.tickers = prepareTickerAssets()
     this.setTickerSortList()
+    this.meshSelectedAssets = [{ ticker: '', assetID: -1 }, { ticker: '', assetID: -1 }]
     // 'Recent Matches' list sort key and direction.
     this.recentMatchesSortKey = 'age'
     this.recentMatchesSortDirection = -1
@@ -492,6 +497,8 @@ export default class MarketsPage extends BasePage {
       this.setDepthMarkers()
     })
 
+    Doc.bind(page.createMeshMarketBttn, 'click', () => this.showMeshMarketCreateForm())
+
     const stats0 = page.marketStats
     const stats1 = stats0.cloneNode(true) as PageElement
     stats1.classList.add('listopen')
@@ -519,12 +526,12 @@ export default class MarketsPage extends BasePage {
         else closeMarketsList()
       })
     }
-    this.marketList = new MarketList(page.marketListV1)
+    this.marketList = new MarketList(page.marketList)
     // Prepare the list of markets.
     for (const row of this.marketList.markets) {
       bind(row.node, 'click', () => {
         // return early if the market is already set
-        const { quoteid: quoteID, baseid: baseID, xc: { host } } = row.mkt
+        const { baseID, quoteID, host } = row
         if (this.market?.base?.id === baseID && this.market?.quote?.id === quoteID) return
         this.startLoadingAnimations()
         this.setMarket(host, baseID, quoteID)
@@ -534,6 +541,7 @@ export default class MarketsPage extends BasePage {
       closeMarketsList()
     }
 
+    Doc.bind(page.submitMeshMarket, 'click', () => this.submitNewMeshMarket())
     this.bindMeshMarketCreator()
 
     // Notification filters.
@@ -597,16 +605,13 @@ export default class MarketsPage extends BasePage {
     }
     if (!selected || !this.marketList.exists(selected.host, selected.base, selected.quote)) {
       const first = this.marketList.first()
-      if (first) selected = { host: first.mkt.xc.host, base: first.mkt.baseid, quote: first.mkt.quoteid }
+      if (first) selected = { host: first.host, base: first.baseID, quote: first.quoteID }
     }
     if (selected) this.setMarket(selected.host, selected.base, selected.quote)
     else this.balanceWgt.setBalanceVisibility(false) // no market to display balance widget for.
 
     // set the initial state for the registration status
     this.setRegistrationStatusVisibility()
-
-    // ("-- remove this")
-    this.forms.show(this.page.meshMarketForm)
   }
 
   startLoadingAnimations () {
@@ -684,7 +689,7 @@ export default class MarketsPage extends BasePage {
         s.tmpl.volume.textContent = Doc.formatFourSigFigs(mkt.spot.vol24 / cFactor)
         s.tmpl.volUnit.textContent = unit
       }
-      setPriceAndChange(s.tmpl, xc, mkt)
+      setPriceAndChange(s.tmpl, xc.host, mkt.name)
     }
 
     this.page.obPrice.textContent = Doc.formatFourSigFigs(mkt.spot.rate / this.market.rateConversionFactor)
@@ -1137,7 +1142,7 @@ export default class MarketsPage extends BasePage {
     else this.setDEXMarket(host, baseID, quoteID)
   }
 
-  async setMeshMarket (baseID: number, quoteID: number) {
+  setMeshMarket (baseID: number, quoteID: number) {
     const mesh = app().user.mesh
 
     const [bui, qui] = [app().unitInfo(baseID), app().unitInfo(quoteID)]
@@ -1152,9 +1157,7 @@ export default class MarketsPage extends BasePage {
     this.market = {
       host: 'mesh',
       mesh: mesh,
-      mktID, // A string market identifier used by the DEX.
-      // app().assets is a map of core.SupportedAsset type, which can be found at
-      // client/core/types.go.
+      mktID,
       base: baseAsset,
       quote: quoteAsset,
       baseUnitInfo: bui,
@@ -1169,10 +1172,12 @@ export default class MarketsPage extends BasePage {
       bookLoaded: false
     }
     this.configureMarketUI()
+    swapBttns(this.page.marketBttn, this.page.limitBttn)
+    this.setOrderVisibility()
   }
 
   /* setMarket sets the currently displayed market. */
-  async setDEXMarket (host: string, baseID: number, quoteID: number) {
+  setDEXMarket (host: string, baseID: number, quoteID: number) {
     const xc = app().exchanges[host]
     const page = this.page
 
@@ -1188,8 +1193,8 @@ export default class MarketsPage extends BasePage {
 
     // clear depth chart and orderbook.
     this.depthChart.clear()
-    Doc.empty(this.page.buyRows)
-    Doc.empty(this.page.sellRows)
+    Doc.empty(page.buyRows)
+    Doc.empty(page.sellRows)
 
     // Clear recent matches for the previous market. This will be set when we
     // receive the order book subscription response.
@@ -1677,6 +1682,9 @@ export default class MarketsPage extends BasePage {
     this.depthChart.set(this.book, lotSize, rateStep, baseUnitInfo, quoteUnitInfo)
     this.recentMatches = data.book.recentMatches ?? []
     this.refreshRecentMatchesTable()
+    this.market.bookLoaded = true
+    this.updateTitle()
+    this.setMarketBuyOrderEstimate()
   }
 
   /*
@@ -1739,7 +1747,7 @@ export default class MarketsPage extends BasePage {
     const { base: b, quote: q, host, mktID } = this.market
     for (const oid in this.metaOrders) delete this.metaOrders[oid]
     if (!b || !q) return this.resolveUserOrders([]) // unsupported asset
-    const activeOrders = app().orders(host, mktID)
+    const activeOrders = await app().orders(host, mktID)
     if (activeOrders.length >= maxUserOrdersShown) return this.resolveUserOrders(activeOrders)
     const filter: OrderFilter = {
       hosts: [host],
@@ -1991,13 +1999,13 @@ export default class MarketsPage extends BasePage {
    */
   handleBookRoute (note: BookUpdate) {
     app().log('book', 'handleBookRoute:', note)
-    const mktBook = note.payload
+    this.handleMarketBook(note.host, note.payload)
+  }
+
+  handleMarketBook (cmpHost: string, mktBook: MarketOrderBook) {
     const { host, base: { id: baseID }, quote: { id: quoteID } } = this.market
-    if (mktBook.base !== baseID || mktBook.quote !== quoteID || note.host !== host) return // user already changed markets
+    if (mktBook.base !== baseID || mktBook.quote !== quoteID || cmpHost !== host) return // user already changed markets
     this.handleBook(mktBook)
-    this.market.bookLoaded = true
-    this.updateTitle()
-    this.setMarketBuyOrderEstimate()
   }
 
   /* handleBookOrderRoute is the handler for 'book_order' notifications. */
@@ -3185,21 +3193,50 @@ export default class MarketsPage extends BasePage {
 
   bindMeshMarketCreator () {
     const { page, tickerSortList } = this
-    Doc.cleanTemplates(page.meshAssetSelector)
+    const mesh = app().user.mesh
+    if (!mesh) return
+    const tokensMap: Record<number, string[]> = {}
+    for (const a of Object.values(app().assets)) {
+      if (!a.token) continue
+      if (!tokensMap[a.token.parentID]) tokensMap[a.token.parentID] = []
+      tokensMap[a.token.parentID].push(a.token.unitInfo.conventional.unit.toLowerCase())
+    }
+    const meshTickerFilter: Record<string, boolean> = {}
+    for (const assetIDStr of Object.keys(mesh.assetVersions)) {
+      const assetID = parseInt(assetIDStr)
+      const a = app().assets[assetID]
+      if (!a) continue
+      for (const tkn of Object.values(tokensMap[assetID] || {})) meshTickerFilter[tkn] = true
+      meshTickerFilter[a.unitInfo.conventional.unit.toLowerCase()] = true
+    }
+
+    const meshTickers: TickerSorter[] = []
+    for (const ts of tickerSortList) if (meshTickerFilter[ts.ticker]) meshTickers.push(ts)
+
+    page.meshAssetSelector.removeAttribute('id')
     const selector2 = page.meshAssetSelector.cloneNode(true) as HTMLElement
+    (Doc.tmplElement(selector2, 'input') as HTMLInputElement).placeholder = 'BTC'
     page.meshAsset2.appendChild(selector2)
 
-    const suggestedTickers = (stub: string): TickerAsset[] => {
+    const suggestedTickers = (stub: string, exclude: string): TickerAsset[] => {
       stub = stub.toLowerCase()
-      tickerSortList.sort((a, b) => {
-        if (stub && (a.ticker.includes(stub) || a.name.includes(stub)) && !(b.ticker.includes(stub) || b.name.includes(stub))) return -1
-        else if (stub && !(a.ticker.includes(stub) || a.name.includes(stub)) && (b.ticker.includes(stub) || b.name.includes(stub))) return 1
-        else if (a.avail > b.avail) return -1
-        else if (a.ticker === 'dcr') return -1
-        else if (a.ticker === 'btc') return -1
+      exclude = exclude.toLowerCase()
+      meshTickers.sort((a, b) => {
+        if (a.ticker === exclude) return 1
+        if (b.ticker === exclude) return -1
+        if (stub) {
+          if ((a.ticker.includes(stub) || a.name.includes(stub)) && !(b.ticker.includes(stub) || b.name.includes(stub))) return -1
+          if (!(a.ticker.includes(stub) || a.name.includes(stub)) && (b.ticker.includes(stub) || b.name.includes(stub))) return 1
+        }
+        if (a.avail > 0 && a.avail > b.avail) return -1
+        if (b.avail > 0 && b.avail > a.avail) return 1
+        for (const ticker of premiereAssets) {
+          if (a.ticker === ticker) return -1
+          if (b.ticker === ticker) return 1
+        }
         return a.ticker.localeCompare(b.ticker)
       })
-      return tickerSortList.slice(0, 5).map(({ tickerAsset }) => tickerAsset)
+      return meshTickers.slice(0, 5).map(({ tickerAsset }) => tickerAsset)
     }
 
     const makeSuggestion = (div: PageElement, { logoSrc, ticker, name }: TickerAsset) => {
@@ -3209,41 +3246,119 @@ export default class MarketsPage extends BasePage {
       tmpl.name.textContent = name
     }
 
-    for (const selector of [page.meshAssetSelector, selector2]) {
+    const makeNetSuggestion = (div: PageElement, { chainLogo, chainName }: ChainAsset) => {
+      const tmpl = Doc.parseTemplate(div)
+      tmpl.logo.src = chainLogo
+      Doc.hide(tmpl.tickerBox)
+      tmpl.name.textContent = chainName
+    }
+
+    for (const [i, selector] of [page.meshAssetSelector, selector2].entries()) {
       const tmpl = Doc.parseTemplate(selector)
       tmpl.suggestion.remove()
+      const setNetwork = ({ chainName, chainLogo, assetID }: ChainAsset) => {
+        tmpl.netLogo.src = chainLogo
+        tmpl.netName.textContent = chainName
+        Doc.hide(tmpl.netChoices)
+        this.meshSelectedAssets[i].assetID = assetID
+        console.log("--setNetwork", this.meshSelectedAssets)
+        page.submitMeshMarket.classList.toggle('disabled', this.meshSelectedAssets[0].assetID < 0 || this.meshSelectedAssets[1].assetID < 0)
+      }
       const setSuggestions = () => {
-        const suggestions = suggestedTickers(tmpl.input.value ?? '')
+        const suggestions = suggestedTickers(tmpl.input.value ?? '', this.meshSelectedAssets[(i + 1) % 2].ticker)
         Doc.empty(tmpl.suggestions)
         for (const tickerAsset of suggestions) {
           const suggestion = tmpl.suggestion.cloneNode(true) as HTMLElement
+          tmpl.suggestions.appendChild(suggestion)
           makeSuggestion(suggestion, tickerAsset)
           Doc.bind(suggestion, 'click', () => {
-            tmpl.input.value = tickerAsset.ticker
+            const a = this.meshSelectedAssets[i]
             Doc.hide(tmpl.suggestions, tmpl.input)
+            Doc.show(tmpl.selectedAsset)
+            if (tickerAsset.ticker === a.ticker) return
+            a.ticker = tickerAsset.ticker
+            tmpl.input.value = tickerAsset.ticker
             Doc.empty(tmpl.selectedAsset)
             for (const el of Doc.kids(suggestion)) tmpl.selectedAsset.appendChild(el.cloneNode(true))
-            tmpl.selectedAsset.dataset.ticker = tickerAsset.ticker
+            setNetwork(tickerAsset.chainAssets.filter((ca) => ca.assetID === tickerAsset.bestID)[0])
+            Doc.setVis(tickerAsset.isMultiNet, tmpl.networkBox)
+            if (tickerAsset.isMultiNet) {
+              Doc.empty(tmpl.netChoices)
+              for (const ca of tickerAsset.chainAssets) {
+                const netSuggestion = tmpl.suggestion.cloneNode(true) as HTMLElement
+                tmpl.netChoices.appendChild(netSuggestion)
+                makeNetSuggestion(netSuggestion, ca)
+                Doc.bind(netSuggestion, 'click', () => setNetwork(ca))
+              }
+            } else a.assetID = tickerAsset.chainAssets[0].assetID
           })
-          tmpl.suggestions.appendChild(suggestion)
         }
         Doc.show(tmpl.suggestions)
       }
-      Doc.bind(tmpl.input, 'focus', () => setSuggestions())
-      Doc.bind(tmpl.input, 'input', () => setSuggestions())
-      Doc.bind(tmpl.input, 'blur', () => {
+      const unfocus = () => {
+        tmpl.input.blur()
         if (tmpl.selectedAsset.dataset.ticker) {
           Doc.hide(tmpl.suggestions, tmpl.input)
           Doc.show(tmpl.selectedAsset)
-        } else Doc.hide(tmpl.suggestsions)
+        } else Doc.hide(tmpl.suggestions)
+      }
+      Doc.bind(tmpl.input, 'focus', () => {
+        setSuggestions()
+        Doc.bind(document, 'click', (e: MouseEvent) => {
+          if (!Doc.mouseInElement(e, tmpl.input) && !Doc.mouseInElement(e, tmpl.suggestions)) unfocus()
+        })
       })
-      Doc.bind(tmpl.selecteedAsset, 'click', () => {
+      Doc.bind(tmpl.input, 'input', () => setSuggestions())
+      Doc.bind(tmpl.selectedAsset, 'click', () => {
         Doc.hide(tmpl.selectedAsset)
         Doc.show(tmpl.input)
         setSuggestions()
         tmpl.input.focus()
       })
+      Doc.bind(tmpl.network, 'click', () => Doc.show(tmpl.netChoices))
     }
+  }
+
+  showMeshMarketCreateForm () {
+    const { page } = this
+    this.meshSelectedAssets = [{ ticker: '', assetID: -1 }, { ticker: '', assetID: -1 }]
+    for (const input of Doc.applySelector(page.meshMarketForm, '[data-tmpl=input]')) {
+      input.value = ''
+      Doc.show(input)
+    }
+    for (const netBox of Doc.applySelector(page.meshMarketForm, '[data-tmpl=networkBox]')) Doc.hide(netBox)
+    for (const sa of Doc.applySelector(page.meshMarketForm, '[data-tmpl=selectedAsset]')) Doc.hide(sa)
+    page.submitMeshMarket.classList.add('disabled')
+    Doc.hide(page.meshMarketSubmitErr, page.meshMarketSubmitErr)
+    this.setTickerSortList()
+    this.forms.show(page.meshMarketForm)
+  }
+
+  async submitNewMeshMarket () {
+    const { page, meshSelectedAssets } = this
+    console.log("--submitNewMeshMarket.0", meshSelectedAssets)
+    let [q, b] = meshSelectedAssets
+    const preferredQuoteAssets = ['USDC', 'USDT', 'BTC', 'ETH', 'DCR']
+    const [qi, bi] = [preferredQuoteAssets.indexOf(q.ticker), preferredQuoteAssets.indexOf(b.ticker)]
+    if (qi > 0) {
+      if (bi > 0 && bi < qi) [q, b] = [b, q]
+    } else if (bi > 0) [q, b] = [b, q]
+    else if (b.ticker.localeCompare(q.ticker)) [q, b] = [b, q]
+    console.log("--submitNewMeshMarket.10", b.assetID, q.assetID, app().assets[q.assetID], app().assets[b.assetID])
+    const [{ symbol: symbolQ }, { symbol: symbolB }] = [app().assets[q.assetID], app().assets[b.assetID]]
+    const mktID = marketID(symbolB, symbolQ)
+    const existingMkt = app().user.mesh.markets[mktID]
+    if (existingMkt) return this.setMarket('mesh', b.assetID, q.assetID)
+    this.setMarket('mesh', b.assetID, q.assetID)
+    const res = await postJSON('/api/makemeshmarket', { baseID: b.assetID, quoteID: q.assetID })
+    console.log("--sumbitNewMeshMarket.10", { res })
+    if (!app().checkResponse(res)) {
+      page.meshMarketSubmitErr.textContent = res.msg
+      console.error(res.msg)
+      return
+    }
+    this.forms.close()
+    this.handleMarketBook('mesh', { base: b.assetID, quote: q.assetID, book: res.orderBook })
   }
 
   /*
@@ -3272,48 +3387,54 @@ export default class MarketsPage extends BasePage {
  * and sort order of markets.
  */
 class MarketList {
-  // xcSections: ExchangeSection[]
-  div: PageElement
-  rowTmpl: PageElement
+  page: Record<string, PageElement>
   markets: MarketRow[]
   selected: MarketRow
 
   constructor (div: HTMLElement) {
-    this.div = div
-    this.rowTmpl = Doc.idel(div, 'marketTmplV1')
-    Doc.cleanTemplates(this.rowTmpl)
+    const page = this.page = Doc.idDescendants(div)
+    Doc.cleanTemplates(page.dexMarketTmpl, page.meshMarketTmpl)
     this.reloadMarketsPane()
   }
 
   updateSpots (note: SpotPriceNote) {
     for (const row of this.markets) {
-      if (row.mkt.xc.host !== note.host) continue
-      const xc = app().exchanges[row.mkt.xc.host]
-      const mkt = xc.markets[row.mkt.name]
-      setPriceAndChange(row.tmpl, xc, mkt)
+      if (row.host !== note.host) continue
+      setPriceAndChange(row.tmpl, row.host, row.name)
     }
   }
 
   reloadMarketsPane (): void {
-    Doc.empty(this.div)
+    const { page } = this
+    Doc.empty(page.meshMarketList, page.dexMarketList)
     this.markets = []
 
-    const addMarket = (mkt: ExchangeMarket) => {
+    const addDEXMarket = (mkt: ExchangeMarket) => {
       const bui = app().unitInfo(mkt.baseid, mkt.xc)
       const qui = app().unitInfo(mkt.quoteid, mkt.xc)
       const rateConversionFactor = OrderUtil.RateEncodingFactor / bui.conventional.conversionFactor * qui.conventional.conversionFactor
-      const row = new MarketRow(this.rowTmpl, mkt, rateConversionFactor)
-      this.div.appendChild(row.node)
+      const row = new MarketRow(page.dexMarketTmpl, mkt.xc.host, app().assets[mkt.baseid], app().assets[mkt.quoteid], rateConversionFactor)
+      page.dexMarketList.appendChild(row.node)
       return row
     }
+    for (const mkt of sortedDEXMarkets()) this.markets.push(addDEXMarket(mkt))
 
-    for (const mkt of sortedMarkets()) this.markets.push(addMarket(mkt))
-    app().bindTooltips(this.div)
+    const addMeshMarket = (mkt: MeshMarket) => {
+      const bui = app().unitInfo(mkt.baseID)
+      const qui = app().unitInfo(mkt.quoteID)
+      const rateConversionFactor = OrderUtil.RateEncodingFactor / bui.conventional.conversionFactor * qui.conventional.conversionFactor
+      const row = new MarketRow(page.dexMarketTmpl, 'mesh', app().assets[mkt.baseID], app().assets[mkt.quoteID], rateConversionFactor)
+      page.dexMarketList.appendChild(row.node)
+      return row
+    }
+    for (const mkt of sortedMeshMarkets()) this.markets.push(addMeshMarket(mkt))
+
+    app().bindTooltips(page.dexMarketList)
   }
 
   find (host: string, baseID: number, quoteID: number): MarketRow | null {
     for (const row of this.markets) {
-      if (row.mkt.xc.host === host && row.mkt.baseid === baseID && row.mkt.quoteid === quoteID) return row
+      if (row.host === host && row.baseID === baseID && row.quoteID === quoteID) return row
     }
     return null
   }
@@ -3342,7 +3463,7 @@ class MarketList {
    */
   setConnectionStatus (note: ConnEventNote) {
     for (const row of this.markets) {
-      if (row.mkt.xc.host !== note.host) continue
+      if (row.host !== note.host) continue
       if (note.connectionStatus === ConnectionStatus.Connected) Doc.hide(row.tmpl.disconnectedIco)
       else Doc.show(row.tmpl.disconnectedIco)
     }
@@ -3365,33 +3486,31 @@ class MarketList {
  */
 class MarketRow {
   node: HTMLElement
-  mkt: ExchangeMarket
   name: string
+  host: string
   baseID: number
   quoteID: number
-  lotSize: number
   tmpl: Record<string, PageElement>
   rateConversionFactor: number
 
-  constructor (template: HTMLElement, mkt: ExchangeMarket, rateConversionFactor: number) {
-    this.mkt = mkt
-    this.name = mkt.name
-    this.baseID = mkt.baseid
-    this.quoteID = mkt.quoteid
-    this.lotSize = mkt.lotsize
+  constructor (template: HTMLElement, host: string, baseAsset: SupportedAsset, quoteAsset: SupportedAsset, rateConversionFactor: number) {
+    this.name = marketID(baseAsset.symbol, quoteAsset.symbol)
+    this.baseID = baseAsset.id
+    this.quoteID = quoteAsset.id
     this.rateConversionFactor = rateConversionFactor
     this.node = template.cloneNode(true) as HTMLElement
     const tmpl = this.tmpl = Doc.parseTemplate(this.node)
-    tmpl.baseIcon.src = Doc.logoPath(mkt.basesymbol)
-    tmpl.quoteIcon.src = Doc.logoPath(mkt.quotesymbol)
-    tmpl.baseSymbol.appendChild(Doc.symbolize(mkt.xc.assets[mkt.baseid], true))
-    tmpl.quoteSymbol.appendChild(Doc.symbolize(mkt.xc.assets[mkt.quoteid], true))
-    tmpl.baseName.textContent = mkt.baseName
-    tmpl.host.textContent = mkt.xc.host
-    tmpl.host.style.color = hostColor(mkt.xc.host)
-    tmpl.host.dataset.tooltip = mkt.xc.host
-    setPriceAndChange(tmpl, mkt.xc, mkt)
-    if (this.mkt.xc.connectionStatus !== ConnectionStatus.Connected) Doc.show(tmpl.disconnectedIco)
+    tmpl.baseIcon.src = Doc.logoPath(baseAsset.symbol)
+    tmpl.quoteIcon.src = Doc.logoPath(quoteAsset.symbol)
+    tmpl.baseSymbol.appendChild(Doc.symbolize(baseAsset, true))
+    tmpl.quoteSymbol.appendChild(Doc.symbolize(quoteAsset, true))
+    tmpl.baseName.textContent = baseAsset.name
+    tmpl.host.textContent = host
+    tmpl.host.style.color = hostColor(host)
+    tmpl.host.dataset.tooltip = host
+    setPriceAndChange(tmpl, host, this.name)
+    // DRAFT TODO:
+    // if (this.mkt.xc.connectionStatus !== ConnectionStatus.Connected) Doc.show(tmpl.disconnectedIco)
   }
 }
 
@@ -3748,7 +3867,7 @@ interface ExchangeMarket extends Market {
   bui: UnitInfo
 }
 
-function sortedMarkets (): ExchangeMarket[] {
+function sortedDEXMarkets (): ExchangeMarket[] {
   const mkts: ExchangeMarket[] = []
   const assets = app().assets
   const convertMarkets = (xc: Exchange, mkts: Market[]) => {
@@ -3773,7 +3892,21 @@ function sortedMarkets (): ExchangeMarket[] {
   return mkts
 }
 
-function setPriceAndChange (tmpl: Record<string, PageElement>, xc: Exchange, mkt: Market) {
+function sortedMeshMarkets (): MeshMarket[] {
+  const mkts: MeshMarket[] = []
+  for (const mkt of Object.values(app().user.mesh?.markets ?? {})) {
+    const [b, a] = [app().assets[mkt.baseID], app().assets[mkt.quoteID]]
+    if (!b || !a) continue
+    mkts.push(mkt)
+  }
+  console.log("--sortedMeshMarkets", { mkts, meshMkts: app().user.mesh?.markets})
+  return mkts
+}
+
+function setPriceAndChange (tmpl: Record<string, PageElement>, host: string, mktID: string) {
+  if (host === 'mesh') return
+  const xc = app().exchanges[host]
+  const mkt = xc.markets[mktID]
   if (!mkt.spot) return
   tmpl.price.textContent = Doc.formatFourSigFigs(app().conventionalRate(mkt.baseid, mkt.quoteid, mkt.spot.rate, xc))
   const sign = mkt.spot.change24 > 0 ? '+' : ''

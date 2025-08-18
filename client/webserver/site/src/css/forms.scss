@@ -579,10 +579,45 @@ body.dark {
   overflow: visible;
 
   .mesh-asset-selector {
-    [data-tmpl=dropdown] {
-      position: absolute;
-      top: calc(100% + 1px);
-      width: 100%;
+    min-width: 65%;
+  }
+
+  [data-tmpl=suggestions],
+  [data-tmpl=netChoices] {
+    position: absolute;
+    top: calc(100% - 2px);
+    width: 100%;
+    background-color: var(--body-bg);
+    border-width: 1px;
+    border-color: var(--form-input-border-focus);
+    border-style: none solid solid solid;
+    z-index: 100;
+  }
+
+  [data-tmpl=expand-arrow] {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    display: none;
+  }
+
+  [data-tmpl=network]:hover {
+    [data-tmpl=expand-arrow] {
+      display: flex;
+    }
+  }
+
+  [data-tmpl=network],
+  [data-tmpl=selectedAsset],
+  [data-tmpl=input] {
+    width: 75%;
+  }
+
+  #submitMeshMarket {
+    &.disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
   }
 }

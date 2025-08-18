@@ -20,6 +20,7 @@ import (
 	"decred.org/dcrdex/dex/candles"
 	"decred.org/dcrdex/dex/encode"
 	"decred.org/dcrdex/dex/encrypt"
+	"decred.org/dcrdex/dex/feerates"
 	"decred.org/dcrdex/dex/keygen"
 	"decred.org/dcrdex/dex/msgjson"
 	"decred.org/dcrdex/dex/order"
@@ -185,8 +186,9 @@ type MeshMarket struct {
 }
 
 type Mesh struct {
-	Markets       map[string]*MeshMarket `json:"markets"`
-	AssetVersions map[uint32]uint32      `json:"assetVersions"`
+	Markets       map[string]*MeshMarket        `json:"markets"`
+	AssetVersions map[uint32]uint32             `json:"assetVersions"`
+	FeeRates      map[uint32]*feerates.Estimate `json:"feeRates"`
 }
 
 // User is information about the user's wallets and DEX accounts.
@@ -1096,6 +1098,14 @@ type SingleLotFeesForm struct {
 func marketName(b, q uint32) string {
 	mkt, _ := dex.MarketName(b, q)
 	return mkt
+}
+
+func hostMarketName(h string, b, q uint32) string {
+	return fmt.Sprintf("%s_%d_%d", h, b, q)
+}
+
+func hostMarketID(h, mktID string) string {
+	return fmt.Sprintf("%s_%s", h, mktID)
 }
 
 // token is a short representation of a byte-slice-like ID, such as a match ID

@@ -18,6 +18,7 @@ import (
 	"decred.org/dcrdex/dex/lexi"
 	"decred.org/dcrdex/dex/msgjson"
 	"decred.org/dcrdex/tatanka/client/conn"
+	"decred.org/dcrdex/tatanka/client/orderbook"
 	"decred.org/dcrdex/tatanka/mj"
 	"decred.org/dcrdex/tatanka/tanka"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -115,10 +116,10 @@ func (m *Mesh) Connect(ctx context.Context) (*sync.WaitGroup, error) {
 
 	wg.Add(1)
 	go func() {
-		<-dbCM.Done()
-		fmt.Println("--Mesh.Connect dbcm done")
 		<-mcCM.Done()
 		fmt.Println("--Mesh.Connect mccm done")
+		<-dbCM.Done()
+		fmt.Println("--Mesh.Connect dbcm done")
 		wg.Done()
 	}()
 
@@ -259,8 +260,26 @@ func (m *Mesh) SubscribeMarket(baseID, quoteID uint32) error {
 		quoteID: quoteID,
 		conn:    m.conn,
 		ords:    make(map[tanka.ID40]*order),
+		book:    orderbook.New(),
 	}
 
+	return nil
+}
+
+func (m *Mesh) UnsubscribeMarket(baseID, quoteID uint32) error {
+	mktName, err := dex.MarketName(baseID, quoteID)
+	if err != nil {
+		return fmt.Errorf("error constructing market name: %w", err)
+	}
+
+	m.marketsMtx.Lock()
+	defer m.marketsMtx.Unlock()
+
+	if err = m.conn.Unsubscribe(mj.TopicMarket, tanka.Subject(mktName)); err != nil {
+		return fmt.Errorf("error subscribing to market: %w", err)
+	}
+
+	delete(m.markets, mktName)
 	return nil
 }
 

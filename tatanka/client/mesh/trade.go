@@ -264,3 +264,13 @@ func (m *Mesh) FiatRate(assetID uint32) float64 {
 	}
 	return 0
 }
+
+func (m *Mesh) Book(mktID string) ([]*tanka.Order, error) {
+	m.marketsMtx.RLock()
+	mkt, found := m.markets[mktID]
+	m.marketsMtx.RUnlock()
+	if !found {
+		return nil, fmt.Errorf("market %q not known", mktID)
+	}
+	return mkt.book.Orders(nil), nil
+}

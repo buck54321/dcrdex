@@ -259,6 +259,51 @@ func New(cfg *Config) *MeshConn {
 	return c
 }
 
+func (c *MeshConn) Connect(ctx context.Context) (*sync.WaitGroup, error) {
+	c.ctx = ctx
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-ctx.Done()
+		fmt.Println("--MeshConn.Connect disconnectNodesOnCancel starting")
+		c.disconnectNodesOnCancel()
+		fmt.Println("--MeshConn.Connect disconnectNodesOnCancel done")
+	}()
+
+	knownNodes, err := c.fetchKnownNodes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("fetching known nodes: %w", err)
+	}
+
+	c.nodesMtx.Lock()
+	c.knownNodes = knownNodes
+	connectedNodes, err := c.connectToKnownNodes(numNodesToConnectPrimarySecondary, nil)
+	if err != nil {
+		c.nodesMtx.Unlock()
+		return nil, fmt.Errorf("connecting to known nodes: %w", err)
+	}
+	for i, node := range connectedNodes {
+		if i == 0 {
+			c.primaryNode = node
+		} else {
+			c.secondaryNode = node
+		}
+	}
+	c.nodesMtx.Unlock()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.runNodeMaintenance(ctx)
+		fmt.Println("--MeshConn.Connect runNodeMaintenance done")
+	}()
+
+	return &wg, nil
+}
+
 // handleNewPeerTankagram handles a tankagram received from a new peer. The
 // tankagram should be encrypted with the permanent encryption key derived from
 // our permanent private key and the peer's peerID. The contents of the
@@ -401,51 +446,6 @@ const (
 	numNodesToConnectSecondary        numNodesToConnect = 1
 	numNodesToConnectPrimarySecondary numNodesToConnect = 2
 )
-
-func (c *MeshConn) Connect(ctx context.Context) (*sync.WaitGroup, error) {
-	c.ctx = ctx
-
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		<-ctx.Done()
-		fmt.Println("--MeshConn.Connect disconnectNodesOnCancel starting")
-		c.disconnectNodesOnCancel()
-		fmt.Println("--MeshConn.Connect disconnectNodesOnCancel done")
-	}()
-
-	knownNodes, err := c.fetchKnownNodes(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("fetching known nodes: %w", err)
-	}
-
-	c.nodesMtx.Lock()
-	c.knownNodes = knownNodes
-	connectedNodes, err := c.connectToKnownNodes(numNodesToConnectPrimarySecondary, nil)
-	if err != nil {
-		c.nodesMtx.Unlock()
-		return nil, fmt.Errorf("connecting to known nodes: %w", err)
-	}
-	for i, node := range connectedNodes {
-		if i == 0 {
-			c.primaryNode = node
-		} else {
-			c.secondaryNode = node
-		}
-	}
-	c.nodesMtx.Unlock()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		c.runNodeMaintenance(ctx)
-		fmt.Println("--MeshConn.Connect runNodeMaintenance done")
-	}()
-
-	return &wg, nil
-}
 
 // disconnectNodesOnCancel disconnects the primary and secondary nodes
 // when the context is cancelled.
@@ -857,21 +857,52 @@ func (c *MeshConn) Subscribe(topic tanka.Topic, subject tanka.Subject) error {
 	})
 	mj.SignMessage(c.priv, req)
 
+	c.subscriptionMtx.Lock()
+	defer c.subscriptionMtx.Unlock()
+
+	_, ok := c.subscriptions[topic]
+	if !ok {
+		c.subscriptions[topic] = make(map[tanka.Subject]bool)
+	} else {
+		if _, ok = c.subscriptions[topic][subject]; ok {
+			return nil
+		}
+	}
+
 	// Only possible non-error response is `true`.
-	var ok bool
 	err := c.RequestMesh(req, &ok)
 	if err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("subscription to %s:%s not ok", topic, subject)
+	}
+
+	c.subscriptions[topic][subject] = true
+
+	return nil
+}
+
+func (c *MeshConn) Unsubscribe(topic tanka.Topic, subject tanka.Subject) error {
+	req := mj.MustRequest(mj.RouteUnsubscribe, &mj.Unsubscription{
+		Topic:   topic,
+		Subject: subject,
+	})
+	mj.SignMessage(c.priv, req)
+
+	var ok bool // Only possible non-error response is `true`.
+	if err := c.RequestMesh(req, &ok); err != nil {
 		return err
 	}
 
 	c.subscriptionMtx.Lock()
 	defer c.subscriptionMtx.Unlock()
 
-	_, ok = c.subscriptions[topic]
-	if !ok {
-		c.subscriptions[topic] = make(map[tanka.Subject]bool)
+	if subject != "" {
+		if _, ok := c.subscriptions[topic]; ok {
+			delete(c.subscriptions[topic], subject)
+		}
 	}
-	c.subscriptions[topic][subject] = true
+	delete(c.subscriptions, topic)
 
 	return nil
 }

@@ -820,6 +820,7 @@ export default class Application {
     for (const el of Doc.applySelector(ancestor, '[data-quote-name')) el.textContent = quoteName
     for (const img of Doc.applySelector(ancestor, '[data-quote-logo]')) img.src = Doc.logoPath(quoteSymbol)
     for (const el of Doc.applySelector(ancestor, '[data-quote-ticker]')) el.textContent = qui.conventional.unit
+    Doc.setVis(xc, ...Doc.applySelector(ancestor, '[data-dex-only]'))
   }
 
   async setLanguage (lang: string) {
@@ -1375,6 +1376,8 @@ export default class Application {
    */
   orders (host: string, mktID: string): Order[] {
     let orders: Order[] = []
+    // DRAFT TODO: handle this somehow
+    if (host === 'mesh') return []
     const mkt = this.user.exchanges[host].markets[mktID]
     if (mkt.orders) orders = orders.concat(mkt.orders)
     if (mkt.inflight) orders = orders.concat(mkt.inflight)

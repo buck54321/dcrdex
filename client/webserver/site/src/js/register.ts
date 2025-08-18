@@ -35,6 +35,7 @@ export default class RegistrationPage extends BasePage {
   confirmRegisterForm: ConfirmRegistrationForm
 
   constructor (body: HTMLElement, data: RegistrationPageData) {
+    console.log("--yho")
     super()
     this.body = body
     this.data = data

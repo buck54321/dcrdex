@@ -22,15 +22,16 @@ func (c *Core) stopDEXConnection(dc *dexConnection) {
 	if dc.cfg != nil {
 		for _, m := range dc.cfg.Markets {
 			// Empty bookie's feeds map, close feeds' channels & stop close timers.
-			dc.booksMtx.Lock()
-			if b, found := dc.books[m.Name]; found {
+			c.booksMtx.Lock()
+			mktID := hostMarketID(dc.acct.host, m.Name)
+			if b, found := c.books[mktID]; found {
 				b.closeFeeds()
 				if b.closeTimer != nil {
 					b.closeTimer.Stop()
 				}
 			}
-			dc.booksMtx.Unlock()
-			dc.stopBook(m.Base, m.Quote)
+			c.booksMtx.Unlock()
+			c.stopBook(dc.acct.host, m.Base, m.Quote)
 		}
 	}
 	dc.cfgMtx.RUnlock()
@@ -318,15 +319,15 @@ func (c *Core) UpdateCert(host string, cert []byte) error {
 	if found {
 		dc.connMaster.Disconnect()
 		dc.acct.lock()
-		dc.booksMtx.Lock()
-		for m, b := range dc.books {
+		c.booksMtx.Lock()
+		for m, b := range c.books {
 			b.closeFeeds()
 			if b.closeTimer != nil {
 				b.closeTimer.Stop()
 			}
-			delete(dc.books, m)
+			delete(c.books, m)
 		}
-		dc.booksMtx.Unlock()
+		c.booksMtx.Unlock()
 	}
 
 	acct.Cert = cert

@@ -479,6 +479,19 @@ func (t *Tatanka) handleSubscription(c *client, msg *msgjson.Message) *msgjson.E
 	return nil
 }
 
+func (t *Tatanka) handleUnsubscribe(c *client, msg *msgjson.Message) *msgjson.Error {
+	var unsub *mj.Unsubscription
+	if err := msg.Unmarshal(&unsub); err != nil || unsub == nil || unsub.Topic == "" {
+		t.log.Errorf("error unmarshaling subscription from %s: %w", c.ID, err)
+		return msgjson.NewError(mj.ErrBadRequest, "is this payload a subscription?")
+	}
+	if msgErr := t.unsub(c.ID, unsub.Topic, unsub.Subject); msgErr != nil {
+		return msgErr
+	}
+	t.sendResult(c, msg.ID, true)
+	return nil
+}
+
 func (t *Tatanka) handleSubjects(c *client, msg *msgjson.Message) *msgjson.Error {
 	var req *mj.SubjectsRequest
 	if err := msg.Unmarshal(&req); err != nil || req == nil || req.Topic == "" {

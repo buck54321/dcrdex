@@ -170,8 +170,9 @@ type Subscription struct {
 }
 
 type Unsubscription struct {
-	Topic  tanka.Topic  `json:"topic"`
-	PeerID tanka.PeerID `json:"peerID"`
+	Topic   tanka.Topic   `json:"topic"`
+	Subject tanka.Subject `json:"subject"`
+	// PeerID  tanka.PeerID  `json:"peerID"`
 }
 
 type SubjectsRequest struct {

@@ -28,12 +28,12 @@ cat > "${ROOT}/chains.json" <<EOF
         "rpccert": "${DCR_CERT}"
       }
     },
-    { "symbol": "btc" },
-    { "symbol": "bch" },
-    { "symbol": "firo" },
-    { "symbol": "ltc" },
-    { "symbol": "zec" },
-    { "symbol": "eth" },
+    { "symbol": "btc", "config": {} },
+    { "symbol": "bch" , "config": {}},
+    { "symbol": "firo", "config": {} },
+    { "symbol": "ltc", "config": {} },
+    { "symbol": "zec", "config": {} },
+    { "symbol": "eth", "config": {} },
     { "symbol": "polygon" }
   ]
 }

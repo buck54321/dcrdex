@@ -181,6 +181,7 @@ type clientCore interface {
 	TakeAction(assetID uint32, actionID string, actionB json.RawMessage) error
 	RedeemGeocode(appPW, code []byte, msg string) (dex.Bytes, uint64, error)
 	ExtensionModeConfig() *core.ExtensionModeConfig
+	MakeMeshMarket(baseID, quoteID uint32) (*core.OrderBook, error)
 }
 
 type MMCore interface {
@@ -628,6 +629,7 @@ func New(cfg *Config) (*WebServer, error) {
 			apiAuth.Post("/availablebalances", s.apiAvailableBalances)
 			apiAuth.Post("/maxfundingfees", s.apiMaxFundingFees)
 
+			apiAuth.Post("/maxfundingfees", s.apiMakeMeshMarket)
 		})
 	})
 

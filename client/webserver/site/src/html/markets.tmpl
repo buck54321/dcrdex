@@ -25,10 +25,16 @@
         </div>
       </div>
 
-      <div class="flex-grow-1 overflow-y-hidden">
-        <div id="marketListV1" class="stylish-overflow hoveronly overflow-x-hidden flex-stretch-column">
+      <div id="marketList" class="flex-grow-1 overflow-y-hidden">
+        <div id="createMeshMarketBttn" class="py-2 px-2 fs22 pointer hoverbg flex-center">
+          <span class="ico-plus me-2 fs12"></span><span class="lh1">Create a Mesh Market</span>
+        </div>
+        <div id="meshMarketList" class="stylish-overflow hoveronly overflow-x-hidden flex-stretch-column">
+          <div id="meshMarketTmpl"></div>
+        </div>
 
-          <div id="marketTmplV1" class="d-flex align-items-stretch p-2 border-bottom lh1 pointer hoverbg">
+        <div id="dexMarketList" class="stylish-overflow hoveronly overflow-x-hidden flex-stretch-column">
+          <div id="dexMarketTmpl" class="d-flex align-items-stretch p-2 border-bottom lh1 pointer hoverbg">
             <div class="d-flex flex-column">
               <div class="d-flex align-items-start justify-content-start flex-grow-1">
                 <img data-tmpl="baseIcon" class="mini-icon">
@@ -48,7 +54,6 @@
               <span data-tmpl="change" class="fs15">-</span>
             </div>
           </div>
-
         </div>
       </div>
     </div>
@@ -202,7 +207,7 @@
               </div>
 
               {{- /* ORDER TYPE BUTTONS */ -}}
-              <div id="orderTypeBttns" class="fs14 d-hide d-flex justify-content-start align-items-stretch d-hide min-fit">
+              <div id="orderTypeBttns" class="fs14 d-hide d-flex justify-content-start align-items-stretch d-hide min-fit" data-dex-only>
                 <button id="limitBttn" type="button" class="flex-center px-3 py-0 markettab border-bottom selected">[[[Limit Order]]]</button>
                 <button id="marketBttn" type="button" class="flex-center px-3 py-0 markettab border-bottom border-start border-end">[[[Market Order]]]</button>
               </div>
@@ -290,7 +295,7 @@
                   </div>
 
                   {{- /* MARKET CONFIG */ -}}
-                  <div class="d-flex justify-content-between my-2 fs14">
+                  <div class="d-flex justify-content-between my-2 fs14" data-dex-only>
                     <div>
                       [[[:title:lot_size]]]:
                       <span id="lotSize"></span>
@@ -829,26 +834,41 @@
       {{template "orderReportForm"}}
     </form>
 
-    <form id="meshMarketForm" class="d-hide">
+    <form id="meshMarketForm" class="d-hide mw-375">
       <div class="form-closer"><span class="ico-cross"></span></div>
-      <header>Create New Mesh Market</header>
-      <div class="flex-center p-3 fs18">Trade</div>
-      <div class="flex-center p-3 fs18">
-        <div id="meshAssetSelector" class="mesh-asset-selector position-relative">
-          <div data-tmpl="selectedAsset" class="d-hide"></div>
-          <input data-tmpl="input" type="text" placeholder="DCR">
-          <div data-tmpl="dropdown" class="d-hide">
-            <div data-tmpl="suggestion" class="flex-center">
-              <img data-tmpl="logo" class="micro-icon me-1"></span>
-              <span data-tmpl="name" class="me-1"></span>
-              (<span data-tmpl="ticker"></span>)
+      <header class="mx-3">Create New Mesh Market</header>
+      <div class="flex-center pt-2 fs22">Trade</div>
+      <div id="meshAsset1" class="flex-stretch-column pt-2 fs18">
+        <div id="meshAssetSelector" class="mesh-asset-selector flex-stretch-column">
+          <div class="flex-center">
+            <div data-tmpl="selectedAsset" class="d-hide fs22 flex-center pointer hoverbg px-2 py-1 rounded3 border"></div>
+          </div>
+          <div class="position-relative flex-center">
+            <input data-tmpl="input" type="text" placeholder="DCR" class="text-center">
+            <div data-tmpl="suggestions" class="d-hide flex-stretch-column fs20">
+              <div data-tmpl="suggestion" class="pointer hoverbg px-2 pt-1">
+                <img data-tmpl="logo" class="mini-icon me-1"></span>
+                <span data-tmpl="name" class="me-1"></span>
+                <span data-tmpl="tickerBox">(<span data-tmpl="ticker"></span>)</span>
+              </div>
             </div>
           </div>
+          <div data-tmpl="networkBox" class="position-relative flex-center flex-column d-hide">
+            <div class="flex-center pt-2 fs22">on</div>
+            <div data-tmpl="network" class="pointer hoverbg px-2 py-1 border text-center position-relative">
+              <span class="flex-center"> <img data-tmpl="netLogo" class="micro-icon me-1"> <span data-tmpl="netName" class="me-1"></span> Network</span>
+              <div data-tmpl="expand-arrow" class="flex-center border-left px-1"><span class="ico-arrowdown fs12 grey"></span></div>
+            </div>
+            <div data-tmpl="netChoices" class="d-hide flex-stretch-column"></div>
+          </div>
         </div>
-        
       </div>
-      <div class="flex-center p-3 fs18">for</div>
-      <div id="meshAsset2" class="flex-center p-3 fs18"></div>
+      <div class="flex-center pt-2 fs22">For</div>
+      <div id="meshAsset2" class="flex-stretch-column pt-2 fs18"></div>
+      <div id="meshMarketSubmitErr" class="pt-2 errcolor d-hide"></div>
+      <div class="text-center pt-2">
+        <button id="submitMeshMarket" type="button" class="feature mt-2 w-100 disabled">Create</button>
+      </div>
     </form>
   </div>
 

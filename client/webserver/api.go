@@ -1035,7 +1035,6 @@ func (s *WebServer) apiBuildInfo(w http.ResponseWriter, r *http.Request) {
 
 // apiLogin handles the 'login' API request.
 func (s *WebServer) apiLogin(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("-- apiLogin.0")
 	login := new(loginForm)
 	defer login.Pass.Clear()
 	if !readPost(w, r, login) {
@@ -1864,6 +1863,28 @@ func (s *WebServer) apiMaxFundingFees(w http.ResponseWriter, r *http.Request) {
 		OK:       true,
 		BuyFees:  buyFees,
 		SellFees: sellFees,
+	})
+}
+
+func (s *WebServer) apiMakeMeshMarket(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BaseID  uint32 `json:"baseID"`
+		QuoteID uint32 `json:"quoteID"`
+	}
+	if !readPost(w, r, &req) {
+		return
+	}
+	ob, err := s.core.MakeMeshMarket(req.BaseID, req.QuoteID)
+	if err != nil {
+		s.writeAPIError(w, fmt.Errorf("error creating mesh market: %w", err))
+		return
+	}
+	writeJSON(w, &struct {
+		OK   bool            `json:"ok"`
+		Book *core.OrderBook `json:"orderBook"`
+	}{
+		OK:   true,
+		Book: ob,
 	})
 }
 

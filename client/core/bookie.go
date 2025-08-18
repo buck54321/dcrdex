@@ -94,14 +94,23 @@ func (c *candleCache) addCandle(msgCandle *msgjson.Candle) (recent msgjson.Candl
 	return *c.Last(), true
 }
 
+type OrderLibrarian interface {
+	Sync(snapshot *msgjson.OrderBook) error
+	Orders() ([]*orderbook.Order, []*orderbook.Order, []*orderbook.Order)
+	MidGap() (uint64, error)
+}
+
 // bookie is a BookFeed manager. bookie will maintain any number of order book
 // subscribers. When the number of subscribers goes to zero, book feed does
 // not immediately close(). Instead, a timer is set and if no more feeders
 // subscribe before the timer expires, then the bookie will invoke it's caller
 // supplied close() callback.
 type bookie struct {
-	*orderbook.OrderBook
-	dc           *dexConnection
+	ob OrderLibrarian // *client/orderbook.OrderBook or *tatanka/client/orderbook.Book
+
+	stopBook func()
+
+	host         string
 	candleCaches map[string]*candleCache
 	log          dex.Logger
 
@@ -128,12 +137,12 @@ func defaultUnitInfo(symbol string) dex.UnitInfo {
 // newBookie is a constructor for a bookie. The caller should provide a callback
 // function to be called when there are no subscribers and the close timer has
 // expired.
-func newBookie(dc *dexConnection, base, quote uint32, binSizes []string, logger dex.Logger) *bookie {
+func newBookie(c *Core, host string, baseID, quoteID uint32, ob OrderLibrarian, binSizes []string, log dex.Logger) *bookie {
 	candleCaches := make(map[string]*candleCache, len(binSizes))
 	for _, durStr := range binSizes {
 		dur, err := time.ParseDuration(durStr)
 		if err != nil {
-			logger.Errorf("failed to ParseDuration(%q)", durStr)
+			log.Errorf("failed to ParseDuration(%q)", durStr)
 			continue
 		}
 		candleCaches[durStr] = &candleCache{
@@ -141,77 +150,73 @@ func newBookie(dc *dexConnection, base, quote uint32, binSizes []string, logger 
 		}
 	}
 
-	parseUnitInfo := func(assetID uint32) dex.UnitInfo {
-		unitInfo, err := asset.UnitInfo(assetID)
-		if err == nil {
-			return unitInfo
-		} else {
-			dexAsset := dc.assets[assetID]
-			if dexAsset == nil {
-				dc.log.Errorf("DEX market has no %d asset. Is this even possible?", base)
-				return defaultUnitInfo("XYZ")
-			} else {
-				unitInfo := dexAsset.UnitInfo
-				if unitInfo.Conventional.ConversionFactor == 0 {
-					return defaultUnitInfo(dexAsset.Symbol)
-				}
-				return unitInfo
-			}
-		}
+	ui := func(assetID uint32) dex.UnitInfo {
+		unitInfo, _ := asset.UnitInfo(assetID)
+		return unitInfo
 	}
 
 	return &bookie{
-		OrderBook:    orderbook.NewOrderBook(logger.SubLogger("book")),
-		dc:           dc,
+		stopBook: func() {
+			c.stopBook(host, baseID, quoteID)
+		},
+		host:         host,
 		candleCaches: candleCaches,
-		log:          logger,
+		log:          log,
 		feeds:        make(map[uint32]*bookFeed, 1),
-		base:         base,
-		quote:        quote,
-		baseUnits:    parseUnitInfo(base),
-		quoteUnits:   parseUnitInfo(quote),
+		base:         baseID,
+		quote:        quoteID,
+		baseUnits:    ui(baseID),
+		quoteUnits:   ui(quoteID),
 	}
+}
+
+func (b *bookie) dexBook() *orderbook.OrderBook {
+	return b.ob.(*orderbook.OrderBook)
 }
 
 // logEpochReport handles the epoch candle in the epoch_report message.
 func (b *bookie) logEpochReport(note *msgjson.EpochReportNote) error {
-	err := b.LogEpochReport(note)
-	if err != nil {
-		return err
-	}
-	if note.Candle.EndStamp == 0 {
-		return fmt.Errorf("epoch report has zero-valued candle end stamp")
-	}
-
-	marketID := marketName(b.base, b.quote)
-	matchSummaries := b.AddRecentMatches(note.MatchSummary, note.EndStamp)
-
-	b.send(&BookUpdate{
-		Action:   EpochMatchSummary,
-		MarketID: marketID,
-		Payload: &EpochMatchSummaryPayload{
-			MatchSummaries: matchSummaries,
-			Epoch:          note.Epoch,
-		},
-	})
-
-	for durStr, cache := range b.candleCaches {
-		c, ok := cache.addCandle(&note.Candle)
-		if !ok {
-			continue
+	switch book := b.ob.(type) {
+	case *orderbook.OrderBook:
+		err := book.LogEpochReport(note)
+		if err != nil {
+			return err
 		}
-		dur, _ := time.ParseDuration(durStr)
+
+		if note.Candle.EndStamp == 0 {
+			return fmt.Errorf("epoch report has zero-valued candle end stamp")
+		}
+
+		marketID := marketName(b.base, b.quote)
+		matchSummaries := book.AddRecentMatches(note.MatchSummary, note.EndStamp)
+
 		b.send(&BookUpdate{
-			Action:   CandleUpdateAction,
-			Host:     b.dc.acct.host,
+			Action:   EpochMatchSummary,
 			MarketID: marketID,
-			Payload: CandleUpdate{
-				Dur:          durStr,
-				DurMilliSecs: uint64(dur.Milliseconds()),
-				// Providing a copy of msgjson.Candle data here since it will be used concurrently.
-				Candle: &c,
+			Payload: &EpochMatchSummaryPayload{
+				MatchSummaries: matchSummaries,
+				Epoch:          note.Epoch,
 			},
 		})
+
+		for durStr, cache := range b.candleCaches {
+			c, ok := cache.addCandle(&note.Candle)
+			if !ok {
+				continue
+			}
+			dur, _ := time.ParseDuration(durStr)
+			b.send(&BookUpdate{
+				Action:   CandleUpdateAction,
+				Host:     b.host,
+				MarketID: marketID,
+				Payload: CandleUpdate{
+					Dur:          durStr,
+					DurMilliSecs: uint64(dur.Milliseconds()),
+					// Providing a copy of msgjson.Candle data here since it will be used concurrently.
+					Candle: &c,
+				},
+			})
+		}
 	}
 
 	return nil
@@ -281,7 +286,7 @@ func (b *bookie) candles(durStr string, feedID uint32) error {
 		cache.candleMtx.RUnlock()
 		f.c <- &BookUpdate{
 			Action:   FreshCandlesAction,
-			Host:     b.dc.acct.host,
+			Host:     b.host,
 			MarketID: marketName(b.base, b.quote),
 			Payload: &CandlesPayload{
 				Dur:          durStr,
@@ -337,7 +342,7 @@ func (b *bookie) closeFeed(feedID uint32) {
 
 			// Call the close func if there are no more feeds.
 			if numFeeds == 0 {
-				b.dc.stopBook(b.base, b.quote)
+				b.stopBook()
 			}
 		})
 		b.timerMtx.Unlock()
@@ -359,12 +364,17 @@ func (b *bookie) send(u *BookUpdate) {
 
 // book returns the bookie's current order book.
 func (b *bookie) book() *OrderBook {
-	buys, sells, epoch := b.Orders()
+	buys, sells, epoch := b.ob.Orders()
+	var recentMatches []*orderbook.MatchSummary
+	switch book := b.ob.(type) {
+	case *orderbook.OrderBook:
+		recentMatches = book.RecentMatches()
+	}
 	return &OrderBook{
 		Buys:          b.translateBookSide(buys),
 		Sells:         b.translateBookSide(sells),
 		Epoch:         b.translateBookSide(epoch),
-		RecentMatches: b.RecentMatches(),
+		RecentMatches: recentMatches,
 	}
 }
 
@@ -383,68 +393,63 @@ func (b *bookie) minifyOrder(oid dex.Bytes, trade *msgjson.TradeNote, epoch uint
 }
 
 // bookie gets the bookie for the market, if it exists, else nil.
-func (dc *dexConnection) bookie(marketID string) *bookie {
-	dc.booksMtx.RLock()
-	defer dc.booksMtx.RUnlock()
-	return dc.books[marketID]
+func (c *Core) bookie(host string, marketID string) *bookie {
+	c.booksMtx.RLock()
+	defer c.booksMtx.RUnlock()
+	return c.books[hostMarketID(host, marketID)]
 }
 
-func (dc *dexConnection) midGap(base, quote uint32) (midGap uint64, err error) {
-	marketID := marketName(base, quote)
-	booky := dc.bookie(marketID)
+func (c *Core) midGap(host string, baseID, quoteID uint32) (midGap uint64, err error) {
+	booky := c.bookie(host, marketName(baseID, quoteID))
 	if booky == nil {
-		return 0, fmt.Errorf("no bookie found for market %s", marketID)
+		return 0, fmt.Errorf("no bookie found for market %s %d %d", host, baseID, quoteID)
 	}
 
-	return booky.MidGap()
+	return booky.ob.MidGap()
 }
 
 // syncBook subscribes to the order book and returns the book and a BookFeed to
 // receive order book updates. The BookFeed must be Close()d when it is no
 // longer in use. Use stopBook to unsubscribed and clean up the feed.
-func (dc *dexConnection) syncBook(base, quote uint32) (*orderbook.OrderBook, BookFeed, error) {
-	dc.cfgMtx.RLock()
-	cfg := dc.cfg
-	dc.cfgMtx.RUnlock()
+func (c *Core) syncBook(host string, baseID, quoteID uint32) (OrderLibrarian, BookFeed, error) {
+	c.booksMtx.Lock()
+	defer c.booksMtx.Unlock()
 
-	dc.booksMtx.Lock()
-	defer dc.booksMtx.Unlock()
-
-	mktID := marketName(base, quote)
-	booky, found := dc.books[mktID]
+	mktID := hostMarketID(host, marketName(baseID, quoteID))
+	booky, found := c.books[mktID]
 	if !found {
-		// Make sure the market exists.
-		if dc.marketConfig(mktID) == nil {
-			return nil, nil, fmt.Errorf("unknown market %s", mktID)
+		if host == "mesh" {
+
+		} else {
+			dc, _, _ := c.dex(host)
+			obRes, err := dc.subscribe(baseID, quoteID)
+			if err != nil {
+				return nil, nil, err
+			}
+			booky = newBookie(c, host, baseID, quoteID, orderbook.NewOrderBook(dc.log.SubLogger(mktID)), dc.cfg.BinSizes, dc.log.SubLogger(mktID))
+			err = booky.ob.Sync(obRes)
+			if err != nil {
+				return nil, nil, err
+			}
+			c.books[mktID] = booky
 		}
 
-		obRes, err := dc.subscribe(base, quote)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		booky = newBookie(dc, base, quote, cfg.BinSizes, dc.log.SubLogger(mktID))
-		err = booky.Sync(obRes)
-		if err != nil {
-			return nil, nil, err
-		}
-		dc.books[mktID] = booky
 	}
 
 	// Get the feed and the book under a single lock to make sure the first
 	// message is the book.
 	feed := booky.newFeed(&BookUpdate{
 		Action:   FreshBookAction,
-		Host:     dc.acct.host,
+		Host:     host,
 		MarketID: mktID,
 		Payload: &MarketOrderBook{
-			Base:  base,
-			Quote: quote,
+			Base:  baseID,
+			Quote: quoteID,
 			Book:  booky.book(),
 		},
 	})
 
-	return booky.OrderBook, feed, nil
+	return booky.ob, feed, nil
 }
 
 // subscribe subscribes to the given market's order book via the 'orderbook'
@@ -481,27 +486,37 @@ func (dc *dexConnection) subscribe(baseID, quoteID uint32) (*msgjson.OrderBook, 
 
 // stopBook is the close callback passed to the bookie, and will be called when
 // there are no more subscribers and the close delay period has expired.
-func (dc *dexConnection) stopBook(base, quote uint32) {
-	mkt := marketName(base, quote)
-	dc.booksMtx.Lock()
-	defer dc.booksMtx.Unlock() // hold it locked until unsubscribe request is completed
+func (c *Core) stopBook(host string, baseID, quoteID uint32) {
+	mktID := marketName(baseID, quoteID)
+	hmid := hostMarketID(host, mktID)
+	c.booksMtx.Lock()
+	defer c.booksMtx.Unlock() // hold it locked until unsubscribe request is completed
 
 	// Abort the unsubscribe if feeds exist for the bookie. This can happen if a
 	// bookie's close func is called while a new BookFeed is generated elsewhere.
-	if booky, found := dc.books[mkt]; found {
+	// DRAFT TODO: Index on host too
+	if booky, found := c.books[hmid]; found {
 		booky.feedsMtx.Lock()
 		numFeeds := len(booky.feeds)
 		booky.feedsMtx.Unlock()
 		if numFeeds > 0 {
-			dc.log.Warnf("Aborting booky %p unsubscribe for market %s with active feeds", booky, mkt)
+			c.log.Warnf("Aborting booky %p unsubscribe for market %s with active feeds", booky, hmid)
 			return
 		}
 		// No BookFeeds, delete the bookie.
-		delete(dc.books, mkt)
+		delete(c.books, hmid)
 	}
 
-	if err := dc.unsubscribe(base, quote); err != nil {
-		dc.log.Error(err)
+	if host == "mesh" {
+		mesh := c.getMesh()
+		if err := mesh.UnsubscribeMarket(baseID, quoteID); err != nil {
+			c.log.Errorf("Error unsubscribing from mesh market %q: %w", mktID)
+		}
+	} else {
+		dc, _, _ := c.dex(host)
+		if err := dc.unsubscribe(baseID, quoteID); err != nil {
+			dc.log.Error(err)
+		}
 	}
 }
 
@@ -532,62 +547,54 @@ func (dc *dexConnection) unsubscribe(base, quote uint32) error {
 // SyncBook subscribes to the order book and returns the book and a BookFeed to
 // receive order book updates. The BookFeed must be Close()d when it is no
 // longer in use.
-func (c *Core) SyncBook(host string, base, quote uint32) (*orderbook.OrderBook, BookFeed, error) {
-	c.connMtx.RLock()
-	dc, found := c.conns[host]
-	c.connMtx.RUnlock()
-	if !found {
-		return nil, nil, fmt.Errorf("unknown DEX '%s'", host)
-	}
-
-	return dc.syncBook(base, quote)
+func (c *Core) SyncBook(host string, baseID, quoteID uint32) (OrderLibrarian, BookFeed, error) {
+	return c.syncBook(host, baseID, quoteID)
 }
 
 // Book fetches the order book. If a subscription doesn't exist, one will be
 // attempted and immediately closed.
-func (c *Core) Book(dex string, base, quote uint32) (*OrderBook, error) {
-	dex, err := addrHost(dex)
-	if err != nil {
-		return nil, newError(addressParseErr, "error parsing address: %w", err)
-	}
-	c.connMtx.RLock()
-	dc, found := c.conns[dex]
-	c.connMtx.RUnlock()
-	if !found {
-		return nil, fmt.Errorf("no DEX %s", dex)
-	}
-
-	mkt := marketName(base, quote)
-	dc.booksMtx.RLock()
-	defer dc.booksMtx.RUnlock() // hold it locked until any transient sub/unsub is completed
-	book, found := dc.books[mkt]
+func (c *Core) Book(host string, baseID, quoteID uint32) (*OrderBook, error) {
+	hmid := hostMarketName(host, baseID, quoteID)
+	c.booksMtx.RLock()
+	defer c.booksMtx.RUnlock() // hold it locked until any transient sub/unsub is completed
+	booky, found := c.books[hmid]
 	// If not found, attempt to make a temporary subscription and return the
 	// initial book.
 	if !found {
-		snap, err := dc.subscribe(base, quote)
-		if err != nil {
-			return nil, fmt.Errorf("unable to subscribe to book: %w", err)
-		}
-		err = dc.unsubscribe(base, quote)
-		if err != nil {
-			c.log.Errorf("Failed to unsubscribe to %q book: %v", mkt, err)
+		if host == "mesh" {
+
+		} else {
+			dc, found, _ := c.dex(host)
+			if !found {
+				return nil, fmt.Errorf("no DEX found for host %q", host)
+			}
+			snap, err := dc.subscribe(baseID, quoteID)
+			if err != nil {
+				return nil, fmt.Errorf("unable to subscribe to book: %w", err)
+			}
+			err = dc.unsubscribe(baseID, quoteID)
+			if err != nil {
+				c.log.Errorf("Failed to unsubscribe to %q book: %v", hmid, err)
+			}
+
+			dc.cfgMtx.RLock()
+			cfg := dc.cfg
+			dc.cfgMtx.RUnlock()
+
+			log := dc.log.SubLogger(marketName(baseID, quoteID))
+			booky = newBookie(c, dc.acct.host, baseID, quoteID, orderbook.NewOrderBook(log), cfg.BinSizes, log)
+			if err = booky.ob.(*orderbook.OrderBook).Sync(snap); err != nil {
+				return nil, fmt.Errorf("unable to sync book: %w", err)
+			}
 		}
 
-		dc.cfgMtx.RLock()
-		cfg := dc.cfg
-		dc.cfgMtx.RUnlock()
-
-		book = newBookie(dc, base, quote, cfg.BinSizes, dc.log.SubLogger(mkt))
-		if err = book.Sync(snap); err != nil {
-			return nil, fmt.Errorf("unable to sync book: %w", err)
-		}
 	}
 
-	buys, sells, epoch := book.OrderBook.Orders()
+	buys, sells, epoch := booky.ob.Orders()
 	return &OrderBook{
-		Buys:  book.translateBookSide(buys),
-		Sells: book.translateBookSide(sells),
-		Epoch: book.translateBookSide(epoch),
+		Buys:  booky.translateBookSide(buys),
+		Sells: booky.translateBookSide(sells),
+		Epoch: booky.translateBookSide(epoch),
 	}, nil
 }
 
@@ -608,27 +615,27 @@ func (b *bookie) translateBookSide(ins []*orderbook.Order) (outs []*MiniOrder) {
 }
 
 // handleBookOrderMsg is called when a book_order notification is received.
-func handleBookOrderMsg(_ *Core, dc *dexConnection, msg *msgjson.Message) error {
+func handleBookOrderMsg(c *Core, dc *dexConnection, msg *msgjson.Message) error {
 	note := new(msgjson.BookOrderNote)
 	err := msg.Unmarshal(note)
 	if err != nil {
 		return fmt.Errorf("book order note unmarshal error: %w", err)
 	}
 
-	book := dc.bookie(note.MarketID)
-	if book == nil {
+	booky := c.bookie(dc.acct.host, note.MarketID)
+	if booky == nil {
 		return fmt.Errorf("no order book found with market id '%v'",
 			note.MarketID)
 	}
-	err = book.Book(note)
+	err = booky.dexBook().Book(note)
 	if err != nil {
 		return err
 	}
-	book.send(&BookUpdate{
+	booky.send(&BookUpdate{
 		Action:   BookOrderAction,
 		Host:     dc.acct.host,
 		MarketID: note.MarketID,
-		Payload:  book.minifyOrder(note.OrderID, &note.TradeNote, 0),
+		Payload:  booky.minifyOrder(note.OrderID, &note.TradeNote, 0),
 	})
 	return nil
 }
@@ -720,12 +727,12 @@ func handleTradeSuspensionMsg(c *Core, dc *dexConnection, msg *msgjson.Message) 
 	}
 
 	// Clear the book and unbook/revoke own orders.
-	book := dc.bookie(sp.MarketID)
-	if book == nil {
+	booky := c.bookie(dc.acct.host, sp.MarketID)
+	if booky == nil {
 		return fmt.Errorf("no order book found with market id '%s'", sp.MarketID)
 	}
 
-	err = book.Reset(&msgjson.OrderBook{
+	err = booky.dexBook().Reset(&msgjson.OrderBook{
 		MarketID: sp.MarketID,
 		Seq:      sp.Seq,        // forces seq reset, but should be in seq with previous
 		Epoch:    sp.FinalEpoch, // unused?
@@ -753,14 +760,14 @@ func handleTradeSuspensionMsg(c *Core, dc *dexConnection, msg *msgjson.Message) 
 	c.tradeMtx.RUnlock()
 
 	// Clear the book.
-	book.send(&BookUpdate{
+	booky.send(&BookUpdate{
 		Action:   FreshBookAction,
 		Host:     dc.acct.host,
 		MarketID: sp.MarketID,
 		Payload: &MarketOrderBook{
 			Base:  mkt.Base,
 			Quote: mkt.Quote,
-			Book:  book.book(), // empty
+			Book:  booky.book(), // empty
 		},
 	})
 
@@ -937,23 +944,23 @@ func handlePriceUpdateNote(c *Core, dc *dexConnection, msg *msgjson.Message) err
 
 // handleUnbookOrderMsg is called when an unbook_order notification is
 // received.
-func handleUnbookOrderMsg(_ *Core, dc *dexConnection, msg *msgjson.Message) error {
+func handleUnbookOrderMsg(c *Core, dc *dexConnection, msg *msgjson.Message) error {
 	note := new(msgjson.UnbookOrderNote)
 	err := msg.Unmarshal(note)
 	if err != nil {
 		return fmt.Errorf("unbook order note unmarshal error: %w", err)
 	}
 
-	book := dc.bookie(note.MarketID)
-	if book == nil {
+	booky := c.bookie(dc.acct.host, note.MarketID)
+	if booky == nil {
 		return fmt.Errorf("no order book found with market id %q",
 			note.MarketID)
 	}
-	err = book.Unbook(note)
+	err = booky.dexBook().Unbook(note)
 	if err != nil {
 		return err
 	}
-	book.send(&BookUpdate{
+	booky.send(&BookUpdate{
 		Action:   UnbookOrderAction,
 		Host:     dc.acct.host,
 		MarketID: note.MarketID,
@@ -965,29 +972,29 @@ func handleUnbookOrderMsg(_ *Core, dc *dexConnection, msg *msgjson.Message) erro
 
 // handleUpdateRemainingMsg is called when an update_remaining notification is
 // received.
-func handleUpdateRemainingMsg(_ *Core, dc *dexConnection, msg *msgjson.Message) error {
+func handleUpdateRemainingMsg(c *Core, dc *dexConnection, msg *msgjson.Message) error {
 	note := new(msgjson.UpdateRemainingNote)
 	err := msg.Unmarshal(note)
 	if err != nil {
 		return fmt.Errorf("book order note unmarshal error: %w", err)
 	}
 
-	book := dc.bookie(note.MarketID)
-	if book == nil {
+	booky := c.bookie(dc.acct.host, note.MarketID)
+	if booky == nil {
 		return fmt.Errorf("no order book found with market id '%v'",
 			note.MarketID)
 	}
-	err = book.UpdateRemaining(note)
+	err = booky.dexBook().UpdateRemaining(note)
 	if err != nil {
 		return err
 	}
-	book.send(&BookUpdate{
+	booky.send(&BookUpdate{
 		Action:   UpdateRemainingAction,
 		Host:     dc.acct.host,
 		MarketID: note.MarketID,
 		Payload: &RemainderUpdate{
 			Token:     token(note.OrderID),
-			Qty:       float64(note.Remaining) / float64(book.baseUnits.Conventional.ConversionFactor),
+			Qty:       float64(note.Remaining) / float64(booky.baseUnits.Conventional.ConversionFactor),
 			QtyAtomic: note.Remaining,
 		},
 	})
@@ -1001,12 +1008,12 @@ func handleEpochReportMsg(c *Core, dc *dexConnection, msg *msgjson.Message) erro
 	if err != nil {
 		return fmt.Errorf("epoch report note unmarshal error: %w", err)
 	}
-	book := dc.bookie(note.MarketID)
-	if book == nil {
+	booky := c.bookie(dc.acct.host, note.MarketID)
+	if booky == nil {
 		return fmt.Errorf("no order book found with market id '%v'",
 			note.MarketID)
 	}
-	err = book.logEpochReport(note)
+	err = booky.logEpochReport(note)
 	if err != nil {
 		return fmt.Errorf("error logging epoch report: %w", err)
 	}
@@ -1016,30 +1023,30 @@ func handleEpochReportMsg(c *Core, dc *dexConnection, msg *msgjson.Message) erro
 
 // handleEpochOrderMsg is called when an epoch_order notification is
 // received.
-func handleEpochOrderMsg(_ *Core, dc *dexConnection, msg *msgjson.Message) error {
+func handleEpochOrderMsg(c *Core, dc *dexConnection, msg *msgjson.Message) error {
 	note := new(msgjson.EpochOrderNote)
 	err := msg.Unmarshal(note)
 	if err != nil {
 		return fmt.Errorf("epoch order note unmarshal error: %w", err)
 	}
 
-	book := dc.bookie(note.MarketID)
-	if book == nil {
+	booky := c.bookie(dc.acct.host, note.MarketID)
+	if booky == nil {
 		return fmt.Errorf("no order book found with market id %q",
 			note.MarketID)
 	}
 
-	err = book.Enqueue(note)
+	err = booky.dexBook().Enqueue(note)
 	if err != nil {
 		return fmt.Errorf("failed to Enqueue epoch order: %w", err)
 	}
 
 	// Send a MiniOrder for book updates.
-	book.send(&BookUpdate{
+	booky.send(&BookUpdate{
 		Action:   EpochOrderAction,
 		Host:     dc.acct.host,
 		MarketID: note.MarketID,
-		Payload:  book.minifyOrder(note.OrderID, &note.TradeNote, note.Epoch),
+		Payload:  booky.minifyOrder(note.OrderID, &note.TradeNote, note.Epoch),
 	})
 
 	return nil

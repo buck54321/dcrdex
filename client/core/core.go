@@ -167,9 +167,6 @@ type dexConnection struct {
 	cfgMtx sync.RWMutex
 	cfg    *msgjson.ConfigResult
 
-	booksMtx sync.RWMutex
-	books    map[string]*bookie
-
 	epochMtx sync.RWMutex
 	epoch    map[string]uint64
 	// resolvedEpoch differs from epoch in that an epoch is not considered
@@ -1340,16 +1337,22 @@ func (dc *dexConnection) fetchFeeRate(assetID uint32) (rate uint64) {
 
 // bestBookFeeSuggestion attempts to find a fee rate for the specified asset in
 // any synced book.
-func (dc *dexConnection) bestBookFeeSuggestion(assetID uint32) uint64 {
-	dc.booksMtx.RLock()
-	defer dc.booksMtx.RUnlock()
-	for _, book := range dc.books {
+func (c *Core) bestBookFeeSuggestion(host string, assetID uint32) uint64 {
+	if host == "mesh" {
+		return 0
+	}
+	c.booksMtx.RLock()
+	defer c.booksMtx.RUnlock()
+	for _, booky := range c.books {
+		if booky.host != host {
+			continue
+		}
 		var feeRate uint64
 		switch assetID {
-		case book.base:
-			feeRate = book.BaseFeeRate()
-		case book.quote:
-			feeRate = book.QuoteFeeRate()
+		case booky.base:
+			feeRate = booky.BaseFeeRate()
+		case booky.quote:
+			feeRate = booky.QuoteFeeRate()
 		}
 		if feeRate > 0 {
 			return feeRate
@@ -1482,17 +1485,6 @@ type Core struct {
 	lockTimeMaker time.Duration
 	intl          atomic.Value // *locale
 
-	meshMtx sync.RWMutex
-	mesh    *mesh.Mesh
-	meshCM  *dex.ConnectionMaster
-
-	meshFeeRatesMtx   sync.RWMutex
-	meshFeeRates      map[uint32]*feerates.Estimate
-	meshAssetVersions atomic.Value
-
-	meshFiatRatesMtx sync.RWMutex
-	meshFiatRates    map[string]*fiatrates.FiatRateInfo
-
 	extensionModeConfig *ExtensionModeConfig
 
 	// construction or init sets credentials
@@ -1557,6 +1549,22 @@ type Core struct {
 
 	requestedActionMtx sync.RWMutex
 	requestedActions   map[string]*asset.ActionRequiredNote
+
+	booksMtx sync.RWMutex
+	books    map[string]*bookie
+
+	meshMtx           sync.RWMutex
+	mesh              *mesh.Mesh
+	meshCM            *dex.ConnectionMaster
+	meshAssetVersions atomic.Value
+
+	meshFeeRatesMtx sync.RWMutex
+	meshFeeRates    map[uint32]*feerates.Estimate
+
+	meshFiatRatesMtx sync.RWMutex
+	meshFiatRates    map[string]*fiatrates.FiatRateInfo
+
+	meshBookNoteMtx sync.Mutex
 }
 
 // New is the constructor for a new Core.
@@ -2594,7 +2602,7 @@ func (c *Core) User() *User {
 		Net:                c.net,
 		ExtensionConfig:    c.extensionModeConfig,
 		Actions:            c.requestedActionsList(),
-		Mesh:               c.getMesh(),
+		Mesh:               c.coreMesh(),
 	}
 }
 
@@ -5490,11 +5498,17 @@ func (c *Core) removeWaiter(id string) {
 // with it available. It first checks for a capable wallet, then relevant books
 // for a cached fee rate obtained with an epoch_report message, and falls back
 // to directly requesting a rate from servers with a fee_rate request.
-func (c *Core) feeSuggestionAny(assetID uint32, preferredConns ...*dexConnection) uint64 {
+func (c *Core) feeSuggestionAny(assetID uint32, preferredHost ...string) uint64 {
 	// See if the wallet supports fee rates.
 	w, found := c.wallet(assetID)
 	if found && w.connected() {
 		if r := w.feeRate(); r != 0 {
+			return r
+		}
+	}
+
+	if m := c.getMesh(); m != nil {
+		if r := m.FeeRateEstimate(asset.ChainID(assetID)); r > 0 {
 			return r
 		}
 	}
@@ -5558,7 +5572,7 @@ func (c *Core) feeSuggestion(dc *dexConnection, assetID uint32) (feeSuggestion u
 	}
 	// Prepare a fee suggestion based on the last reported fee rate in the
 	// order book feed.
-	feeSuggestion = dc.bestBookFeeSuggestion(assetID)
+	feeSuggestion = c.bestBookFeeSuggestion(assetID)
 	if feeSuggestion > 0 {
 		return
 	}
@@ -11319,4 +11333,10 @@ func (c *Core) TradingLimits(host string) (userParcels, parcelLimit uint32, err 
 	}
 
 	return userParcels, parcelLimit, nil
+}
+
+func (c *Core) getMesh() *mesh.Mesh {
+	c.meshMtx.RLock()
+	defer c.meshMtx.RUnlock()
+	return c.mesh
 }

@@ -329,6 +329,7 @@ func (t *Tatanka) prepareHandlers() {
 	}
 	for route, handler := range map[string]interface{}{
 		mj.RouteSubscribe:           t.handleSubscription,
+		mj.RouteUnsubscribe:         t.handleUnsubscribe,
 		mj.RouteUpdateSubscriptions: t.handleUpdateSubscriptions,
 		mj.RouteSubjects:            t.handleSubjects,
 		// mj.RouteUnsubscribe: t.handleUnsubscribe,
