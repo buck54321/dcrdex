@@ -73,7 +73,10 @@ export class TickerAsset {
     const xcRate = app().fiatRatesMap[assetID]
     if (!xcRate) this.haveAllFiatRates = false
     this.hasTokens = this.hasTokens || Boolean(token)
-    if (!token) { // prefer the native asset data, e.g. weth.polygon -> eth}
+    /* prefer the asset's primary network, e.g. weth.polygon -> eth
+    /  If the native asset is bridged ETH (Base), then the best network is
+    /  Ethereum */
+    if (!token && symbol !== 'base') {
       this.bestID = assetID
       this.logoSymbol = symbol
       this.name = name
