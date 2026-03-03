@@ -6,6 +6,7 @@ package swap
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"sync"
@@ -144,10 +145,12 @@ func (ss *swapStatus) redeemSeenTime() time.Time {
 type matchTracker struct {
 	mtx sync.RWMutex // Match.Sigs and Match.Status
 	*order.Match
-	time        time.Time // the match request time, not epoch close
-	matchTime   time.Time // epoch close time
-	makerStatus *swapStatus
-	takerStatus *swapStatus
+	time             time.Time // the match request time, not epoch close
+	matchTime        time.Time // epoch close time
+	makerStatus      *swapStatus
+	takerStatus      *swapStatus
+	makerSwapCoinKey string
+	takerSwapCoinKey string
 }
 
 // expiredBy returns true if the lock time of either party's *known* swap is
@@ -216,6 +219,15 @@ type SwapperAsset struct {
 	Locker coinlock.CoinLocker // should be *coinlock.AssetCoinLocker
 }
 
+// swapCoinKey constructs a unique key for a swap contract CoinID scoped by
+// asset ID to prevent cross-asset collisions.
+func swapCoinKey(assetID uint32, coinID []byte) string {
+	key := make([]byte, 4+len(coinID))
+	binary.BigEndian.PutUint32(key, assetID)
+	copy(key[4:], coinID)
+	return string(key)
+}
+
 // Swapper handles order matches by handling authentication and inter-party
 // communications between clients, or 'users'. The Swapper authenticates users
 // (vua AuthManager) and validates transactions as they are reported.
@@ -235,6 +247,11 @@ type Swapper struct {
 	matches     map[order.MatchID]*matchTracker
 	userMatches map[account.AccountID]map[order.MatchID]*matchTracker
 	acctMatches map[uint32]map[string]map[order.MatchID]*matchTracker
+
+	// swapCoinIDs tracks swap contract CoinIDs across all active matches to
+	// prevent the same CoinID from being used in multiple matches.
+	coinMtx     sync.Mutex
+	swapCoinIDs map[string]order.MatchID // "assetID:coinID" -> match using it
 
 	// The broadcast timeout.
 	bTimeout time.Duration
@@ -312,6 +329,7 @@ func NewSwapper(cfg *Config) (*Swapper, error) {
 		matches:          make(map[order.MatchID]*matchTracker),
 		userMatches:      make(map[account.AccountID]map[order.MatchID]*matchTracker),
 		acctMatches:      acctMatches,
+		swapCoinIDs:      make(map[string]order.MatchID),
 		bTimeout:         cfg.BroadcastTimeout,
 		txWaitExpiration: cfg.TxWaitExpiration,
 		lockTimeTaker:    cfg.LockTimeTaker,
@@ -384,6 +402,16 @@ func (s *Swapper) addMatch(mt *matchTracker) {
 func (s *Swapper) deleteMatch(mt *matchTracker) {
 	mid := mt.ID()
 	delete(s.matches, mid)
+
+	// Remove any tracked swap CoinIDs for this match.
+	s.coinMtx.Lock()
+	if mt.makerSwapCoinKey != "" {
+		delete(s.swapCoinIDs, mt.makerSwapCoinKey)
+	}
+	if mt.takerSwapCoinKey != "" {
+		delete(s.swapCoinIDs, mt.takerSwapCoinKey)
+	}
+	s.coinMtx.Unlock()
 
 	// Unlock the maker and taker order coins. May be redundant if processBlock
 	// confirmed both swaps, but premature/quick counterparty actions that
@@ -737,6 +765,20 @@ func (s *Swapper) restoreActiveSwaps(allowPartial bool) error {
 		if err := translateSwapStatus(mt.takerStatus, takerStatus, makerStatus.ContractCoinOut); err != nil {
 			log.Errorf("Loading match %v failed: %v", mid, err)
 			continue
+		}
+
+		// Restore swap CoinID tracking for active contracts. No coinMtx
+		// lock needed because restoreActiveSwaps runs at startup before
+		// the Swapper is accessible to other goroutines.
+		if len(sd.SwapData.ContractACoinID) > 0 {
+			key := swapCoinKey(makerSwapAsset, sd.SwapData.ContractACoinID)
+			s.swapCoinIDs[key] = sd.ID
+			mt.makerSwapCoinKey = key
+		}
+		if len(sd.SwapData.ContractBCoinID) > 0 {
+			key := swapCoinKey(makerRedeemAsset, sd.SwapData.ContractBCoinID)
+			s.swapCoinIDs[key] = sd.ID
+			mt.takerSwapCoinKey = key
 		}
 
 		log.Infof("Resuming swap %v in status %v", mid, mt.Status)
@@ -1638,6 +1680,19 @@ func (s *Swapper) processInit(msg *msgjson.Message, params *msgjson.Init, stepIn
 		return wait.TryAgain
 	}
 
+	// Ensure this CoinID is not already used by another active match.
+	coinKey := swapCoinKey(actor.swapAsset, params.CoinID)
+	s.coinMtx.Lock()
+	if existingMatch, exists := s.swapCoinIDs[coinKey]; exists && existingMatch != stepInfo.match.Match.ID() {
+		s.coinMtx.Unlock()
+		actor.status.endSwapSearch()
+		s.respondError(msg.ID, actor.user, msgjson.ContractError,
+			fmt.Sprintf("coin %x already used in active match %v", params.CoinID, existingMatch))
+		return wait.DontTryAgain
+	}
+	s.swapCoinIDs[coinKey] = stepInfo.match.Match.ID()
+	s.coinMtx.Unlock()
+
 	// Modify the match's swapStatuses, but only if the match wasn't revoked
 	// while waiting for the txn.
 	s.matchMtx.RLock()
@@ -1645,6 +1700,9 @@ func (s *Swapper) processInit(msg *msgjson.Message, params *msgjson.Init, stepIn
 		s.matchMtx.RUnlock()
 		log.Errorf("Contract txn located after match was revoked (match id=%v, maker=%v)",
 			matchID, actor.isMaker)
+		s.coinMtx.Lock()
+		delete(s.swapCoinIDs, coinKey)
+		s.coinMtx.Unlock()
 		actor.status.endSwapSearch() // allow client retry even before notifying him
 		s.respondError(msg.ID, actor.user, msgjson.ContractError, "match already revoked due to inaction")
 		return wait.DontTryAgain
@@ -1657,6 +1715,11 @@ func (s *Swapper) processInit(msg *msgjson.Message, params *msgjson.Init, stepIn
 
 	stepInfo.match.mtx.Lock()
 	stepInfo.match.Status = stepInfo.nextStep // handleInit (gate mechanism) won't allow backward progress
+	if actor.isMaker {
+		stepInfo.match.makerSwapCoinKey = coinKey
+	} else {
+		stepInfo.match.takerSwapCoinKey = coinKey
+	}
 	stepInfo.match.mtx.Unlock()
 
 	// Only unlock match map after the statuses and txn times are stored,

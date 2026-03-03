@@ -2347,5 +2347,89 @@ func TestAccountTracking(t *testing.T) {
 	checkStats(takerAddr, qty*3, 3, 3)
 }
 
+func TestCoinIDReuseRejected(t *testing.T) {
+	// Create a multi-match set: 2 matches with the same taker but different
+	// makers (makerSell=true means makers sell base asset ABC).
+	qty := uint64(1e8)
+	rate := uint64(1e8)
+	set := tMultiMatchSet([]uint64{qty, qty}, []uint64{rate, rate}, true, false)
+	match0 := set.matchInfos[0]
+	match1 := set.matchInfos[1]
+
+	rig, cleanup := tNewTestRig(match0)
+	defer cleanup()
+
+	rig.matches = set
+	rig.auth.swapReceived = make(chan struct{}, 2)
+	rig.auth.auditReq = make(chan struct{}, 2)
+
+	rig.swapper.Negotiate([]*order.MatchSet{set.matchSet})
+
+	ensureNilErr := makeEnsureNilErr(t)
+
+	// Ack matches for both makers and the taker.
+	var takerAcked bool
+	for _, mi := range set.matchInfos {
+		rig.matchInfo = mi
+		ensureNilErr(rig.ackMatch_maker(true))
+		if !takerAcked {
+			ensureNilErr(rig.ackMatch_taker(true))
+			takerAcked = true
+		}
+	}
+
+	// Send maker0's swap for match0 successfully.
+	rig.matchInfo = match0
+	ensureNilErr(rig.sendSwap_maker(true))
+
+	// Now attempt to send maker1's swap for match1 using the SAME CoinID
+	// that maker0 used for match0.
+	reusedCoinID := match0.db.makerSwap.coin.ID()
+
+	// Build a swap contract for match1's maker using the reused CoinID.
+	auditVal := match1.qty
+	coin := &TCoin{
+		feeRate:   1,
+		confs:     tConfsSpoofer,
+		auditAddr: match1.taker.addr,
+		auditVal:  auditVal,
+		id:        reusedCoinID,
+	}
+	contract := &asset.Contract{
+		Coin:        coin,
+		SwapAddress: match1.taker.addr,
+		TxData:      encode.RandomBytes(100),
+		LockTime:    encode.DropMilliseconds(match1.match.Epoch.End().Add(dex.LockTimeMaker(dex.Testnet))),
+	}
+	script := "01234567" + match1.maker.sigHex
+	req, _ := msgjson.NewRequest(nextID(), msgjson.InitRoute, &msgjson.Init{
+		OrderID:  match1.makerOID[:],
+		MatchID:  match1.matchID[:],
+		CoinID:   reusedCoinID,
+		Contract: dirtyEncode(script),
+	})
+
+	// Register the contract on the ABC backend (maker sells ABC).
+	rig.abcNode.setContract(contract, false)
+
+	// Send the init. handleInit returns an immediate RPC error only for
+	// obvious issues; CoinID reuse is detected asynchronously in processInit.
+	rig.matchInfo = match1
+	rig.auth.swapID = req.ID
+	rpcErr := rig.swapper.handleInit(match1.maker.acct, req)
+	if rpcErr != nil {
+		// An immediate RPC error is also acceptable rejection.
+		return
+	}
+
+	// Wait for the async coin waiter to process.
+	ensureNilErr(rig.waitChans("reused coin rejected", rig.auth.swapReceived))
+
+	// The response to maker1 should be a ContractError about the reused coin.
+	if err := rig.checkServerResponseFail(match1.maker, msgjson.ContractError, "already used"); err != nil {
+		t.Fatalf("expected CoinID reuse rejection: %v", err)
+	}
+}
+
 // TODO: TestSwapper_restoreActiveSwaps? It would be almost entirely driven by
 // stubbed out asset backend and storage.
